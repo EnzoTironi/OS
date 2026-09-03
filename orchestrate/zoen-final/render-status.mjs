@@ -53,6 +53,8 @@ const initialPullRequestDispositionsDigest =
 const expectedDependencyCount = 112;
 const allowedLedgerVerdicts = new Set(["journey-verified", "live-ui-verified"]);
 const ledgerEvidencePath = /^orchestrate\/zoen-final\/reports\/[a-z0-9-]+\.md$/;
+const ledgerSha = /^[0-9a-f]{40}$/;
+const positivePullRequest = /^[1-9][0-9]*$/;
 const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 const fail = (message) => {
@@ -266,13 +268,6 @@ for (const unit of program.units) {
       fail(`${unit.id} names unknown final gate ${finalGate}`);
     }
   }
-  if (
-    unit.status === "done" &&
-    unit.id.startsWith("W1-") &&
-    !(unit.pr && unit.headSha && unit.mergeSha)
-  ) {
-    fail(`${unit.id} is done but lacks exact merge facts`);
-  }
 }
 for (const journey of journeyIds) {
   if (!program.units.some((unit) => unit.journeys.includes(journey))) {
@@ -337,15 +332,36 @@ const validateImplementationLedger = (units, rows) => {
     if (!unit) {
       fail(`ledger names unknown unit ${row.unitId}`);
     }
+    const doneImplementation = unit.status === "done" && unit.wave > 0;
+    const completeMergeFacts =
+      ledgerSha.test(unit.mergeSha) &&
+      ledgerSha.test(row.mergeSha) &&
+      utcTimestamp.test(row.mergedAt);
+    const pendingMergeFacts =
+      !doneImplementation &&
+      unit.mergeSha === undefined &&
+      row.mergeSha === "" &&
+      row.mergedAt === "";
     if (
-      String(unit.pr ?? "") !== row.pr ||
-      (unit.headSha ?? "") !== row.headSha ||
-      (unit.mergeSha ?? "") !== row.mergeSha ||
+      !Number.isSafeInteger(unit.pr) ||
+      unit.pr <= 0 ||
+      !positivePullRequest.test(row.pr) ||
+      !ledgerSha.test(unit.headSha) ||
+      !ledgerSha.test(row.headSha) ||
+      !(completeMergeFacts || pendingMergeFacts)
+    ) {
+      fail(
+        `${row.unitId} ledger identity requires a valid positive pull request and exact lowercase SHAs`
+      );
+    }
+    if (
+      String(unit.pr) !== row.pr ||
+      unit.headSha !== row.headSha ||
+      (completeMergeFacts && unit.mergeSha !== row.mergeSha) ||
       !allowedLedgerVerdicts.has(row.verdict) ||
       !ledgerEvidencePath.test(row.evidence) ||
       row.verifier.length === 0 ||
-      !utcTimestamp.test(row.verifiedAt) ||
-      !utcTimestamp.test(row.mergedAt)
+      !utcTimestamp.test(row.verifiedAt)
     ) {
       fail(
         `${row.unitId} ledger verdict does not match its exact implementation`
@@ -355,6 +371,16 @@ const validateImplementationLedger = (units, rows) => {
   for (const unit of units.filter(
     ({ status: unitStatus, wave }) => unitStatus === "done" && wave > 0
   )) {
+    if (
+      !Number.isSafeInteger(unit.pr) ||
+      unit.pr <= 0 ||
+      !ledgerSha.test(unit.headSha) ||
+      !ledgerSha.test(unit.mergeSha)
+    ) {
+      fail(
+        `${unit.id} ledger identity requires a valid positive pull request and exact lowercase SHAs`
+      );
+    }
     if (rows.filter(({ unitId }) => unitId === unit.id).length !== 1) {
       fail(
         `${unit.id} done implementation must have exactly one immutable ledger verdict`
@@ -381,6 +407,58 @@ const ledgerFixtureRow = {
   verifiedAt: "2026-09-03T00:00:00Z",
   verifier: "independent-verifier",
 };
+const invalidLedgerFixtures = [
+  [
+    "blank W2-02 implementation ledger self-check",
+    {
+      headSha: undefined,
+      id: "W2-02",
+      mergeSha: undefined,
+      pr: undefined,
+      wave: 2,
+    },
+    {
+      evidence: "orchestrate/zoen-final/reports/w1-01-validation.md",
+      headSha: "",
+      mergeSha: "",
+      pr: "",
+      unitId: "W2-02",
+    },
+  ],
+  ["zero pull request ledger self-check", { pr: 0 }, { pr: "0" }],
+  ["negative pull request ledger self-check", { pr: -1 }, { pr: "-1" }],
+  [
+    "uppercase head SHA ledger self-check",
+    { headSha: "A".repeat(40) },
+    { headSha: "A".repeat(40) },
+  ],
+  [
+    "short head SHA ledger self-check",
+    { headSha: "a".repeat(39) },
+    { headSha: "a".repeat(39) },
+  ],
+  [
+    "uppercase merge SHA ledger self-check",
+    { mergeSha: "B".repeat(40) },
+    { mergeSha: "B".repeat(40) },
+  ],
+  [
+    "short merge SHA ledger self-check",
+    { mergeSha: "b".repeat(39) },
+    { mergeSha: "b".repeat(39) },
+  ],
+];
+for (const [label, unitOverride, rowOverride] of invalidLedgerFixtures) {
+  expectFailure(
+    () =>
+      validateImplementationLedger(
+        [{ ...ledgerFixtureUnit, ...unitOverride }],
+        [{ ...ledgerFixtureRow, ...rowOverride }]
+      ),
+    "valid positive pull request and exact lowercase SHAs",
+    label
+  );
+}
 expectFailure(
   () => validateImplementationLedger([ledgerFixtureUnit], []),
   "exactly one immutable ledger verdict",

@@ -20,6 +20,8 @@ const programDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(programDirectory, "../..");
 const externalLink = /^(?:https?:|mailto:)/;
 const ledgerEvidencePath = /^orchestrate\/zoen-final\/reports\/[a-z0-9-]+\.md$/;
+const ledgerSha = /^[0-9a-f]{40}$/;
+const positivePullRequest = /^[1-9][0-9]*$/;
 const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const read = (path) => readFile(resolve(root, path), "utf8");
 const fail = (message) => {
@@ -389,21 +391,46 @@ const validateImplementationLedger = (units, rows) => {
   for (const row of rows) {
     const unit = unitsById.get(row.unitId);
     assert(unit, `ledger names unknown unit ${row.unitId}`);
+    const doneImplementation = unit.status === "done" && unit.wave > 0;
+    const completeMergeFacts =
+      ledgerSha.test(unit.mergeSha) &&
+      ledgerSha.test(row.mergeSha) &&
+      utcTimestamp.test(row.mergedAt);
+    const pendingMergeFacts =
+      !doneImplementation &&
+      unit.mergeSha === undefined &&
+      row.mergeSha === "" &&
+      row.mergedAt === "";
     assert(
-      String(unit.pr ?? "") === row.pr &&
-        (unit.headSha ?? "") === row.headSha &&
-        (unit.mergeSha ?? "") === row.mergeSha &&
+      Number.isSafeInteger(unit.pr) &&
+        unit.pr > 0 &&
+        positivePullRequest.test(row.pr) &&
+        ledgerSha.test(unit.headSha) &&
+        ledgerSha.test(row.headSha) &&
+        (completeMergeFacts || pendingMergeFacts),
+      `${row.unitId} ledger identity requires a valid positive pull request and exact lowercase SHAs`
+    );
+    assert(
+      String(unit.pr) === row.pr &&
+        unit.headSha === row.headSha &&
+        (!completeMergeFacts || unit.mergeSha === row.mergeSha) &&
         allowedLedgerVerdicts.has(row.verdict) &&
         ledgerEvidencePath.test(row.evidence) &&
         row.verifier.length > 0 &&
-        utcTimestamp.test(row.verifiedAt) &&
-        utcTimestamp.test(row.mergedAt),
+        utcTimestamp.test(row.verifiedAt),
       `${row.unitId} ledger verdict does not match its exact implementation`
     );
   }
   for (const unit of units.filter(
     ({ status, wave }) => status === "done" && wave > 0
   )) {
+    assert(
+      Number.isSafeInteger(unit.pr) &&
+        unit.pr > 0 &&
+        ledgerSha.test(unit.headSha) &&
+        ledgerSha.test(unit.mergeSha),
+      `${unit.id} ledger identity requires a valid positive pull request and exact lowercase SHAs`
+    );
     assert(
       rows.filter(({ unitId }) => unitId === unit.id).length === 1,
       `${unit.id} done implementation must have exactly one immutable ledger verdict`
@@ -429,6 +456,58 @@ const ledgerFixtureRow = {
   verifiedAt: "2026-09-03T00:00:00Z",
   verifier: "independent-verifier",
 };
+const invalidLedgerFixtures = [
+  [
+    "blank W2-02 implementation ledger self-check",
+    {
+      headSha: undefined,
+      id: "W2-02",
+      mergeSha: undefined,
+      pr: undefined,
+      wave: 2,
+    },
+    {
+      evidence: "orchestrate/zoen-final/reports/w1-01-validation.md",
+      headSha: "",
+      mergeSha: "",
+      pr: "",
+      unitId: "W2-02",
+    },
+  ],
+  ["zero pull request ledger self-check", { pr: 0 }, { pr: "0" }],
+  ["negative pull request ledger self-check", { pr: -1 }, { pr: "-1" }],
+  [
+    "uppercase head SHA ledger self-check",
+    { headSha: "A".repeat(40) },
+    { headSha: "A".repeat(40) },
+  ],
+  [
+    "short head SHA ledger self-check",
+    { headSha: "a".repeat(39) },
+    { headSha: "a".repeat(39) },
+  ],
+  [
+    "uppercase merge SHA ledger self-check",
+    { mergeSha: "B".repeat(40) },
+    { mergeSha: "B".repeat(40) },
+  ],
+  [
+    "short merge SHA ledger self-check",
+    { mergeSha: "b".repeat(39) },
+    { mergeSha: "b".repeat(39) },
+  ],
+];
+for (const [label, unitOverride, rowOverride] of invalidLedgerFixtures) {
+  expectFailure(
+    () =>
+      validateImplementationLedger(
+        [{ ...ledgerFixtureUnit, ...unitOverride }],
+        [{ ...ledgerFixtureRow, ...rowOverride }]
+      ),
+    "valid positive pull request and exact lowercase SHAs",
+    label
+  );
+}
 expectFailure(
   () => validateImplementationLedger([ledgerFixtureUnit], []),
   "exactly one immutable ledger verdict",
@@ -759,11 +838,16 @@ assert(
 );
 const requiredWorkingAgreements = [
   "private Cargo `target`",
-  "These prohibitions apply to every worker on all 52 units.",
-  "Workers never merge, deploy, force-push, rewrite published history, or perform destructive Git or data operations.",
-  "only after Enzo explicitly authorizes the exact operation",
-  "only for the exact head SHA verified in the ledger",
-  "Force-push remains forbidden to every role.",
+  "Workers on all 52 units never rebase, merge, deploy, force-push, delete data, close pull requests, or retarget pull requests.",
+  "human gate for irreversible actions, production deploys, data deletion, force-pushes, and closing someone else's pull request",
+  "Enzo's standing authorization for any merge and production deploy.",
+  "Merge only a current ledger-verified SHA.",
+  "Deploy only the exact production-shaped artifact that passed the release journeys.",
+  "That standing authorization supersedes only the merge and deploy gates in the earlier orders.",
+  "Workers still cannot merge or deploy.",
+  "The coordinator or designated stacker may merge the verified SHA and deploy the exact verified artifact.",
+  "The standing authorization does not authorize force-push, data deletion, or third-party messages.",
+  "Force-push and data deletion still require a separate human gate.",
   "Workers on all 52 units do not use Herdr, Cursor SDK, Portless, PR Cockpit, or Graphite.",
   "Resolve every actionable human and automated review comment before merge.",
   "Every unit reports its branch, head SHA, exact commands, verdict, deviations, and follow-up risks.",

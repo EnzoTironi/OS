@@ -12,8 +12,11 @@ These rules apply to the 52-unit program in `program.json`.
 - Pre-launch changes delete obsolete paths. Do not add compatibility aliases, dual reads, dual writes, or preservation work unless Enzo asks for them.
 - Journeys drive the products. Do not add unit tests, mocks, fakes, stubs, or `vi.mock`.
 - Use one writer per worktree. Give each worker its own branch and private Cargo `target`. Concurrent workers never share writable build state.
-- These prohibitions apply to every worker on all 52 units. Workers never merge, deploy, force-push, rewrite published history, or perform destructive Git or data operations.
-- Only the coordinator may merge or deploy, only after Enzo explicitly authorizes the exact operation, and only for the exact head SHA verified in the ledger. Force-push remains forbidden to every role.
+- Workers on all 52 units never rebase, merge, deploy, force-push, delete data, close pull requests, or retarget pull requests. They do not run Graphite (`gt`).
+- The source handoff records a human gate for irreversible actions, production deploys, data deletion, force-pushes, and closing someone else's pull request.
+- The source handoff also records Enzo's standing authorization for any merge and production deploy. Merge only a current ledger-verified SHA. Deploy only the exact production-shaped artifact that passed the release journeys.
+- That standing authorization supersedes only the merge and deploy gates in the earlier orders. Workers still cannot merge or deploy. The coordinator or designated stacker may merge the verified SHA and deploy the exact verified artifact.
+- The standing authorization does not authorize force-push, data deletion, or third-party messages. Force-push and data deletion still require a separate human gate.
 - Resolve every actionable human and automated review comment before merge. Any review-driven commit invalidates the prior verdict.
 - Every unit reports its branch, head SHA, exact commands, verdict, deviations, and follow-up risks.
 - Use the `gh` CLI for GitHub work. Do not add repository-owned PR Cockpit or Graphite wiring.
