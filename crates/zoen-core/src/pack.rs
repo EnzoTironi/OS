@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     ActionId, DefinitionDigest, DefinitionId, DigestError, IdentifierError, RelationId, TenantId,
-    TimestampMicros, parse_identifier,
+    TimestampMicros, WorldId, parse_identifier,
 };
 
 macro_rules! pack_id {
@@ -467,7 +467,7 @@ pub enum FirstSuccessEval {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackVisibility {
     Public,
-    Private { tenant_allowlist: Vec<String> },
+    Private { world_allowlist: Vec<WorldId> },
     Local,
 }
 

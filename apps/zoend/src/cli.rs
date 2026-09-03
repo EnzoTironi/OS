@@ -161,6 +161,45 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         stdout_json: r#"{"format":"json","dryRun":{"dryRun":true},"live":{"discarded":true}}"#,
     },
     SchemaEntry {
+        command: "world.release.construct",
+        required_flags: &["--file"],
+        examples: &["zoen world release construct --file content.json"],
+        stdout_json: r#"{"format":"json","fields":["digest","schema","world","ontology","policy","executors","components"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.publish",
+        required_flags: &[
+            "--file",
+            "--principal",
+            "--policy-id",
+            "--policy-digest",
+            "--policy-revision",
+            "--determining-policy",
+        ],
+        examples: &[
+            "zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world",
+        ],
+        stdout_json: r#"{"format":"json","fields":["digest","publication"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.activate",
+        required_flags: &["--world", "--digest"],
+        examples: &["zoen world release activate --world world.alpha --digest <digest>"],
+        stdout_json: r#"{"format":"json","fields":["activated","digest","previousDigest","world"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.get",
+        required_flags: &["--digest"],
+        examples: &["zoen world release get --digest <digest>"],
+        stdout_json: r#"{"format":"json","fields":["digest","world","publication"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.active",
+        required_flags: &["--world"],
+        examples: &["zoen world release active --world world.alpha"],
+        stdout_json: r#"{"format":"json","fields":["digest","active"]}"#,
+    },
+    SchemaEntry {
         command: "definition.publish",
         required_flags: &["--file"],
         examples: &[
@@ -502,6 +541,64 @@ pub enum WorldCommand {
     Scenario {
         #[command(subcommand)]
         command: ScenarioCommand,
+    },
+    /// Construct, publish, and activate a `WorldRelease`
+    #[command(after_help = "Examples:\n  zoen world release construct --file content.json")]
+    Release {
+        #[command(subcommand)]
+        command: ReleaseCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ReleaseCommand {
+    /// Derive `ReleaseDigest` from private content. Does not accept `--digest`
+    #[command(
+        after_help = "Examples:\n  zoen world release construct --file content.json\n  zoen world release construct --file -"
+    )]
+    Construct {
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Store content and separate publication metadata
+    #[command(
+        after_help = "Examples:\n  zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world"
+    )]
+    Publish {
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        principal: String,
+        #[arg(long = "policy-id")]
+        policy_id: String,
+        #[arg(long = "policy-digest")]
+        policy_digest: String,
+        #[arg(long = "policy-revision")]
+        policy_revision: u64,
+        #[arg(long = "determining-policy", num_args = 0..)]
+        determining_policy: Vec<String>,
+    },
+    /// Atomically replace the active release pointer for one World
+    #[command(
+        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest>"
+    )]
+    Activate {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        digest: String,
+    },
+    /// Fetch a release by derived digest
+    #[command(after_help = "Examples:\n  zoen world release get --digest <digest>")]
+    Get {
+        #[arg(long)]
+        digest: String,
+    },
+    /// Show the active release for a World
+    #[command(after_help = "Examples:\n  zoen world release active --world world.alpha")]
+    Active {
+        #[arg(long)]
+        world: String,
     },
 }
 
@@ -891,6 +988,12 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
                     device,
                 },
         } => run_auth_login(email, password, password_stdin, device).await,
+        Command::World {
+            command: WorldCommand::Release { command },
+        } => {
+            let result = crate::world_release_cli::run(command).await?;
+            Ok(map_release_result(&result))
+        }
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
         Command::Source { command } => run_source(&parse_env()?, command).await,
@@ -905,6 +1008,9 @@ async fn run_world(
     command: WorldCommand,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     match command {
+        WorldCommand::Release { .. } => {
+            unreachable!("world release is dispatched without parse_env")
+        }
         WorldCommand::Query {
             type_id,
             limit,
@@ -1239,6 +1345,14 @@ fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
             }
         })
         .collect()
+}
+
+fn map_release_result(result: &crate::world_release_cli::ReleaseCliResult) -> CommandResult {
+    if result.exit_code == 0 {
+        ok(&result.stdout)
+    } else {
+        fail(result.exit_code, &result.message)
+    }
 }
 
 fn ok(value: &Value) -> CommandResult {

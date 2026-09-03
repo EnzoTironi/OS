@@ -14,6 +14,8 @@ mod identity;
 pub mod jcs;
 mod migration;
 mod pack;
+mod sha256;
+mod world_release;
 
 pub use action_preview::{
     ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
@@ -81,6 +83,11 @@ pub use pack::{
     PublicKeyId, PublisherId, PublisherIdentity, PublisherKey, PublisherKeyStatus, ReferralId,
     RequirementId, RequirementImpactLine, Sensitivity, ShareInstallPolicy, ShareRefRecord,
     ShareResolve, ShareToken, SignatureEvidence, required_grants_accepted,
+};
+pub use world_release::{
+    ComponentCatalogDigest, ExecutorCatalogDigest, OntologyCatalogDigest, PolicyCatalogDigest,
+    ReleaseDigest, WORLD_RELEASE_SCHEMA, WorldId, WorldRelease, WorldReleaseContent,
+    WorldReleaseError, WorldReleasePublication,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -14,7 +14,7 @@ use zoen_core::{
     AttributionEventKind, DefinitionDigest, DefinitionId, ObjectSource, ObjectStorePutResult,
     OpenResult, PackDigest, PackError, PackId, PackVisibility, PublicKeyId, PublisherId,
     PublisherKey, PublisherKeyStatus, ReferralId, ShareInstallPolicy, ShareResolve, ShareToken,
-    SignatureEvidence, TenantId, TimestampMicros,
+    SignatureEvidence, TenantId, TimestampMicros, WorldId,
 };
 
 use crate::session::SessionExchange;
@@ -211,7 +211,14 @@ async fn put_object(
     let visibility = match body.visibility {
         VisibilityBody::Public => PackVisibility::Public,
         VisibilityBody::Private { tenant_allowlist } => {
-            PackVisibility::Private { tenant_allowlist }
+            let mut world_allowlist = Vec::new();
+            for value in tenant_allowlist {
+                match WorldId::parse(value) {
+                    Ok(world) => world_allowlist.push(world),
+                    Err(error) => return bad_request(&error.to_string()),
+                }
+            }
+            PackVisibility::Private { world_allowlist }
         }
         VisibilityBody::Local => PackVisibility::Local,
     };

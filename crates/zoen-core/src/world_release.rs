@@ -1,0 +1,418 @@
+//! Private `WorldRelease` content and domain-tagged RFC 8785 `ReleaseDigest`.
+
+use std::{
+    error::Error,
+    fmt::{Display, Formatter, Write as _},
+};
+
+use crate::{
+    DigestError, IdentifierError, JcsError, PolicyEvidence, PrincipalId, TimestampMicros,
+    canonicalize_json, encode_hex, parse_identifier, sha256::sha256,
+};
+
+pub const WORLD_RELEASE_SCHEMA: &str = "zoen.world-release.v1";
+
+macro_rules! catalog_digest {
+    ($name:ident) => {
+        #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct $name(String);
+
+        impl $name {
+            /// # Errors
+            ///
+            /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
+            pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
+                let value = value.into();
+                if value.len() == 64
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+                {
+                    Ok(Self(value))
+                } else {
+                    Err(DigestError(value))
+                }
+            }
+
+            #[must_use]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            #[must_use]
+            pub fn from_sha256(bytes: [u8; 32]) -> Self {
+                Self(encode_hex(&bytes))
+            }
+        }
+
+        impl Display for $name {
+            fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(formatter)
+            }
+        }
+    };
+}
+
+catalog_digest!(OntologyCatalogDigest);
+catalog_digest!(PolicyCatalogDigest);
+catalog_digest!(ExecutorCatalogDigest);
+catalog_digest!(ComponentCatalogDigest);
+
+/// World identity for release content. Distinct from legacy `TenantId` spelling.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct WorldId(String);
+
+impl WorldId {
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError`] when `value` is not a valid identifier.
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentifierError> {
+        parse_identifier(value.into(), "WorldId").map(Self)
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for WorldId {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// Content-addressed release identity. Lowercase 64-char SHA-256 hex.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ReleaseDigest(String);
+
+impl ReleaseDigest {
+    /// # Errors
+    ///
+    /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
+    pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
+        let value = value.into();
+        if value.len() == 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            Ok(Self(value))
+        } else {
+            Err(DigestError(value))
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(encode_hex(&bytes))
+    }
+}
+
+impl Display for ReleaseDigest {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// Immutable release content. Fields stay private; digest derivation owns identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleaseContent {
+    world: WorldId,
+    parent: Option<ReleaseDigest>,
+    ontology: OntologyCatalogDigest,
+    policy: PolicyCatalogDigest,
+    executors: ExecutorCatalogDigest,
+    components: ComponentCatalogDigest,
+}
+
+impl WorldReleaseContent {
+    /// Build release content. Does not accept a digest.
+    #[must_use]
+    pub fn new(
+        world: WorldId,
+        parent: Option<ReleaseDigest>,
+        ontology: OntologyCatalogDigest,
+        policy: PolicyCatalogDigest,
+        executors: ExecutorCatalogDigest,
+        components: ComponentCatalogDigest,
+    ) -> Self {
+        Self {
+            world,
+            parent,
+            ontology,
+            policy,
+            executors,
+            components,
+        }
+    }
+
+    #[must_use]
+    pub fn world(&self) -> &WorldId {
+        &self.world
+    }
+
+    #[must_use]
+    pub fn parent(&self) -> Option<&ReleaseDigest> {
+        self.parent.as_ref()
+    }
+
+    #[must_use]
+    pub fn ontology(&self) -> &OntologyCatalogDigest {
+        &self.ontology
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &PolicyCatalogDigest {
+        &self.policy
+    }
+
+    #[must_use]
+    pub fn executors(&self) -> &ExecutorCatalogDigest {
+        &self.executors
+    }
+
+    #[must_use]
+    pub fn components(&self) -> &ComponentCatalogDigest {
+        &self.components
+    }
+
+    /// RFC 8785 JCS UTF-8 bytes for the domain-tagged digest document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::Canonicalize`] when JCS fails.
+    pub fn canonical_jcs(&self) -> Result<String, WorldReleaseError> {
+        let document = digest_document_json(self);
+        canonicalize_json(&document).map_err(WorldReleaseError::Canonicalize)
+    }
+}
+
+/// Complete release: derived digest plus private content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldRelease {
+    id: ReleaseDigest,
+    content: WorldReleaseContent,
+    canonical_jcs: String,
+}
+
+impl WorldRelease {
+    /// Receive content, canonicalize, hash, and assign [`ReleaseDigest`].
+    ///
+    /// Callers cannot supply an unrelated digest. There is no constructor that
+    /// accepts `(content, digest)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError`] when JCS fails.
+    pub fn from_content(content: WorldReleaseContent) -> Result<Self, WorldReleaseError> {
+        let canonical_jcs = content.canonical_jcs()?;
+        let id = ReleaseDigest::from_sha256(sha256(canonical_jcs.as_bytes()));
+        Ok(Self {
+            id,
+            content,
+            canonical_jcs,
+        })
+    }
+
+    #[must_use]
+    pub fn id(&self) -> &ReleaseDigest {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn content(&self) -> &WorldReleaseContent {
+        &self.content
+    }
+
+    #[must_use]
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+/// Publication metadata. Never enters `ReleaseDigest`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleasePublication {
+    release: ReleaseDigest,
+    published_at: TimestampMicros,
+    published_by: PrincipalId,
+    policy: PolicyEvidence,
+}
+
+impl WorldReleasePublication {
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::MissingPolicy`] when policy evidence is empty.
+    pub fn new(
+        release: ReleaseDigest,
+        published_at: TimestampMicros,
+        published_by: PrincipalId,
+        policy: PolicyEvidence,
+    ) -> Result<Self, WorldReleaseError> {
+        if policy.determining_policies.is_empty()
+            || policy.revision.id.as_str().is_empty()
+            || policy.revision.digest.as_str().is_empty()
+        {
+            return Err(WorldReleaseError::MissingPolicy);
+        }
+        Ok(Self {
+            release,
+            published_at,
+            published_by,
+            policy,
+        })
+    }
+
+    #[must_use]
+    pub fn release(&self) -> &ReleaseDigest {
+        &self.release
+    }
+
+    #[must_use]
+    pub fn published_at(&self) -> TimestampMicros {
+        self.published_at
+    }
+
+    #[must_use]
+    pub fn published_by(&self) -> &PrincipalId {
+        &self.published_by
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &PolicyEvidence {
+        &self.policy
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorldReleaseError {
+    Canonicalize(JcsError),
+    Digest(DigestError),
+    Identifier(IdentifierError),
+    MissingPolicy,
+    CallerSuppliedDigest,
+    WorldMismatch,
+    NotFound,
+    Conflict(String),
+    Store(String),
+}
+
+impl Display for WorldReleaseError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Canonicalize(error) => write!(formatter, "world release JCS failed: {error}"),
+            Self::Digest(error) => error.fmt(formatter),
+            Self::Identifier(error) => error.fmt(formatter),
+            Self::MissingPolicy => {
+                formatter.write_str("world release publication requires policy evidence")
+            }
+            Self::CallerSuppliedDigest => {
+                formatter.write_str("caller cannot supply a ReleaseDigest for WorldRelease content")
+            }
+            Self::WorldMismatch => {
+                formatter.write_str("release digest does not belong to this World")
+            }
+            Self::NotFound => formatter.write_str("world release was not found"),
+            Self::Conflict(message) => write!(formatter, "world release conflict: {message}"),
+            Self::Store(message) => write!(formatter, "world release store error: {message}"),
+        }
+    }
+}
+
+impl Error for WorldReleaseError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Canonicalize(error) => Some(error),
+            Self::Digest(error) => Some(error),
+            Self::Identifier(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<DigestError> for WorldReleaseError {
+    fn from(value: DigestError) -> Self {
+        Self::Digest(value)
+    }
+}
+
+impl From<IdentifierError> for WorldReleaseError {
+    fn from(value: IdentifierError) -> Self {
+        Self::Identifier(value)
+    }
+}
+
+fn digest_document_json(content: &WorldReleaseContent) -> String {
+    let mut out = String::with_capacity(256);
+    out.push('{');
+    write_member(&mut out, "schema", Some(WORLD_RELEASE_SCHEMA), true);
+    write_member(&mut out, "world", Some(content.world.as_str()), false);
+    out.push(',');
+    write_json_string(&mut out, "parent");
+    out.push(':');
+    match &content.parent {
+        Some(parent) => {
+            out.push('"');
+            out.push_str(parent.as_str());
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
+    write_member(&mut out, "ontology", Some(content.ontology.as_str()), false);
+    write_member(&mut out, "policy", Some(content.policy.as_str()), false);
+    write_member(
+        &mut out,
+        "executors",
+        Some(content.executors.as_str()),
+        false,
+    );
+    write_member(
+        &mut out,
+        "components",
+        Some(content.components.as_str()),
+        false,
+    );
+    out.push('}');
+    out
+}
+
+fn write_member(out: &mut String, key: &str, value: Option<&str>, first: bool) {
+    if !first {
+        out.push(',');
+    }
+    write_json_string(out, key);
+    out.push(':');
+    match value {
+        Some(text) => {
+            out.push('"');
+            out.push_str(text);
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
+}
+
+fn write_json_string(out: &mut String, text: &str) {
+    out.push('"');
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if u32::from(ch) < 0x20 => {
+                let code = u32::from(ch);
+                let _ = write!(out, "\\u{code:04x}");
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+}
