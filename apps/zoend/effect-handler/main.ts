@@ -9,6 +9,7 @@ import {
   handlers,
   type ObjectContext,
   object,
+  type RunOptions,
   TerminalError,
 } from "@restatedev/restate-sdk";
 import { z } from "zod";
@@ -26,11 +27,7 @@ import {
   loadEffectHandlerConfig,
   tenantIdSchema,
 } from "./config.js";
-import {
-  ConnectorClient,
-  type ConnectorOutcome,
-  ConnectorRetryableError,
-} from "./connector-client.js";
+import { ConnectorClient, type ConnectorOutcome } from "./connector-client.js";
 import {
   type AttemptClaim,
   EffectServiceClient,
@@ -47,6 +44,11 @@ const dispatchInputSchema = z
 
 export type EffectDispatchInput = z.infer<typeof dispatchInputSchema>;
 export const EFFECT_HANDLER_ARTIFACT_PATH = "/zoen/artifact";
+const connectorRetryPolicy = {
+  initialRetryInterval: 100,
+  maxRetryInterval: 5000,
+  retryIntervalFactor: 2,
+} satisfies RunOptions<ConnectorOutcome>;
 
 export function createZoenEffect(
   config: EffectHandlerConfig,
@@ -133,60 +135,15 @@ function invokeConnectorDurably(
   connector: ConnectorClient,
   claim: AttemptClaim
 ): Promise<ConnectorOutcome> {
-  return invokeConnectorAttempt({
-    artifactRevision,
-    attemptNumber: 1,
-    claim,
-    connector,
-    context,
-    effectService,
-    registrationLease,
-  });
-}
-
-async function invokeConnectorAttempt(input: {
-  artifactRevision: string;
-  attemptNumber: number;
-  claim: AttemptClaim;
-  connector: ConnectorClient;
-  context: ObjectContext;
-  effectService: EffectServiceClient;
-  registrationLease: RegistrationLease;
-}): Promise<ConnectorOutcome> {
-  const attempt = await input.context.run(
-    `invoke external connector attempt ${input.attemptNumber}`,
+  return context.run(
+    "invoke external connector",
     async () => {
-      await input.registrationLease.requireCurrent(input.artifactRevision);
-      await input.effectService.requireCurrentWorkerAuthentication();
-      try {
-        return {
-          kind: "completed" as const,
-          outcome: await input.connector.invoke(input.claim),
-        };
-      } catch (error: unknown) {
-        if (!(error instanceof ConnectorRetryableError)) {
-          throw error;
-        }
-        return { kind: "retryable_failure" as const };
-      }
-    }
+      await registrationLease.requireCurrent(artifactRevision);
+      await effectService.requireCurrentWorkerAuthentication();
+      return connector.invoke(claim);
+    },
+    connectorRetryPolicy
   );
-  if (attempt.kind === "completed") {
-    return attempt.outcome;
-  }
-  const maximumAttempts = 3;
-  if (input.attemptNumber >= maximumAttempts) {
-    throw new TerminalError("effect connector retry budget exhausted");
-  }
-  const delayMillis = 100 * 2 ** (input.attemptNumber - 1);
-  await input.context.sleep(
-    delayMillis,
-    `external connector retry ${input.attemptNumber}`
-  );
-  return invokeConnectorAttempt({
-    ...input,
-    attemptNumber: input.attemptNumber + 1,
-  });
 }
 
 export async function startEffectHandler(): Promise<Http2Server> {

@@ -75,6 +75,11 @@ export const connectorUrl = e2eHttpUrl(
   connectorPortFallback,
   "/v1/effects",
 );
+export const connectorFaultBoundaryUrl = e2eHttpUrl(
+  "ZOEN_E2E_EFFECT_PROVIDER_PORT",
+  providerPort,
+  "/v1/effects",
+);
 export const providerUrl = e2eHttpUrl(
   "ZOEN_E2E_EFFECT_PROVIDER_PORT",
   providerPort,
@@ -121,6 +126,8 @@ const providerOperationSchema = z
   .strict();
 const providerStatsSchema = z
   .object({
+    connectorRequests: z.number().int().nonnegative(),
+    connectorRetryableStatuses: z.array(z.number().int()),
     operations: z.number().int().nonnegative(),
     requests: z.number().int().nonnegative(),
   })
@@ -498,7 +505,7 @@ export async function prepareWorkerArtifact(
 
 export async function startWorker(
   identity: WorkloadIdentity,
-  options: { artifactRevision?: string } = {},
+  options: { artifactRevision?: string; connectorUrl?: string } = {},
 ): Promise<ManagedProcess> {
   assert.equal(identity.workloadId, "workload.effect-worker");
   await prepareWorkerArtifact(options.artifactRevision);
@@ -514,7 +521,7 @@ export async function startWorker(
             ? "secret.provider.a"
             : "secret.provider.b",
       }),
-      ZOEN_EFFECT_CONNECTOR_URL: connectorUrl,
+      ZOEN_EFFECT_CONNECTOR_URL: options.connectorUrl ?? connectorUrl,
       ZOEN_EFFECT_HANDLER_HOST: "0.0.0.0",
       ZOEN_EFFECT_HANDLER_PORT: workerPort.toString(),
       ZOEN_EFFECT_REGISTRATION_LEASE_MAX_AGE_MS: "1000",
@@ -628,6 +635,33 @@ export async function dispatchOnce(
   );
 }
 
+export async function startEffectDispatcher(
+  tenantId = tenantA,
+  intervalMs = 50,
+): Promise<ManagedProcess> {
+  const dispatcher = spawnProcess({
+    command: path.join(targetDirectory, "zoen-effect-dispatcher"),
+    environment: {
+      DATABASE_URL: applicationDatabaseUrl,
+      RESTATE_INGRESS: restateIngress,
+      ZOEN_EFFECT_DISPATCH_INTERVAL_MS: intervalMs.toString(),
+      ZOEN_EFFECT_REGISTRATION_HEALTH_URL: `http://127.0.0.1:${registrarPort}/health`,
+      ZOEN_TENANT_ID: tenantId,
+    },
+    name: "continuous effect dispatcher",
+  });
+  await delay(100);
+  if (
+    dispatcher.child.exitCode !== null ||
+    dispatcher.child.signalCode !== null
+  ) {
+    throw new Error(
+      `${dispatcher.name} exited during startup:\n${dispatcher.output.join("")}`,
+    );
+  }
+  return dispatcher;
+}
+
 export async function registerWorker(): Promise<string> {
   return waitFor(async () => {
     const health = await fetch(
@@ -680,6 +714,7 @@ export async function setProviderMode(
     | "accepted_pending"
     | "confirmed"
     | "confirmed_no_effect"
+    | "connector_transient_sequence"
     | "hold_confirmed"
     | "parse_error"
     | "schema_error"

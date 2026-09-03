@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { z } from "zod";
-import { e2ePort } from "./host-env.js";
+import { e2eHttpUrl, e2ePort } from "./host-env.js";
 
 const modeSchema = z.enum([
   "accepted_pending",
   "confirmed",
   "confirmed_no_effect",
+  "connector_transient_sequence",
   "hold_confirmed",
   "parse_error",
   "schema_error",
@@ -15,6 +16,9 @@ const modeSchema = z.enum([
   "unavailable",
 ]);
 const controlSchema = z.object({ mode: modeSchema }).strict();
+const connectorRequestSchema = z
+  .object({ idempotencyKey: z.string().min(1) })
+  .passthrough();
 const operationSchema = z
   .object({
     effectRequestId: z.string().min(1),
@@ -37,8 +41,17 @@ interface StoredOperation {
 
 const listenAddress = "127.0.0.1";
 const listenPort = e2ePort("ZOEN_E2E_PROVIDER_PORT", 58_114);
+const connectorUrl = e2eHttpUrl(
+  "ZOEN_E2E_CONNECTOR_PORT",
+  58_113,
+  "/v1/effects",
+);
 const operationsById = new Map<string, StoredOperation>();
 const operationsByKey = new Map<string, StoredOperation>();
+const connectorFailuresByKey = new Map<string, number>();
+const connectorRetryableStatuses: number[] = [];
+const connectorTransientStatusSequence: readonly number[] = [408, 425, 429, 503];
+let connectorRequests = 0;
 let mode: FaultMode = "confirmed";
 
 const server = createServer((request, response) => {
@@ -65,17 +78,45 @@ async function route(
   if (request.method === "DELETE" && url.pathname === "/operations") {
     operationsById.clear();
     operationsByKey.clear();
+    connectorFailuresByKey.clear();
+    connectorRequests = 0;
+    connectorRetryableStatuses.length = 0;
     response.writeHead(204).end();
     return;
   }
   if (request.method === "GET" && url.pathname === "/operations/stats") {
     sendJson(response, 200, {
+      connectorRequests,
+      connectorRetryableStatuses,
       operations: operationsByKey.size,
       requests: [...operationsByKey.values()].reduce(
         (sum, operation) => sum + operation.requests,
         0,
       ),
     });
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/v1/effects") {
+    const input = connectorRequestSchema.parse(await readJson(request));
+    connectorRequests += 1;
+    if (mode === "connector_transient_sequence") {
+      const failureCount = connectorFailuresByKey.get(input.idempotencyKey) ?? 0;
+      const sequenceIndex = Math.min(
+        failureCount,
+        connectorTransientStatusSequence.length - 1,
+      );
+      const transientStatus = connectorTransientStatusSequence[sequenceIndex];
+      if (transientStatus === undefined) {
+        throw new Error("connector transient sequence is empty");
+      }
+      connectorFailuresByKey.set(input.idempotencyKey, failureCount + 1);
+      connectorRetryableStatuses.push(transientStatus);
+      sendJson(response, transientStatus, {
+        error: `transient connector HTTP ${transientStatus}`,
+      });
+      return;
+    }
+    await forwardConnectorRequest(request, response, input);
     return;
   }
   if (request.method === "GET" && url.pathname.startsWith("/v1/operations/")) {
@@ -119,13 +160,16 @@ async function route(
       sendJson(response, 400, { error: "idempotency key required" });
       return;
     }
-    if (mode === "unavailable") {
-      sendJson(response, 503, { error: "provider unavailable" });
-      return;
-    }
     const input = operationSchema.parse(await readJson(request));
     if (input.idempotencyKey !== idempotencyKey) {
       sendJson(response, 400, { error: "idempotency key mismatch" });
+      return;
+    }
+    if (
+      mode === "unavailable" ||
+      mode === "connector_transient_sequence"
+    ) {
+      sendJson(response, 503, { error: "provider unavailable" });
       return;
     }
     let operation = operationsByKey.get(idempotencyKey);
@@ -193,6 +237,9 @@ async function respondForMode(
         providerOperationId: operation.providerOperationId,
       });
       return;
+    case "connector_transient_sequence":
+      sendJson(response, 503, { error: "provider unavailable" });
+      return;
     case "truncate_after_commit": {
       const body = JSON.stringify({
         outcome: "confirmed",
@@ -217,6 +264,38 @@ async function respondForMode(
       return exhaustive;
     }
   }
+}
+
+async function forwardConnectorRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  input: z.infer<typeof connectorRequestSchema>,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (typeof request.headers.authorization === "string") {
+    headers.authorization = request.headers.authorization;
+  }
+  let connectorResponse: Response;
+  try {
+    connectorResponse = await fetch(connectorUrl, {
+      body: JSON.stringify(input),
+      headers,
+      method: "POST",
+    });
+  } catch (error: unknown) {
+    throw new Error("connector fault boundary could not reach the connector", {
+      cause: error,
+    });
+  }
+  const body = Buffer.from(await connectorResponse.arrayBuffer());
+  const contentType = connectorResponse.headers.get("content-type");
+  response.writeHead(
+    connectorResponse.status,
+    contentType === null ? undefined : { "content-type": contentType },
+  );
+  response.end(body);
 }
 
 function readJson(request: IncomingMessage): Promise<unknown> {

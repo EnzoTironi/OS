@@ -15,6 +15,10 @@ use zoen_engine::{
 
 use crate::{i64_to_u64, set_tenant, store_unavailable};
 
+const MAX_DEFINITELY_NOT_SENT_ATTEMPTS: i32 = 5;
+const DEFINITELY_NOT_SENT_RETRY_INITIAL_MS: i64 = 1_000;
+const DEFINITELY_NOT_SENT_RETRY_MAX_MS: i64 = 4_000;
+
 pub struct PostgresEffectUpdate {
     context: ExecutionContext,
     effect_request_id: EffectRequestId,
@@ -425,15 +429,36 @@ async fn update_effect_state(
     state: EffectKnowledgeState,
     commit_sequence: i64,
 ) -> Result<(), StoreError> {
+    let current_retry_count = sqlx::query_scalar::<_, i32>(
+        "SELECT retry_count
+         FROM effect_requests
+         WHERE tenant_id = $1 AND effect_request_id = $2",
+    )
+    .bind(context.tenant_id().as_str())
+    .bind(effect_request_id.as_str())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(store_unavailable)?;
+    let (retry_count, next_eligible_delay_ms) = retry_schedule(state, current_retry_count)?;
     let updated = sqlx::query(
         "UPDATE effect_requests
-         SET knowledge_state = $3, last_commit_sequence = $4, updated_at = clock_timestamp()
+         SET knowledge_state = $3,
+             last_commit_sequence = $4,
+             retry_count = $5,
+             next_eligible_at = CASE
+                 WHEN $6::BIGINT IS NULL THEN NULL
+                 ELSE clock_timestamp()
+                     + make_interval(secs => $6::DOUBLE PRECISION / 1000.0)
+             END,
+             updated_at = clock_timestamp()
          WHERE tenant_id = $1 AND effect_request_id = $2",
     )
     .bind(context.tenant_id().as_str())
     .bind(effect_request_id.as_str())
     .bind(state_name(state))
     .bind(commit_sequence)
+    .bind(retry_count)
+    .bind(next_eligible_delay_ms)
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
@@ -444,6 +469,34 @@ async fn update_effect_state(
             "effect state update affected an unexpected row count".to_owned(),
         ))
     }
+}
+
+fn retry_schedule(
+    state: EffectKnowledgeState,
+    current_retry_count: i32,
+) -> Result<(i32, Option<i64>), StoreError> {
+    if !(0..=MAX_DEFINITELY_NOT_SENT_ATTEMPTS).contains(&current_retry_count) {
+        return Err(StoreError::Corrupt(
+            "stored effect retry count is outside the policy boundary".to_owned(),
+        ));
+    }
+    if state != EffectKnowledgeState::DefinitelyNotSent {
+        return Ok((current_retry_count, None));
+    }
+
+    let retry_count = current_retry_count
+        .checked_add(1)
+        .ok_or_else(|| StoreError::Corrupt("effect retry count overflow".to_owned()))?
+        .min(MAX_DEFINITELY_NOT_SENT_ATTEMPTS);
+    if retry_count == MAX_DEFINITELY_NOT_SENT_ATTEMPTS {
+        return Ok((retry_count, None));
+    }
+    let exponent = u32::try_from(retry_count.saturating_sub(1))
+        .map_err(|_| StoreError::Corrupt("negative effect retry count".to_owned()))?;
+    let delay_ms = DEFINITELY_NOT_SENT_RETRY_INITIAL_MS
+        .saturating_mul(2_i64.pow(exponent))
+        .min(DEFINITELY_NOT_SENT_RETRY_MAX_MS);
+    Ok((retry_count, Some(delay_ms)))
 }
 
 async fn append_projection_event(

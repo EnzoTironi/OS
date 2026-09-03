@@ -42,6 +42,7 @@ import {
   actionClient,
   adminClient,
   connectorCallerToken,
+  connectorFaultBoundaryUrl,
   connectorUrl,
   crashProcess,
   credentialReady,
@@ -66,6 +67,7 @@ import {
   setProviderMode,
   startConnector,
   startCredentialValidator,
+  startEffectDispatcher,
   startEffectRegistrar,
   startFaultProvider,
   startRestate,
@@ -147,6 +149,13 @@ interface EffectIdentityRow {
 
 interface EffectIdentityEvidence extends EffectIdentityRow {
   restate_object_key: string;
+}
+
+interface EffectRetrySchedule {
+  knowledgeState: string;
+  nextEligibleAt: Date | null;
+  retryCount: number;
+  updatedAt: Date;
 }
 
 async function main(): Promise<void> {
@@ -426,22 +435,38 @@ async function main(): Promise<void> {
     });
     processes.push(connector);
     await exactRegistration();
+    let dispatcher = await startEffectDispatcher();
+    processes.push(dispatcher);
     const retryable = await commitEffect(
       actionA,
       fixture,
       "definitely-not-sent",
     );
-    await dispatchOnce();
     await waitForState(
       effectA,
       retryable.effectRequestId,
       EffectKnowledgeState.DEFINITELY_NOT_SENT,
     );
+    suspendProcess(dispatcher);
+    const firstRetrySchedule = await effectRetrySchedule(
+      admin,
+      retryable.effectRequestId,
+    );
     observe(
-      "definitelyNotSentDoesNotInventProviderOperation",
-      (await providerOperation(retryable.idempotencyKey)) === undefined,
+      "definitelyNotSentPersistsItsNextEligibleRetry",
+      firstRetrySchedule.knowledgeState === "definitely_not_sent" &&
+        firstRetrySchedule.retryCount === 1 &&
+        firstRetrySchedule.nextEligibleAt !== null &&
+        firstRetrySchedule.nextEligibleAt.getTime() -
+          firstRetrySchedule.updatedAt.getTime() >=
+          900 &&
+        firstRetrySchedule.nextEligibleAt.getTime() -
+          firstRetrySchedule.updatedAt.getTime() <=
+          1_100 &&
+        (await providerOperation(retryable.idempotencyKey)) === undefined,
     );
 
+    await crashProcess(dispatcher);
     await crashProcess(worker);
     await waitFor(
       async () => (!(await registrarReady()) ? true : undefined),
@@ -494,7 +519,8 @@ async function main(): Promise<void> {
       "zoendRestartInvalidatesPriorWorkloadExchange",
       invalidatedExchangeCode === Code.Unauthenticated,
     );
-    await dispatchOnce();
+    dispatcher = await startEffectDispatcher();
+    processes.push(dispatcher);
     await waitForState(
       effectA,
       retryable.effectRequestId,
@@ -504,15 +530,230 @@ async function main(): Promise<void> {
       retryable.idempotencyKey,
     );
     const retryCounts = await attemptCounts(admin, retryable.effectRequestId);
+    const completedRetrySchedule = await effectRetrySchedule(
+      admin,
+      retryable.effectRequestId,
+    );
     observe(
-      "definitelyNotSentRetryConvergesAcrossAllRuntimeRestarts",
+      "continuousDispatcherRetryConvergesAcrossAllRuntimeRestarts",
       retryCounts.claims === 2 &&
         retryCounts.dispatches === 2 &&
         retryCounts.effectAttempts === 2 &&
         retryCounts.schedulerAttempts === 2 &&
+        completedRetrySchedule.retryCount === 1 &&
+        completedRetrySchedule.nextEligibleAt === null &&
         retriedProvider.requests === 1 &&
         (await actionOperationCount(admin, retryable.operationId)) === 1,
     );
+
+    await stopProcess(dispatcher);
+    await stopProcess(connector);
+    connector = await startConnector({
+      providerUrl: "http://127.0.0.1:1/v1/operations",
+    });
+    processes.push(connector);
+    await exactRegistration();
+    const manualRetry = await commitEffect(
+      actionA,
+      fixture,
+      "definitely-not-sent-manual",
+    );
+    const expectedPersistedRetryDelays = [1_000, 2_000, 4_000, 4_000];
+    const persistedRetryDelays: number[] = [];
+    for (const [index, expectedDelay] of
+      expectedPersistedRetryDelays.entries()) {
+      const retryCount = index + 1;
+      const schedule = await waitFor(
+        async () => {
+          await dispatchOnce();
+          const current = await effectRetrySchedule(
+            admin,
+            manualRetry.effectRequestId,
+          );
+          return current.retryCount === retryCount &&
+            current.nextEligibleAt !== null
+            ? current
+            : undefined;
+        },
+        `definitely-not-sent retry schedule ${retryCount}`,
+      );
+      assert.ok(schedule.nextEligibleAt);
+      const persistedDelay =
+        schedule.nextEligibleAt.getTime() - schedule.updatedAt.getTime();
+      assert.ok(persistedDelay >= expectedDelay - 100);
+      persistedRetryDelays.push(persistedDelay);
+      await delay(
+        Math.max(0, schedule.nextEligibleAt.getTime() - Date.now() + 50),
+      );
+    }
+    const manualRetrySchedule = await waitFor(
+      async () => {
+        await dispatchOnce();
+        const schedule = await effectRetrySchedule(
+          admin,
+          manualRetry.effectRequestId,
+        );
+        return schedule.retryCount === 5 &&
+          schedule.nextEligibleAt === null
+          ? schedule
+          : undefined;
+      },
+      "definitely-not-sent manual retry boundary",
+      500,
+    );
+    const manualRetryCounts = await attemptCounts(
+      admin,
+      manualRetry.effectRequestId,
+    );
+    const manualAttemptTimes = await effectAttemptTimes(
+      admin,
+      manualRetry.effectRequestId,
+    );
+    const retryIntervals = manualAttemptTimes
+      .slice(1)
+      .map((attemptedAt, index) => {
+        const previousAttempt = manualAttemptTimes[index];
+        return previousAttempt === undefined
+          ? 0
+          : attemptedAt.getTime() - previousAttempt.getTime();
+      });
+    const minimumRetryIntervals = [900, 1_900, 3_900, 3_900];
+    dispatcher = await startEffectDispatcher();
+    processes.push(dispatcher);
+    await delay(750);
+    const frozenManualRetryCounts = await attemptCounts(
+      admin,
+      manualRetry.effectRequestId,
+    );
+    observe(
+      "definitelyNotSentBackoffTerminatesForManualRetry",
+      manualRetrySchedule.knowledgeState === "definitely_not_sent" &&
+        manualRetryCounts.claims === 5 &&
+        manualRetryCounts.dispatches === 5 &&
+        manualRetryCounts.effectAttempts === 5 &&
+        manualRetryCounts.schedulerAttempts === 5 &&
+        persistedRetryDelays.every(
+          (delayMillis, index) =>
+            delayMillis >=
+              (expectedPersistedRetryDelays[index] ?? Number.POSITIVE_INFINITY) -
+                100 &&
+            delayMillis <=
+              (expectedPersistedRetryDelays[index] ?? Number.NEGATIVE_INFINITY) +
+                500,
+        ) &&
+        retryIntervals.length === minimumRetryIntervals.length &&
+        retryIntervals.every(
+          (interval, index) =>
+            minimumRetryIntervals[index] !== undefined &&
+            interval >= minimumRetryIntervals[index],
+        ) &&
+        JSON.stringify(frozenManualRetryCounts) ===
+          JSON.stringify(manualRetryCounts) &&
+        (await providerOperation(manualRetry.idempotencyKey)) === undefined,
+    );
+
+    await stopProcess(connector);
+    connector = await startConnector();
+    processes.push(connector);
+    await stopProcess(worker);
+    worker = await startWorker(workerIdentity, {
+      connectorUrl: connectorFaultBoundaryUrl,
+    });
+    processes.push(worker);
+    await exactRegistration();
+    await setProviderMode("connector_transient_sequence");
+    const transientStatsBefore = await providerStats();
+    const transient = await commitEffect(
+      actionA,
+      fixture,
+      "connector-transient-sequence",
+    );
+    const transientDispatchVersion = await latestKnowledgeCommitSequence(
+      admin,
+      tenantA,
+      transient.effectRequestId,
+    );
+    await waitFor(
+      async () =>
+        (await providerStats()).connectorRetryableStatuses.length >=
+        transientStatsBefore.connectorRetryableStatuses.length + 4
+          ? true
+          : undefined,
+      "connector transient retries before Restate restart",
+    );
+    const transientInvocation = await lookupInvocation(
+      transient.effectRequestId,
+      transientDispatchVersion.toString(),
+    );
+    const transientCountsBeforeRestart = await attemptCounts(
+      admin,
+      transient.effectRequestId,
+    );
+    const transientStatsBeforeRestart = await providerStats();
+    observe(
+      "connectorTransientsRemainPendingUntilRestateRestart",
+      transientCountsBeforeRestart.claims === 1 &&
+        transientCountsBeforeRestart.dispatches === 1 &&
+        transientCountsBeforeRestart.effectAttempts === 0 &&
+        transientCountsBeforeRestart.schedulerAttempts === 1 &&
+        (await providerOperation(transient.idempotencyKey)) === undefined &&
+        JSON.stringify(
+          transientStatsBeforeRestart.connectorRetryableStatuses.slice(
+            transientStatsBefore.connectorRetryableStatuses.length,
+            transientStatsBefore.connectorRetryableStatuses.length + 4,
+          ),
+        ) === JSON.stringify([408, 425, 429, 503]),
+    );
+    await stopRestate();
+    await crashProcess(worker);
+    await setProviderMode("confirmed");
+    await startRestate();
+    worker = await startWorker(workerIdentity, {
+      connectorUrl: connectorFaultBoundaryUrl,
+    });
+    processes.push(worker);
+    await exactRegistration();
+    await waitForState(
+      effectA,
+      transient.effectRequestId,
+      EffectKnowledgeState.CONFIRMED,
+    );
+    const transientProvider = await waitForProviderOperation(
+      transient.idempotencyKey,
+    );
+    const transientCounts = await attemptCounts(
+      admin,
+      transient.effectRequestId,
+    );
+    const transientStatsAfter = await providerStats();
+    const transientSchedule = await effectRetrySchedule(
+      admin,
+      transient.effectRequestId,
+    );
+    observe(
+      "connectorTransientsRecoverInOneInvocationAcrossRestateRestart",
+      transientCounts.claims === 1 &&
+        transientCounts.dispatches === 1 &&
+        transientCounts.effectAttempts === 1 &&
+        transientCounts.schedulerAttempts === 1 &&
+        transientSchedule.retryCount === 0 &&
+        transientSchedule.nextEligibleAt === null &&
+        transientStatsAfter.operations === transientStatsBefore.operations + 1 &&
+        transientStatsAfter.requests === transientStatsBefore.requests + 1 &&
+        transientStatsAfter.connectorRequests >=
+          transientStatsBefore.connectorRequests + 5 &&
+        transientProvider.requests === 1 &&
+        (await lookupInvocation(
+          transient.effectRequestId,
+          transientDispatchVersion.toString(),
+        )) === transientInvocation &&
+        (await actionOperationCount(admin, transient.operationId)) === 1,
+    );
+    await stopProcess(dispatcher);
+    await stopProcess(worker);
+    worker = await startWorker(workerIdentity);
+    processes.push(worker);
+    await exactRegistration();
 
     const reconcilerCredential = await issueWorkloadCredential(
       adminAToken,
@@ -1271,6 +1512,8 @@ async function main(): Promise<void> {
         preClaimCredentialRaceEffectRequestId:
           preClaimCredentialRace.effectRequestId,
         retryableEffectRequestId: retryable.effectRequestId,
+        manualRetryEffectRequestId: manualRetry.effectRequestId,
+        transientConnectorEffectRequestId: transient.effectRequestId,
         truncatedResponseEffectRequestId: truncated.effectRequestId,
         unknownEffectRequestId: unknown.effectRequestId,
       },
@@ -1716,6 +1959,53 @@ async function latestKnowledgeCommitSequence(
   const commitSequence = Number(result.rows[0]?.commit_sequence);
   assert.ok(Number.isSafeInteger(commitSequence) && commitSequence > 0);
   return commitSequence;
+}
+
+async function effectRetrySchedule(
+  admin: ReturnType<typeof adminClient>,
+  effectRequestId: string,
+): Promise<EffectRetrySchedule> {
+  const result = await admin.query<{
+    knowledge_state: string;
+    next_eligible_at: Date | null;
+    retry_count: number;
+    updated_at: Date;
+  }>(
+    `SELECT knowledge_state, next_eligible_at, retry_count, updated_at
+     FROM effect_requests
+     WHERE tenant_id = $1 AND effect_request_id = $2`,
+    [tenantA, effectRequestId],
+  );
+  assert.equal(result.rows.length, 1);
+  const row = result.rows[0];
+  assert.ok(row);
+  assert.ok(Number.isInteger(row.retry_count));
+  assert.ok(
+    row.next_eligible_at === null || row.next_eligible_at instanceof Date,
+  );
+  assert.ok(row.updated_at instanceof Date);
+  return {
+    knowledgeState: row.knowledge_state,
+    nextEligibleAt: row.next_eligible_at,
+    retryCount: row.retry_count,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function effectAttemptTimes(
+  admin: ReturnType<typeof adminClient>,
+  effectRequestId: string,
+): Promise<Date[]> {
+  const result = await admin.query<{ recorded_at: Date }>(
+    `SELECT recorded_at
+     FROM effect_attempts
+     WHERE tenant_id = $1 AND effect_request_id = $2
+     ORDER BY commit_sequence`,
+    [tenantA, effectRequestId],
+  );
+  const attemptedAt = result.rows.map((row) => row.recorded_at);
+  assert.ok(attemptedAt.every((timestamp) => timestamp instanceof Date));
+  return attemptedAt;
 }
 
 async function actionOperationCount(

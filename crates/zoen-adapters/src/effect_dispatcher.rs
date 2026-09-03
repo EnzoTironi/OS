@@ -138,7 +138,13 @@ where
             "SELECT request.effect_request_id, request.last_commit_sequence
              FROM effect_requests AS request
              WHERE request.tenant_id = $1
-               AND request.knowledge_state IN ('not_attempted', 'definitely_not_sent')
+               AND (
+                   request.knowledge_state = 'not_attempted'
+                   OR (
+                       request.knowledge_state = 'definitely_not_sent'
+                       AND request.next_eligible_at <= clock_timestamp()
+                   )
+               )
                AND NOT (request.effect_request_id = ANY($2::TEXT[]))
                AND NOT EXISTS (
                    SELECT 1
