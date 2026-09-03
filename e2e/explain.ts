@@ -53,10 +53,14 @@ import {
   definitionClient,
   dispatchOnce,
   effectClient,
+  exchangeWorkloadCredential,
+  issueWorkloadCredential,
   registerWorker,
   repositoryRoot,
   setProviderMode,
   startConnector,
+  startCredentialValidator,
+  startEffectRegistrar,
   startFaultProvider,
   startWorker,
   startZoend,
@@ -65,7 +69,9 @@ import {
   tenantB,
   worldClient,
   type ManagedProcess,
+  type WorkloadIdentity,
   type WorldClient,
+  writeEffectWorkerApiKey,
 } from "./effect-support.js";
 import { historyClient, type HistoryClient } from "./explain/support.js";
 import { e2eGeneratedDirectory, writeScenarioArtifact } from "./host-env.js";
@@ -161,9 +167,31 @@ async function main(): Promise<void> {
   const agentBToken = sessionOf(planted, "agent-b").token;
   const adminAToken = sessionOf(planted, "admin-a").token;
   const adminBToken = sessionOf(planted, "admin-b").token;
-  const workerAToken = sessionOf(planted, "effect-worker-a").token;
-  const workerBToken = sessionOf(planted, "effect-worker-b").token;
-  const reconcilerAToken = sessionOf(planted, "effect-reconciler-a").token;
+  const workerIdentity = {
+    actorId: "actor.effect-worker.a",
+    principalId: "principal.effect-worker.a",
+    tenantId: tenantA,
+    workloadId: "workload.effect-worker",
+  } satisfies WorkloadIdentity;
+  const reconcilerIdentity = {
+    actorId: "actor.effect-reconciler.a",
+    principalId: "principal.effect-reconciler.a",
+    tenantId: tenantA,
+    workloadId: "workload.effect-reconciler",
+  } satisfies WorkloadIdentity;
+  const workerCredential = await issueWorkloadCredential(
+    adminAToken,
+    workerIdentity,
+  );
+  await writeEffectWorkerApiKey(workerCredential);
+  const reconcilerCredential = await issueWorkloadCredential(
+    adminAToken,
+    reconcilerIdentity,
+  );
+  const reconcilerAToken = await exchangeWorkloadCredential(
+    reconcilerCredential,
+    reconcilerIdentity,
+  );
   const actionA = actionClient(agentAToken, tenantA);
   const definitionAdminA = definitionClient(adminAToken, tenantA);
   const definitionAdminB = definitionClient(adminBToken, tenantB);
@@ -171,13 +199,14 @@ async function main(): Promise<void> {
   const reconcilerA = effectClient(reconcilerAToken, tenantA);
   const worldA = worldClient(agentAToken, tenantA);
   const worldB = worldClient(agentBToken, tenantB);
-  processes.push(await startFaultProvider());
-  processes.push(await startConnector());
   processes.push(
-    await startWorker({
-      [tenantA]: workerAToken,
-      [tenantB]: workerBToken,
+    await startFaultProvider(),
+    await startConnector(),
+    await startCredentialValidator(workerIdentity, {
+      expectedCredentialId: workerCredential.credentialId,
     }),
+    await startWorker(workerIdentity),
+    await startEffectRegistrar(workerIdentity),
   );
   await admin.connect();
 
@@ -280,7 +309,11 @@ async function main(): Promise<void> {
 
     const historyA = historyClient(agentAToken, tenantA);
     const historyB = historyClient(agentBToken, tenantB);
-    const historyForbidden = historyClient(reconcilerAToken, tenantA);
+    const refreshedReconcilerToken = await exchangeWorkloadCredential(
+      reconcilerCredential,
+      reconcilerIdentity,
+    );
+    const historyForbidden = historyClient(refreshedReconcilerToken, tenantA);
     const operation = await explain(historyA, {
       case: "operationId",
       value: contradicted.operationId,

@@ -1,9 +1,20 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
+    fs::File,
+    io::Read,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+const WORKLOAD_EXCHANGE_TTL: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+struct WorkloadExchange {
+    credential_id: WorkloadCredentialId,
+    expires_at: Instant,
+}
+
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use zoen_adapters::{PostgresIdentityStore, PostgresWorkloadCredentialStore, SessionDoor};
 use zoen_core::{
@@ -18,7 +29,7 @@ pub struct SessionExchange {
     directory: PostgresIdentityStore,
     door: SessionDoor,
     machine: Option<MachineToken>,
-    workload_exchanges: Arc<Mutex<HashMap<String, WorkloadCredentialId>>>,
+    workload_exchanges: Arc<Mutex<HashMap<String, WorkloadExchange>>>,
 }
 
 impl SessionExchange {
@@ -66,23 +77,38 @@ impl SessionExchange {
         }
     }
 
-    #[must_use]
+    /// Register a fresh, opaque exchange token for a workload credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unavailable`] when operating-system randomness
+    /// cannot be read or a unique token cannot be allocated.
     pub fn register_workload_exchange(
         &self,
-        credential_id: WorkloadCredentialId,
+        credential_id: &WorkloadCredentialId,
         _context: TrustedExecutionContext,
-    ) -> String {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        let token = format!("wlx.{nanos:x}");
-        self.workload_map().insert(token.clone(), credential_id);
-        token
+    ) -> Result<String, IdentityError> {
+        let now = Instant::now();
+        let mut exchanges = self.workload_map();
+        exchanges.retain(|_, exchange| exchange.expires_at > now);
+        for _ in 0..4 {
+            let token = random_workload_exchange_token()?;
+            if let Entry::Vacant(entry) = exchanges.entry(token.clone()) {
+                entry.insert(WorkloadExchange {
+                    credential_id: credential_id.clone(),
+                    expires_at: now + WORKLOAD_EXCHANGE_TTL,
+                });
+                return Ok(token);
+            }
+        }
+        Err(IdentityError::Unavailable(
+            "could not allocate a unique workload exchange token".to_owned(),
+        ))
     }
 
     pub fn invalidate_workload_credential(&self, credential_id: &WorkloadCredentialId) {
         self.workload_map()
-            .retain(|_, stored| stored != credential_id);
+            .retain(|_, exchange| &exchange.credential_id != credential_id);
     }
 
     /// Verify a Better Auth door session. Workload and channel credentials fail
@@ -185,12 +211,8 @@ impl SessionExchange {
         let credential = SessionCredential::from_authorization(authorization)?;
         match credential {
             SessionCredential::Workload(token) => {
-                let context = self.resolve_workload(&token).await?;
-                let credential_id = self
-                    .workload_map()
-                    .get(token.as_str())
-                    .cloned()
-                    .ok_or(IdentityError::Unauthenticated)?;
+                let credential_id = self.live_workload_credential_id(&token)?;
+                let context = self.context_for_workload_credential(&credential_id).await?;
                 Ok((credential_id, context))
             }
             SessionCredential::Door(_) | SessionCredential::Channel { .. } => {
@@ -203,16 +225,32 @@ impl SessionExchange {
         &self,
         token: &WorkloadExchangeToken,
     ) -> Result<TrustedExecutionContext, IdentityError> {
-        let credential_id = self
-            .workload_map()
-            .get(token.as_str())
-            .cloned()
-            .ok_or(IdentityError::Unauthenticated)?;
-        let credential = self.credentials.get(&credential_id).await?;
+        let credential_id = self.live_workload_credential_id(token)?;
+        self.context_for_workload_credential(&credential_id).await
+    }
+
+    async fn context_for_workload_credential(
+        &self,
+        credential_id: &WorkloadCredentialId,
+    ) -> Result<TrustedExecutionContext, IdentityError> {
+        let credential = self.credentials.get(credential_id).await?;
         trusted_context_from_workload_credential(&credential, now_micros())
     }
 
-    fn workload_map(&self) -> MutexGuard<'_, HashMap<String, WorkloadCredentialId>> {
+    fn live_workload_credential_id(
+        &self,
+        token: &WorkloadExchangeToken,
+    ) -> Result<WorkloadCredentialId, IdentityError> {
+        let now = Instant::now();
+        let mut exchanges = self.workload_map();
+        exchanges.retain(|_, exchange| exchange.expires_at > now);
+        exchanges
+            .get(token.as_str())
+            .map(|exchange| exchange.credential_id.clone())
+            .ok_or(IdentityError::Unauthenticated)
+    }
+
+    fn workload_map(&self) -> MutexGuard<'_, HashMap<String, WorkloadExchange>> {
         self.workload_exchanges
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -249,6 +287,14 @@ fn now_micros() -> TimestampMicros {
     TimestampMicros::new(micros)
 }
 
+fn random_workload_exchange_token() -> Result<String, IdentityError> {
+    let mut bytes = [0u8; 32];
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut bytes))
+        .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+    Ok(format!("wlx.{}", URL_SAFE_NO_PAD.encode(bytes)))
+}
+
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
@@ -262,7 +308,11 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[must_use]
 pub fn map_identity_error(error: IdentityError) -> ConnectError {
     match error {
-        IdentityError::Unauthenticated | IdentityError::InvalidSessionToken => {
+        IdentityError::Unauthenticated
+        | IdentityError::InvalidSessionToken
+        | IdentityError::WorkloadCredentialInactive
+        | IdentityError::WorkloadCredentialExpired
+        | IdentityError::WorkloadCredentialNotFound => {
             ConnectError::new(ErrorCode::Unauthenticated, error.to_string())
         }
         IdentityError::SubjectUnbound

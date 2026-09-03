@@ -8,7 +8,7 @@ mkdir -p /data/zoen
 rm -f "$ready"
 while true; do
   if [ -s "$token" ] \
-    && curl -sf "${zoend}/ready" >/dev/null \
+    && curl -sf "${zoend}/live" >/dev/null \
     && [ -f "$script" ]; then
     if (cd /app && /usr/local/bin/node "$script"); then
       exit 0

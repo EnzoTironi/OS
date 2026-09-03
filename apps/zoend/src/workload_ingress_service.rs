@@ -9,7 +9,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
-    routing::{post, put},
+    routing::{delete, post, put},
 };
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{
@@ -19,8 +19,9 @@ use zoen_core::{
     ActionId, ActorId, AudienceClass, DelegationChain, DelegationGrant, DelegationId, DigestRef,
     DurableEventId, ExternalSignalDraft, IdentityError, IngressAllowance, PrincipalId,
     ProjectedCapabilityKind, RateBudgetPolicy, ResourceId, ServerAllowId, SignalSourceIdentity,
-    SignalTrustDisposition, SourceClass, TenantId, TimestampMicros, WorkloadCredentialId,
-    WorkloadId, WorkloadRevocationReason, offer_external_signal_as_evidence_candidate,
+    SignalTrustDisposition, SourceClass, TenantId, TimestampMicros, WORKLOAD_CREDENTIALS_RESOURCE,
+    WORKLOAD_MANAGE_CREDENTIALS_ACTION, WorkloadCredentialId, WorkloadId, WorkloadRevocationReason,
+    offer_external_signal_as_evidence_candidate,
 };
 
 use crate::session::SessionExchange;
@@ -36,8 +37,8 @@ pub fn router(state: WorkloadIngressState) -> Router {
     Router::new()
         .route("/workload/admin/credentials", post(issue_credential))
         .route(
-            "/workload/admin/credentials/{credential_id}/revoke",
-            post(revoke_credential),
+            "/workload/admin/credentials/{credential_id}",
+            delete(revoke_credential),
         )
         .route("/workload/authenticate", post(authenticate))
         .route("/workload/signals", put(accept_signal))
@@ -119,6 +120,7 @@ struct SignalSourceBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RevokeBody {
+    tenant_id: String,
     reason: Option<String>,
 }
 
@@ -186,7 +188,11 @@ async fn issue_credential(
     headers: HeaderMap,
     Json(body): Json<IssueBody>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_ops_bearer(&state, &headers).await {
+    let tenant_id = match TenantId::parse(&body.tenant_id) {
+        Ok(value) => value,
+        Err(error) => return bad_request(&error.to_string()),
+    };
+    if let Err(response) = require_credential_operator(&state, &headers, &tenant_id).await {
         return *response;
     }
     let expires_at = TimestampMicros::new(body.expires_at_micros);
@@ -199,10 +205,7 @@ async fn issue_credential(
         Err(message) => return bad_request(&message),
     };
     let cmd = IssueWorkloadCredential {
-        tenant_id: match TenantId::parse(body.tenant_id) {
-            Ok(value) => value,
-            Err(error) => return bad_request(&error.to_string()),
-        },
+        tenant_id,
         workload_id: match WorkloadId::parse(body.workload_id) {
             Ok(value) => value,
             Err(error) => return bad_request(&error.to_string()),
@@ -255,7 +258,11 @@ async fn revoke_credential(
     axum::extract::Path(credential_id): axum::extract::Path<String>,
     Json(body): Json<RevokeBody>,
 ) -> impl IntoResponse {
-    if let Err(response) = require_ops_bearer(&state, &headers).await {
+    let tenant_id = match TenantId::parse(body.tenant_id) {
+        Ok(value) => value,
+        Err(error) => return bad_request(&error.to_string()),
+    };
+    if let Err(response) = require_credential_operator(&state, &headers, &tenant_id).await {
         return *response;
     }
     let id = match WorkloadCredentialId::parse(credential_id) {
@@ -266,7 +273,7 @@ async fn revoke_credential(
         Ok(value) => value,
         Err(error) => return identity_error(&error),
     };
-    match state.credentials.revoke(&id, reason).await {
+    match state.credentials.revoke(&tenant_id, &id, reason).await {
         Ok(credential) => {
             state
                 .sessions
@@ -297,9 +304,13 @@ async fn authenticate(
         return bad_request("apiKey required");
     };
 
-    let exchange_token = state
+    let exchange_token = match state
         .sessions
-        .register_workload_exchange(credential.id.clone(), tec.clone());
+        .register_workload_exchange(&credential.id, tec.clone())
+    {
+        Ok(token) => token,
+        Err(error) => return identity_error(&error),
+    };
     let discoverable_scopes = credential
         .delegation
         .grants()
@@ -438,27 +449,38 @@ fn now_micros() -> TimestampMicros {
     )
 }
 
-async fn require_ops_bearer(
+async fn require_credential_operator(
     state: &WorkloadIngressState,
     headers: &HeaderMap,
+    tenant_id: &TenantId,
 ) -> Result<(), Box<axum::response::Response>> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    state
+    let (_, context) = state
         .sessions
-        .verify_door(authorization)
+        .resolve_membership(authorization, Some(tenant_id))
         .await
-        .map(|_| ())
-        .map_err(|error| {
-            Box::new(
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": error.to_string() })),
-                )
-                    .into_response(),
-            )
-        })
+        .map_err(|error| Box::new(identity_error(&error)))?;
+    let action = ActionId::parse(WORKLOAD_MANAGE_CREDENTIALS_ACTION)
+        .map_err(|error| Box::new(internal_error(&error.to_string())))?;
+    let resource = ResourceId::parse(WORKLOAD_CREDENTIALS_RESOURCE)
+        .map_err(|error| Box::new(internal_error(&error.to_string())))?;
+    if context
+        .delegation()
+        .permits(&action, &resource, context.workload_id(), now_micros())
+    {
+        return Ok(());
+    }
+    Err(Box::new(
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "workload credential administration is not delegated"
+            })),
+        )
+            .into_response(),
+    ))
 }
 
 fn build_delegation(
@@ -532,18 +554,31 @@ fn parse_ingress(items: &[IngressBody]) -> Result<Vec<IngressAllowance>, String>
 fn identity_error(error: &IdentityError) -> axum::response::Response {
     let status = match error {
         IdentityError::Unauthenticated
+        | IdentityError::InvalidSessionToken
         | IdentityError::WorkloadCredentialInactive
         | IdentityError::WorkloadCredentialExpired => StatusCode::UNAUTHORIZED,
+        IdentityError::MembershipNotFound
+        | IdentityError::MembershipInactive
+        | IdentityError::SubjectUnbound => StatusCode::FORBIDDEN,
         IdentityError::WorkloadCredentialNotFound => StatusCode::NOT_FOUND,
         IdentityError::IngressNotAllowed | IdentityError::RateBudgetExceeded => {
             StatusCode::FORBIDDEN
         }
+        IdentityError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
         IdentityError::Conflict(_) => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,
     };
     (
         status,
         Json(serde_json::json!({ "error": error.to_string() })),
+    )
+        .into_response()
+}
+
+fn internal_error(message: &str) -> axum::response::Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": message })),
     )
         .into_response()
 }

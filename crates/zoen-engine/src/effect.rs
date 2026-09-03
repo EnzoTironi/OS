@@ -6,16 +6,21 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    EffectAttempt, EffectAttemptId, EffectAttemptResult, EffectEvidence, EffectEvidenceDigest,
-    EffectEvidenceId, EffectEvidenceOutcome, EffectIdempotencyKey, EffectKnowledgeState,
-    EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext, HumanTaskError,
-    ProviderOperationId, SourceId, TimestampMicros, WorkloadId,
+    ActionId, CommitSequence, EffectAttempt, EffectAttemptId, EffectAttemptResult, EffectEvidence,
+    EffectEvidenceDigest, EffectEvidenceId, EffectEvidenceOutcome, EffectIdempotencyKey,
+    EffectKnowledgeState, EffectRequest, EffectRequestId, EffectSnapshot, ExecutionContext,
+    HumanTaskError, IdentifierError, ProviderOperationId, ResourceId, SourceId, TimestampMicros,
+    WorkloadId,
 };
 
 use crate::{
     AuthorityStore, StoreError,
     human::{is_human_task_payload, parse_human_task_contract},
 };
+
+const EFFECT_EXECUTE_ACTION: &str = "zoen.effect.execute";
+const EFFECT_RECONCILE_ACTION: &str = "zoen.effect.reconcile";
+const EFFECT_REQUESTS_RESOURCE: &str = "zoen.effect.requests";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectAttemptCommand {
@@ -27,6 +32,7 @@ pub struct EffectAttemptCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EffectAttemptClaimCommand {
     pub adapter_execution_id: String,
+    pub expected_knowledge_commit_sequence: CommitSequence,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -50,6 +56,7 @@ pub struct EffectReconcileCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectError {
     AttemptIdentityConflict,
+    DispatchVersionMismatch,
     EvidenceIdentityConflict,
     ForbiddenWorkload,
     InvalidEvidence(String),
@@ -65,6 +72,9 @@ impl Display for EffectError {
             }
             Self::EvidenceIdentityConflict => {
                 formatter.write_str("evidence identity or digest describes different evidence")
+            }
+            Self::DispatchVersionMismatch => {
+                formatter.write_str("effect dispatch version does not match current knowledge")
             }
             Self::ForbiddenWorkload => {
                 formatter.write_str("workload is not authorized for this effect operation")
@@ -87,12 +97,27 @@ impl Error for EffectError {
         match self {
             Self::Store(error) => Some(error),
             Self::AttemptIdentityConflict
+            | Self::DispatchVersionMismatch
             | Self::EvidenceIdentityConflict
             | Self::ForbiddenWorkload
             | Self::InvalidEvidence(_)
             | Self::UnsafeRetry(_) => None,
         }
     }
+}
+
+fn latest_knowledge_commit_sequence(snapshot: &EffectSnapshot) -> CommitSequence {
+    let mut latest = snapshot.request.commit_sequence;
+    for attempt in &snapshot.attempts {
+        latest = latest.max(attempt.commit_sequence);
+    }
+    for evidence in &snapshot.evidence {
+        latest = latest.max(evidence.commit_sequence);
+    }
+    for reconciliation in &snapshot.reconciliations {
+        latest = latest.max(reconciliation.commit_sequence);
+    }
+    latest
 }
 
 pub trait EffectUpdateTransaction: Send {
@@ -135,7 +160,10 @@ pub trait EffectUpdateTransaction: Send {
 
 pub struct EffectEngine<S> {
     allowed_executor_workloads: BTreeSet<WorkloadId>,
+    execute_action_id: ActionId,
     reconciler_workload_id: WorkloadId,
+    reconcile_action_id: ActionId,
+    requests_resource_id: ResourceId,
     store: S,
     worker_workload_id: WorkloadId,
 }
@@ -144,17 +172,25 @@ impl<S> EffectEngine<S>
 where
     S: AuthorityStore,
 {
+    /// Build an effect engine with the canonical execution and reconciliation scopes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentifierError`] if a built-in effect Action or resource id is invalid.
     pub fn new(
         store: S,
         worker_workload_id: WorkloadId,
         reconciler_workload_id: WorkloadId,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, IdentifierError> {
+        Ok(Self {
             allowed_executor_workloads: BTreeSet::new(),
+            execute_action_id: ActionId::parse(EFFECT_EXECUTE_ACTION)?,
             reconciler_workload_id,
+            reconcile_action_id: ActionId::parse(EFFECT_RECONCILE_ACTION)?,
+            requests_resource_id: ResourceId::parse(EFFECT_REQUESTS_RESOURCE)?,
             store,
             worker_workload_id,
-        }
+        })
     }
 
     #[must_use]
@@ -199,15 +235,26 @@ where
                 "adapter execution id is empty".to_owned(),
             ));
         }
+        self.require_execution_grant(context, TimestampMicros::new(now_micros()))?;
         let mut transaction = self
             .store
             .begin_effect_update(context, effect_request_id)
             .await
             .map_err(EffectError::Store)?;
         let request = transaction.snapshot().request.clone();
-        self.require_attempt_authority(context, &request)?;
+        if latest_knowledge_commit_sequence(transaction.snapshot())
+            != command.expected_knowledge_commit_sequence
+        {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(EffectError::DispatchVersionMismatch);
+        }
+        let now = TimestampMicros::new(now_micros());
+        if let Err(error) = self.require_attempt_authority(context, &request, now) {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(error);
+        }
         if is_human_task_payload(&request.payload) {
-            refuse_expired_human_task(&request, TimestampMicros::new(now_micros()))?;
+            refuse_expired_human_task(&request, now)?;
         }
         if let Some(attempt_id) = transaction
             .claimed_attempt(&command.adapter_execution_id)
@@ -262,13 +309,21 @@ where
         effect_request_id: &EffectRequestId,
         command: EffectAttemptCommand,
     ) -> Result<EffectSnapshot, EffectError> {
+        self.require_execution_grant(context, TimestampMicros::new(now_micros()))?;
         let mut transaction = self
             .store
             .begin_effect_update(context, effect_request_id)
             .await
             .map_err(EffectError::Store)?;
         let snapshot = transaction.snapshot().clone();
-        self.require_attempt_authority(context, &snapshot.request)?;
+        if let Err(error) = self.require_attempt_authority(
+            context,
+            &snapshot.request,
+            TimestampMicros::new(now_micros()),
+        ) {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(error);
+        }
         if is_human_executor_workload(self, context)
             && matches!(
                 command.result,
@@ -324,7 +379,7 @@ where
         effect_request_id: &EffectRequestId,
         command: EffectReconcileCommand,
     ) -> Result<EffectSnapshot, EffectError> {
-        self.require_reconciler(context)?;
+        self.require_reconciler(context, TimestampMicros::new(now_micros()))?;
         if command.source_ref.is_empty() {
             return Err(EffectError::InvalidEvidence(
                 "source reference is empty".to_owned(),
@@ -335,6 +390,10 @@ where
             .begin_effect_update(context, effect_request_id)
             .await
             .map_err(EffectError::Store)?;
+        if let Err(error) = self.require_reconciler(context, TimestampMicros::new(now_micros())) {
+            transaction.rollback().await.map_err(EffectError::Store)?;
+            return Err(error);
+        }
         let snapshot = transaction.snapshot();
         if let Some(existing) = snapshot
             .evidence
@@ -381,25 +440,51 @@ where
         &self,
         context: &ExecutionContext,
         request: &EffectRequest,
+        at: TimestampMicros,
     ) -> Result<(), EffectError> {
-        if is_human_task_payload(&request.payload) {
-            if self
-                .allowed_executor_workloads
+        let role_allows = if is_human_task_payload(&request.payload) {
+            self.allowed_executor_workloads
                 .contains(context.workload_id())
-            {
-                Ok(())
-            } else {
-                Err(EffectError::ForbiddenWorkload)
-            }
-        } else if context.workload_id() == &self.worker_workload_id {
+        } else {
+            context.workload_id() == &self.worker_workload_id
+        };
+        if role_allows {
+            self.require_execution_grant(context, at)
+        } else {
+            Err(EffectError::ForbiddenWorkload)
+        }
+    }
+
+    fn require_execution_grant(
+        &self,
+        context: &ExecutionContext,
+        at: TimestampMicros,
+    ) -> Result<(), EffectError> {
+        if context.delegation().permits(
+            &self.execute_action_id,
+            &self.requests_resource_id,
+            context.workload_id(),
+            at,
+        ) {
             Ok(())
         } else {
             Err(EffectError::ForbiddenWorkload)
         }
     }
 
-    fn require_reconciler(&self, context: &ExecutionContext) -> Result<(), EffectError> {
-        if context.workload_id() == &self.reconciler_workload_id {
+    fn require_reconciler(
+        &self,
+        context: &ExecutionContext,
+        at: TimestampMicros,
+    ) -> Result<(), EffectError> {
+        if context.workload_id() == &self.reconciler_workload_id
+            && context.delegation().permits(
+                &self.reconcile_action_id,
+                &self.requests_resource_id,
+                context.workload_id(),
+                at,
+            )
+        {
             Ok(())
         } else {
             Err(EffectError::ForbiddenWorkload)

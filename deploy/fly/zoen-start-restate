@@ -1,11 +1,9 @@
 #!/bin/sh
 set -eu
 mkdir -p /data/restate
-unset RESTATE_INGRESS
-if [ -z "${RESTATE_INGRESS__BIND_ADDRESS:-}" ]; then
-  export RESTATE_INGRESS__BIND_ADDRESS=0.0.0.0:9071
-fi
-if [ -z "${RESTATE_ADMIN__BIND_ADDRESS:-}" ]; then
-  export RESTATE_ADMIN__BIND_ADDRESS=0.0.0.0:9070
-fi
-exec /usr/local/bin/restate-server --base-dir /data/restate
+exec env -i \
+  PATH=/usr/local/bin:/usr/bin:/bin \
+  RESTATE_ADMIN__BIND_ADDRESS=127.0.0.1:9070 \
+  RESTATE_INGRESS__BIND_ADDRESS=127.0.0.1:9071 \
+  RUST_LOG="${RUST_LOG:-info}" \
+  /usr/local/bin/restate-server --base-dir /data/restate

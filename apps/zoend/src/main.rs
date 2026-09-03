@@ -199,7 +199,7 @@ fn build_engines(boot: &BootRuntime) -> Result<OntologyServices, Box<dyn Error +
             boot.store.clone(),
             effect_worker_workload,
             effect_reconciler_workload,
-        )
+        )?
         .with_allowed_executor_workloads(human_executor_workloads),
         boot.sessions.clone(),
     );
@@ -264,6 +264,7 @@ fn build_routers(
         .add_service(Arc::new(services.world))
         .into_axum_router();
     let ready_routes = HttpRouter::new()
+        .route("/live", get(live))
         .route("/ready", get(ready))
         .with_state(ReadyState {
             classification: boot.classification,
@@ -316,6 +317,10 @@ async fn metrics() -> impl IntoResponse {
         )],
         zoen_engine::metrics::prometheus_text(),
     )
+}
+
+async fn live() -> impl IntoResponse {
+    (StatusCode::OK, "live\n")
 }
 
 async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {

@@ -8,7 +8,9 @@ import {
   sourceCommitKeys,
 } from "./scenario-evidence.js";
 
-if (process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP === "1") {
+export const e2eRunnerIsolatedProcessGroup =
+  process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP === "1";
+if (e2eRunnerIsolatedProcessGroup) {
   delete process.env.ZOEN_E2E_RUNNER_PROCESS_GROUP;
   process.once("SIGINT", () => process.exit(130));
   process.once("SIGTERM", () => process.exit(143));

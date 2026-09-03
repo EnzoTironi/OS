@@ -3,7 +3,7 @@ FROM rust:1.98-bookworm AS zoend
 WORKDIR /src
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-      pkg-config protobuf-compiler cmake clang binutils \
+      pkg-config=1.8.1-1 protobuf-compiler=3.21.12-3+deb12u1 cmake=3.25.1-1 clang=1:14.0-55.7~deb12u1 binutils=2.40-2 \
     && rm -rf /var/lib/apt/lists/*
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates crates
@@ -13,10 +13,16 @@ COPY wit wit
 RUN cargo build --locked --release --package zoend \
       --bin zoen \
       --bin zoen-effect-dispatcher \
+      --bin zoen-effect-handler \
+      --bin zoen-effect-registrar \
+      --bin zoen-http-connector \
       --bin zoen-projection \
     && strip --strip-debug \
       target/release/zoen \
       target/release/zoen-effect-dispatcher \
+      target/release/zoen-effect-handler \
+      target/release/zoen-effect-registrar \
+      target/release/zoen-http-connector \
       target/release/zoen-projection
 
 FROM node:22.18.0-bookworm-slim AS auth
@@ -33,8 +39,8 @@ COPY gen/connect gen/connect
 COPY testdata/lakes testdata/lakes
 COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
-RUN npm ci \
-    && npx tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
+RUN npm ci --ignore-scripts \
+    && node /app/node_modules/typescript/bin/tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
 
 FROM node:24.20.0-bookworm-slim AS conversation
 WORKDIR /conversation
@@ -47,12 +53,20 @@ RUN node ./node_modules/eve/bin/eve.js build
 FROM postgres:18
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
-      ca-certificates curl supervisor python3 \
+      ca-certificates=20250419 curl=8.14.1-2+deb13u4 supervisor=4.2.5-3 python3=3.13.5-1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=zoend /src/target/release/zoen /usr/local/bin/zoen
 COPY --from=zoend /src/target/release/zoen-effect-dispatcher /usr/local/bin/zoen-effect-dispatcher
+COPY --from=zoend /src/target/release/zoen-effect-handler /usr/local/bin/zoen-effect-handler
+COPY --from=zoend /src/target/release/zoen-effect-registrar /usr/local/bin/zoen-effect-registrar
+COPY --from=zoend /src/target/release/zoen-http-connector /usr/local/bin/zoen-http-connector
 COPY --from=zoend /src/target/release/zoen-projection /usr/local/bin/zoen-projection
+ARG ZOEN_BUILD_REVISION
+RUN test -n "${ZOEN_BUILD_REVISION}" \
+    && /usr/local/bin/zoen write-build-artifact \
+      "${ZOEN_BUILD_REVISION}" \
+      /usr/local/bin
 COPY --from=personal-lake /usr/local/bin/node /usr/local/bin/node
 COPY --from=personal-lake /app /app
 COPY --from=auth /auth /auth
@@ -70,10 +84,15 @@ COPY deploy/fly/zoen-ensure-minio-bucket /usr/local/bin/zoen-ensure-minio-bucket
 COPY deploy/fly/zoen-wait-for-pg /usr/local/bin/zoen-wait-for-pg
 COPY deploy/fly/zoen-start-projection /usr/local/bin/zoen-start-projection
 COPY deploy/fly/zoen-start-restate /usr/local/bin/zoen-start-restate
+COPY deploy/fly/zoen-start-effect-dispatcher /usr/local/bin/zoen-start-effect-dispatcher
+COPY deploy/fly/zoen-start-effect-handler /usr/local/bin/zoen-start-effect-handler
+COPY deploy/fly/zoen-start-http-connector /usr/local/bin/zoen-start-http-connector
 COPY deploy/fly/policies.json /etc/zoen/policies.json
 COPY deploy/fly/zoen-remint-agent /usr/local/bin/zoen-remint-agent
 COPY deploy/fly/zoen-ensure-agent-binding /usr/local/bin/zoen-ensure-agent-binding
+COPY deploy/fly/zoen-ensure-effect-workload-credential /usr/local/bin/zoen-ensure-effect-workload-credential
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
+COPY deploy/fly/zoen-register-effects /usr/local/bin/zoen-register-effects
 COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
 COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY testdata/lakes/commercial.canonical.json /etc/zoen/commercial.canonical.json

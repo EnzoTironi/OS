@@ -116,6 +116,7 @@ message EffectAttemptInput {
 message ClaimAttemptRequest {
   string effect_request_id = 1;
   string adapter_execution_id = 2;
+  uint64 expected_knowledge_commit_sequence = 3;
 }
 
 message EffectAttemptClaim {

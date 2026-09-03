@@ -98,6 +98,7 @@ export async function commitEffect(
   const committed = await action.commit({ operationId, proposalId });
   assert.equal(committed.status, CommitStatus.COMMITTED);
   assert.ok(committed.receipt);
+  assert.equal(committed.receipt.effectRequestIds.length, 1);
   const effectRequestId = committed.receipt.effectRequestIds[0];
   assert.ok(effectRequestId);
   return {

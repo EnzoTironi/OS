@@ -5,7 +5,6 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
@@ -73,6 +72,7 @@ import {
   e2eListenAddr,
   e2ePort,
   e2ePostgresUrl,
+  e2eRunnerIsolatedProcessGroup,
   e2eWhatsAppDoorE164,
 } from "../host-env.js";
 
@@ -87,6 +87,8 @@ export {
 };
 
 export const repositoryRoot = process.cwd();
+const DETACH_CHILDREN =
+  process.platform !== "win32" && !e2eRunnerIsolatedProcessGroup;
 export const scenarioDirectory = path.join(
   repositoryRoot,
   "e2e",
@@ -115,6 +117,7 @@ export const adminDatabaseUrl = e2ePostgresUrl(
 export const authDatabaseUrl = e2eAuthDatabaseUrl(postgresPortFallback);
 export const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", zoendPortFallback);
 export const actionId = "inventory.requestStock";
+export const humanActionId = `${actionId}.humanExecutor`;
 export const activationActionId = "zoen.definition.activate";
 export const definitionId = "inventory.governed";
 export const resourceId = "inventory.item.1";
@@ -123,7 +126,7 @@ const availableRelation = "inventory.available";
 export const tenantA = "tenant.a";
 export const tenantB = "tenant.b";
 const validAt = new Date("2026-08-19T00:00:00.000Z");
-const stockActions = ["inventory.requestStock"] as const;
+const stockActions = [actionId, humanActionId] as const;
 const stockResources = ["inventory.item.1"] as const;
 const adminDefinitionIds = [
   "inventory.governed",
@@ -137,8 +140,13 @@ const adminActions = [
   definitionPublishActionId,
   "zoen.definition.activate",
   "inventory.requestStock",
+  "zoen.workload.manageCredentials",
 ] as const;
-const adminResources = [...adminDefinitionIds, ...stockResources];
+const adminResources = [
+  ...adminDefinitionIds,
+  ...stockResources,
+  "zoen.workload.credentials",
+];
 
 export async function plantGovernedActionDoor(
   door: AuthDoor,
@@ -208,33 +216,6 @@ export const governedActionPersonas: readonly DoorPersona[] = [
     tenantId: tenantA,
     workloadId: "workload.expired.a",
   }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-worker.a",
-    id: "effect-worker-a",
-    principalId: "principal.effect-worker.a",
-    resourceIds: stockResources,
-    tenantId: tenantA,
-    workloadId: "workload.effect-worker",
-  }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-worker.b",
-    id: "effect-worker-b",
-    principalId: "principal.effect-worker.b",
-    resourceIds: stockResources,
-    tenantId: tenantB,
-    workloadId: "workload.effect-worker",
-  }),
-  invitePersona({
-    actionIds: stockActions,
-    actorId: "actor.effect-reconciler.a",
-    id: "effect-reconciler-a",
-    principalId: "principal.effect-reconciler.a",
-    resourceIds: stockResources,
-    tenantId: tenantA,
-    workloadId: "workload.effect-reconciler",
-  }),
 ];
 
 export type ActionClient = Client<typeof ActionService>;
@@ -242,6 +223,7 @@ export type DefinitionClient = Client<typeof DefinitionService>;
 export type WorldClient = Client<typeof WorldService>;
 
 export interface DefinitionFixture {
+  actionId?: string;
   canonicalJson: string;
   definition: DefinitionReference;
   digest: string;
@@ -308,6 +290,7 @@ export async function loadFixture(
   );
   const digest = sha256(canonicalJson);
   return {
+    actionId,
     canonicalJson,
     definition: create(DefinitionReferenceSchema, {
       definitionId: fixtureDefinitionId(name),
@@ -402,7 +385,7 @@ export async function writePolicyManifest(
             revision: fixture.policyRevision,
           }),
           {
-            actionId,
+            actionId: fixture.actionId ?? actionId,
             definitionDigest: fixture.digest,
             digest: fixture.policyDigest,
             policyId: fixture.policyId,
@@ -561,7 +544,7 @@ interface ProposeInput {
 
 export function propose(client: ActionClient, input: ProposeInput) {
   return client.propose({
-    actionId,
+    actionId: input.fixture.actionId ?? actionId,
     definition: input.fixture.definition,
     expiresAt: timestampFromDate(input.expiresAt),
     inputs: [integerInput("quantity", input.quantity), ...(input.extraInputs ?? [])],
@@ -683,6 +666,7 @@ export async function startServer(
   delete env.ZOEN_OIDC_ISSUER;
   const child = spawn(serverPath, ["serve"], {
     cwd: repositoryRoot,
+    detached: DETACH_CHILDREN,
     env,
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -694,16 +678,75 @@ export async function startServer(
 }
 
 export async function stopServer(server: ServerProcess): Promise<void> {
-  if (server.child.exitCode !== null) {
+  if (server.child.exitCode !== null || server.child.signalCode !== null) {
     return;
   }
-  server.child.kill("SIGINT");
-  await once(server.child, "exit");
-  assert.equal(
-    server.child.exitCode,
-    0,
+  signalServerChild(server.child, "SIGINT");
+  try {
+    await waitForServerExit(server.child, 10_000);
+  } catch {
+    if (server.child.exitCode === null && server.child.signalCode === null) {
+      signalServerChild(server.child, "SIGKILL");
+    }
+    await waitForServerExit(server.child, 3_000);
+  }
+  assert.ok(
+    server.child.exitCode === 0 ||
+      server.child.signalCode === "SIGINT" ||
+      server.child.signalCode === "SIGKILL" ||
+      server.child.signalCode === "SIGTERM",
     `zoend failed during shutdown:\n${server.output.join("")}`,
   );
+}
+
+function signalServerChild(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): void {
+  if (DETACH_CHILDREN && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {}
+  }
+  child.kill(signal);
+}
+
+function waitForServerExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const onExit = () => finish();
+    const onError = () => finish();
+    const timer = globalThis.setTimeout(
+      () => finish(new Error(`zoend did not exit within ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    child.once("exit", onExit);
+    child.once("error", onError);
+    if (child.exitCode !== null || child.signalCode !== null) {
+      finish();
+    }
+  });
 }
 
 async function waitForPort(
