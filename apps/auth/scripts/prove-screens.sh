@@ -253,9 +253,9 @@ record "GET /api/auth/callback/google" "$command" "$url" "$status" "$excerpt" "$
 [[ "$excerpt" == "$google_msg" ]] || fail "GET /api/auth/callback/google missing Google unset sentence"
 
 url="${base}/api/auth/device/code"
-command="curl -sS -o body -w %{http_code} -H content-type:application/json -d {\"client_id\":\"zoen-cli\"} ${url}"
+command="curl -sS -o body -w %{http_code} -H content-type:application/json -d {\"client_id\":\"zoen\"} ${url}"
 body="${work}/device-code"
-status="$(post_json "$url" '{"client_id":"zoen-cli"}' "$body")"
+status="$(post_json "$url" '{"client_id":"zoen"}' "$body")"
 ts="$(stamp)"
 keys="$(device_fields < "$body")" || fail "POST /api/auth/device/code ${keys:-bad body}"
 : > "$body"
