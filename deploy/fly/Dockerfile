@@ -39,9 +39,9 @@ COPY apps/zoend/effect-registrar apps/zoend/effect-registrar
 COPY deploy/fly/tsconfig.personal-lake.json deploy/fly/tsconfig.personal-lake.json
 COPY deploy/fly/tsconfig.ontology-runtime.json deploy/fly/tsconfig.ontology-runtime.json
 COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
-RUN npm ci \
-    && /app/node_modules/.bin/tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false \
-    && /app/node_modules/.bin/tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
+RUN npm ci --ignore-scripts \
+    && node /app/node_modules/typescript/bin/tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false \
+    && node /app/node_modules/typescript/bin/tsc -p deploy/fly/tsconfig.ontology-runtime.json --pretty false \
     && test -n "${ZOEN_BUILD_REVISION}" \
     && node /app/apps/zoend/effect-handler/write-build-artifact.mjs \
       "${ZOEN_BUILD_REVISION}" \
