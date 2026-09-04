@@ -9,7 +9,7 @@ CREATE TABLE world_link_assertions (
     link_assertion_id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds (world_id),
     link_type TEXT NOT NULL,
-    definition_digest CHAR(64) NOT NULL CHECK (definition_digest ~ '^[0-9a-f]{64}$'),
+    definition_digest CHAR(64) NOT NULL,
     source_entity_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     source_assignment_id TEXT NOT NULL,
@@ -20,10 +20,18 @@ CREATE TABLE world_link_assertions (
     valid_end_micros BIGINT,
     evidence_ref TEXT NOT NULL,
     receipt_id TEXT NOT NULL UNIQUE REFERENCES world_kernel_receipts (receipt_id),
-    release_digest CHAR(64) NOT NULL CHECK (release_digest ~ '^[0-9a-f]{64}$'),
-    policy_digest CHAR(64) NOT NULL CHECK (policy_digest ~ '^[0-9a-f]{64}$'),
-    assertion_digest CHAR(64) NOT NULL CHECK (assertion_digest ~ '^[0-9a-f]{64}$'),
+    release_digest CHAR(64) NOT NULL,
+    policy_digest CHAR(64) NOT NULL,
+    assertion_digest CHAR(64) NOT NULL,
     admitted_at_micros BIGINT NOT NULL,
+    CONSTRAINT world_link_assertions_digests_are_sha256 CHECK (
+        (
+            definition_digest::TEXT
+            || release_digest::TEXT
+            || policy_digest::TEXT
+            || assertion_digest::TEXT
+        ) ~ '^([0-9a-f]{64}){4}$'
+    ),
     CONSTRAINT world_link_assertions_valid_interval CHECK (
         valid_end_micros IS NULL OR valid_end_micros > valid_start_micros
     ),
@@ -65,15 +73,23 @@ CREATE TABLE world_identifier_assignments (
     share_class TEXT CHECK (share_class IS NULL OR btrim(share_class) <> ''),
     provider TEXT CHECK (provider IS NULL OR btrim(provider) <> ''),
     identifier_level TEXT CHECK (identifier_level IS NULL OR btrim(identifier_level) <> ''),
-    context_digest CHAR(64) NOT NULL CHECK (context_digest ~ '^[0-9a-f]{64}$'),
+    context_digest CHAR(64) NOT NULL,
     valid_start_micros BIGINT NOT NULL,
     valid_end_micros BIGINT,
     evidence_ref TEXT NOT NULL,
     receipt_id TEXT NOT NULL UNIQUE REFERENCES world_kernel_receipts (receipt_id),
-    release_digest CHAR(64) NOT NULL CHECK (release_digest ~ '^[0-9a-f]{64}$'),
-    policy_digest CHAR(64) NOT NULL CHECK (policy_digest ~ '^[0-9a-f]{64}$'),
-    assertion_digest CHAR(64) NOT NULL CHECK (assertion_digest ~ '^[0-9a-f]{64}$'),
+    release_digest CHAR(64) NOT NULL,
+    policy_digest CHAR(64) NOT NULL,
+    assertion_digest CHAR(64) NOT NULL,
     admitted_at_micros BIGINT NOT NULL,
+    CONSTRAINT world_identifier_assignments_digests_are_sha256 CHECK (
+        (
+            context_digest::TEXT
+            || release_digest::TEXT
+            || policy_digest::TEXT
+            || assertion_digest::TEXT
+        ) ~ '^([0-9a-f]{64}){4}$'
+    ),
     CONSTRAINT world_identifier_assignments_context_required CHECK (
         venue_entity_id IS NOT NULL
         OR mic IS NOT NULL

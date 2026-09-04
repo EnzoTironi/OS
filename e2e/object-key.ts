@@ -41,6 +41,21 @@ interface ZoenResult {
   body?: Record<string, unknown>;
 }
 
+interface TypedArtifactFixture {
+  committedIdentifierNyse: ZoenResult;
+  identifierHidden: string;
+  identifierNyse: string;
+  linkNyse: string;
+  listingExpiringType: string;
+  listingHidden: string;
+  listingHiddenType: string;
+  listingNyse: string;
+  listingNyseType: string;
+  venueHidden: string;
+  venueNyse: string;
+  venueNyseType: string;
+}
+
 const owner: Actor = {
   principal: "principal.owner",
   membership: "membership.clinic.owner",
@@ -91,6 +106,11 @@ const assertions: Record<string, boolean> = {};
 function record(name: string, observed: boolean): void {
   assert.ok(observed, name);
   assertions[name] = observed;
+}
+
+function requireString(value: unknown, label: string): string {
+  assert.ok(typeof value === "string", `${label} must be a string`);
+  return value;
 }
 
 function runZoen(args: string[]): ZoenResult {
@@ -316,7 +336,7 @@ function activateRelease(digest: string): void {
     owner.membership,
   ]);
   assert.equal(preview.status, 0, preview.stderr);
-  const previewDigest = String(preview.body?.previewDigest);
+  const previewDigest = requireString(preview.body?.previewDigest, "previewDigest");
   const decide = runZoen([
     "world",
     "release",
@@ -502,114 +522,7 @@ async function assertNoMaterialization(
   );
 }
 
-async function main(): Promise<void> {
-  const startedAt = new Date().toISOString();
-  const sourceCommit = gitHead(repositoryRoot);
-  const policy = policyCatalogBytes();
-  const contentPath = await writeZoenJsonFile(generatedDirectory, "world.json", {
-    world,
-    parent: null,
-    ontology: { bytes: ontologyBytes() },
-    policy: { bytes: policy },
-    executors: { bytes: "executor catalog object-key v1\n" },
-    components: { bytes: "component catalog object-key v1\n" },
-  });
-  const release = constructWorldRelease(zoenPath, databaseUrl, contentPath);
-
-  await bootstrapSchema();
-  await seedMemberships();
-  const published = publish(contentPath);
-  assert.equal(published.status, 0, published.stderr);
-  activateRelease(String(release.digest));
-
-  const discovered = kernel("discover", builder, ["--world", world]);
-  assert.equal(discovered.status, 0, discovered.stderr);
-  record(
-    "catalog_exposes_only_the_seven_ontology_verbs",
-    JSON.stringify(discovered.body?.publicVerbs) === JSON.stringify(sevenVerbs),
-  );
-  const mismatched = kernel("propose", { ...builder, membership: owner.membership }, [
-    "--world",
-    world,
-    "--proposal-id",
-    "proposal.mismatched.membership",
-    "--input",
-    JSON.stringify({ operation: "mismatch" }),
-  ]);
-  record(
-    "kernel_actor_requires_matching_durable_membership",
-    mismatched.status !== 0 && mismatched.stderr.toLowerCase().includes("denied"),
-  );
-
-  const entity = "memory.dentist";
-  const assignmentId = "type-assignment.memory.dentist";
-  const proposalId = "proposal.memory.dentist";
-  const draft = typeAssignmentDraft({ assignmentId, entity, objectType: memoryType });
-  const proposed = propose(builder, proposalId, draft);
-  assert.equal(proposed.status, 0, proposed.stderr);
-  await assertNoMaterialization(proposalId, entity, assignmentId);
-  const decided = decide(owner, proposalId);
-  assert.equal(decided.status, 0, decided.stderr);
-  await assertNoMaterialization(proposalId, entity, assignmentId);
-
-  const committed = commit(owner, proposalId);
-  assert.equal(committed.status, 0, committed.stderr);
-  const receiptId = String(committed.body?.receiptId ?? "");
-  record("commit_returns_receipt", receiptId === `receipt.kernel.${proposalId}`);
-  record(
-    "receipt_object_assignment_and_grant_materialize_together",
-    (await scalarCount(
-      `SELECT COUNT(*)::text AS count
-       FROM world_kernel_receipts r
-       JOIN world_type_assignments a ON a.receipt_id = r.receipt_id
-       JOIN world_object_keys o
-         ON o.world_id = a.world_id AND o.entity_id = a.entity_id
-       JOIN world_typed_object_grants g
-         ON g.type_assignment_id = a.assignment_id
-        AND g.world_id = a.world_id
-        AND g.entity_id = a.entity_id
-        AND g.object_type = a.object_type
-       WHERE r.proposal_id = $1
-         AND a.assignment_id = $2
-         AND o.minted_by = $3
-         AND g.principal_id = $4
-         AND g.membership_id = $5`,
-      [proposalId, assignmentId, builder.principal, human.principal, human.membership],
-    )) === 1,
-  );
-
-  const explained = kernel("explain", owner, ["--receipt-id", receiptId]);
-  assert.equal(explained.status, 0, explained.stderr);
-  const explanation = JSON.parse(String(explained.body?.explanationJcs)) as {
-    typedArtifact?: {
-      assignmentId?: string;
-      evidenceRef?: string;
-      objectKey?: { world?: string; entity?: string };
-    };
-  };
-  record(
-    "commit_derives_attributed_evidence_reference",
-    explanation.typedArtifact?.assignmentId === assignmentId &&
-      /^evidence\.[0-9a-f]{64}$/.test(explanation.typedArtifact.evidenceRef ?? "") &&
-      explanation.typedArtifact.objectKey?.world === world &&
-      explanation.typedArtifact.objectKey.entity === entity,
-  );
-
-  const replay = commit(owner, proposalId);
-  assert.equal(replay.status, 0, replay.stderr);
-  record("commit_replay_returns_same_receipt", replay.body?.receiptId === receiptId);
-  record(
-    "commit_replay_keeps_exact_single_materialization",
-    (await scalarCount(
-      "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE receipt_id = $1",
-      [receiptId],
-    )) === 1 &&
-      (await scalarCount(
-        "SELECT COUNT(*)::text AS count FROM world_typed_object_grants WHERE type_assignment_id = $1",
-        [assignmentId],
-      )) === 1,
-  );
-
+function admitTypedArtifacts(): TypedArtifactFixture {
   const venueNyse = "venue.xnys";
   const venueHidden = "venue.hidden";
   const listingNyse = "listing.ibm.xnys";
@@ -689,7 +602,6 @@ async function main(): Promise<void> {
     }),
   );
   const linkNyse = "link-assertion.ibm.xnys";
-  const linkHidden = "link-assertion.ibm.hidden";
   commitDraft(
     "proposal.link.ibm.xnys",
     typedLinkDraft({
@@ -703,7 +615,7 @@ async function main(): Promise<void> {
   commitDraft(
     "proposal.link.ibm.hidden",
     typedLinkDraft({
-      assertionId: linkHidden,
+      assertionId: "link-assertion.ibm.hidden",
       sourceEntity: listingHidden,
       sourceAssignment: listingHiddenType,
       targetEntity: venueHidden,
@@ -711,6 +623,23 @@ async function main(): Promise<void> {
     }),
   );
 
+  return {
+    committedIdentifierNyse,
+    identifierHidden,
+    identifierNyse,
+    linkNyse,
+    listingExpiringType,
+    listingHidden,
+    listingHiddenType,
+    listingNyse,
+    listingNyseType,
+    venueHidden,
+    venueNyse,
+    venueNyseType,
+  };
+}
+
+function proveTypedArtifactQueries(fixture: TypedArtifactFixture): void {
   const ambiguous = kernel("query", human, [
     "--world",
     world,
@@ -740,32 +669,38 @@ async function main(): Promise<void> {
           candidate.context.identifierLevel === "listing",
       ),
   );
+  const computeDigest = requireString(ambiguous.body?.computeDigest, "computeDigest");
+  const queryExplanation = requireString(ambiguous.body?.explanationJcs, "explanationJcs");
   record(
     "identifier_query_binds_server_budget_compute_and_policy_explanation",
     ambiguous.body?.budgetId === "budget.query.default" &&
-      /^[0-9a-f]{64}$/.test(String(ambiguous.body?.computeDigest ?? "")) &&
-      String(ambiguous.body?.explanationJcs ?? "").includes('"scannedUnauthorized":false'),
+      /^[0-9a-f]{64}$/.test(computeDigest) &&
+      queryExplanation.includes('"scannedUnauthorized":false'),
   );
   const nyseCandidate = candidates.find(
-    (candidate) => candidate.identifierAssignmentId === identifierNyse,
+    (candidate) => candidate.identifierAssignmentId === fixture.identifierNyse,
   );
   const hiddenCandidate = candidates.find(
-    (candidate) => candidate.identifierAssignmentId === identifierHidden,
+    (candidate) => candidate.identifierAssignmentId === fixture.identifierHidden,
   );
   record(
     "typed_links_project_only_authorized_targets",
     nyseCandidate?.links?.length === 1 &&
       nyseCandidate.links[0]?.linkType === tradesOnLink &&
-      nyseCandidate.links[0]?.targetObject === venueNyse &&
+      nyseCandidate.links[0]?.targetObject === fixture.venueNyse &&
       hiddenCandidate?.links?.length === 0,
+  );
+  const identifierReceipt = requireString(
+    fixture.committedIdentifierNyse.body?.receiptId,
+    "receiptId",
   );
   const identifierExplanation = kernel("explain", owner, [
     "--receipt-id",
-    String(committedIdentifierNyse.body?.receiptId ?? ""),
+    identifierReceipt,
   ]);
   assert.equal(identifierExplanation.status, 0, identifierExplanation.stderr);
   const identifierExplanationBody = JSON.parse(
-    String(identifierExplanation.body?.explanationJcs ?? "{}"),
+    requireString(identifierExplanation.body?.explanationJcs, "explanationJcs"),
   ) as {
     typedArtifact?: {
       evidenceRef?: string;
@@ -776,7 +711,7 @@ async function main(): Promise<void> {
   record(
     "identifier_commit_derives_evidence_release_and_policy_explanation",
     identifierExplanationBody.typedArtifact?.kind === "identifierAssignment" &&
-      identifierExplanationBody.typedArtifact.identifierAssignmentId === identifierNyse &&
+      identifierExplanationBody.typedArtifact.identifierAssignmentId === fixture.identifierNyse &&
       /^evidence\.[0-9a-f]{64}$/.test(
         identifierExplanationBody.typedArtifact.evidenceRef ?? "",
       ),
@@ -794,7 +729,7 @@ async function main(): Promise<void> {
     afterHiddenExpiry.status === 0 &&
       afterHiddenExpiry.body?.authorizedCount === 1 &&
       ((afterHiddenExpiry.body?.candidates ?? []) as Array<{ identifierAssignmentId?: string }>)[0]
-        ?.identifierAssignmentId === identifierNyse,
+        ?.identifierAssignmentId === fixture.identifierNyse,
   );
   const firstPage = kernel("query", human, [
     "--world",
@@ -807,7 +742,7 @@ async function main(): Promise<void> {
     "1",
   ]);
   assert.equal(firstPage.status, 0, firstPage.stderr);
-  const cursor = String(firstPage.body?.nextCursor ?? "");
+  const cursor = requireString(firstPage.body?.nextCursor, "nextCursor");
   const secondPage = kernel("query", human, [
     "--world",
     world,
@@ -858,13 +793,15 @@ async function main(): Promise<void> {
       unauthorizedQuery.stderr.toLowerCase().includes("denied") &&
       !unauthorizedQuery.stderr.includes("IBM"),
   );
+}
 
+function proveTypedLinkVisibilityRecovery(fixture: TypedArtifactFixture): void {
   const venueHiddenRecoveryType = "type-assignment.venue.hidden.recovery";
   commitDraft(
     "proposal.type.venue.hidden.recovery",
     typeAssignmentDraft({
       assignmentId: venueHiddenRecoveryType,
-      entity: venueHidden,
+      entity: fixture.venueHidden,
       objectType: venueType,
     }),
   );
@@ -872,9 +809,9 @@ async function main(): Promise<void> {
     "proposal.link.ibm.hidden.recovery",
     typedLinkDraft({
       assertionId: "link-assertion.ibm.hidden.recovery",
-      sourceEntity: listingHidden,
-      sourceAssignment: listingHiddenType,
-      targetEntity: venueHidden,
+      sourceEntity: fixture.listingHidden,
+      sourceAssignment: fixture.listingHiddenType,
+      targetEntity: fixture.venueHidden,
       targetAssignment: venueHiddenRecoveryType,
     }),
   );
@@ -891,24 +828,26 @@ async function main(): Promise<void> {
       identifierAssignmentId?: string;
       links?: Array<{ targetObject?: string }>;
     }>
-  ).find((candidate) => candidate.identifierAssignmentId === identifierHidden);
+  ).find((candidate) => candidate.identifierAssignmentId === fixture.identifierHidden);
   record(
     "new_governed_target_assignment_recovers_link_visibility",
     recoveredTarget.status === 0 &&
       recoveredHidden?.links?.length === 1 &&
-      recoveredHidden.links[0]?.targetObject === venueHidden,
+      recoveredHidden.links[0]?.targetObject === fixture.venueHidden,
   );
+}
 
+async function proveTypedArtifactNegativeCases(fixture: TypedArtifactFixture): Promise<void> {
   const crossWorldLinkProposal = "proposal.link.invalid.world";
   const crossWorldLinkDraft = typedLinkDraft({
     assertionId: "link-assertion.invalid.world",
-    sourceEntity: listingNyse,
-    sourceAssignment: listingNyseType,
-    targetEntity: venueNyse,
-    targetAssignment: venueNyseType,
+    sourceEntity: fixture.listingNyse,
+    sourceAssignment: fixture.listingNyseType,
+    targetEntity: fixture.venueNyse,
+    targetAssignment: fixture.venueNyseType,
   });
   const crossWorldLinkAssertion = crossWorldLinkDraft.linkAssertion as Record<string, unknown>;
-  crossWorldLinkAssertion.target = { world: "world.other", entity: venueNyse };
+  crossWorldLinkAssertion.target = { world: "world.other", entity: fixture.venueNyse };
   assert.equal(propose(builder, crossWorldLinkProposal, crossWorldLinkDraft).status, 0);
   assert.equal(decide(owner, crossWorldLinkProposal).status, 0);
   record(
@@ -923,9 +862,9 @@ async function main(): Promise<void> {
   const crossWorldIdentifierProposal = "proposal.identifier.invalid.world";
   const crossWorldIdentifierDraft = identifierAssignmentDraft({
     assignmentId: "identifier-assignment.invalid.world",
-    entity: listingNyse,
-    typeAssignment: listingNyseType,
-    venueEntity: venueNyse,
+    entity: fixture.listingNyse,
+    typeAssignment: fixture.listingNyseType,
+    venueEntity: fixture.venueNyse,
   });
   const crossWorldIdentifier = crossWorldIdentifierDraft.identifierAssignment as Record<
     string,
@@ -933,7 +872,7 @@ async function main(): Promise<void> {
   >;
   (crossWorldIdentifier.context as Record<string, unknown>).venue = {
     world: "world.other",
-    entity: venueNyse,
+    entity: fixture.venueNyse,
   };
   assert.equal(
     propose(builder, crossWorldIdentifierProposal, crossWorldIdentifierDraft).status,
@@ -956,10 +895,10 @@ async function main(): Promise<void> {
       invalidLinkProposal,
       typedLinkDraft({
         assertionId: "link-assertion.invalid.interval",
-        sourceEntity: listingNyse,
-        sourceAssignment: listingExpiringType,
-        targetEntity: venueNyse,
-        targetAssignment: venueNyseType,
+        sourceEntity: fixture.listingNyse,
+        sourceAssignment: fixture.listingExpiringType,
+        targetEntity: fixture.venueNyse,
+        targetAssignment: fixture.venueNyseType,
         validEndMicros: 300,
       }),
     ).status,
@@ -989,8 +928,8 @@ async function main(): Promise<void> {
       emptyContextProposal,
       identifierAssignmentDraft({
         assignmentId: "identifier-assignment.invalid.context",
-        entity: listingNyse,
-        typeAssignment: listingNyseType,
+        entity: fixture.listingNyse,
+        typeAssignment: fixture.listingNyseType,
       }),
     ).status,
     0,
@@ -1009,13 +948,132 @@ async function main(): Promise<void> {
       linkReplay.status === 0 &&
       (await scalarCount(
         "SELECT COUNT(*)::text AS count FROM world_identifier_assignments WHERE identifier_assignment_id = $1",
-        [identifierNyse],
+        [fixture.identifierNyse],
       )) === 1 &&
       (await scalarCount(
         "SELECT COUNT(*)::text AS count FROM world_link_assertions WHERE link_assertion_id = $1",
-        [linkNyse],
+        [fixture.linkNyse],
       )) === 1,
   );
+}
+
+async function main(): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const sourceCommit = gitHead(repositoryRoot);
+  const policy = policyCatalogBytes();
+  const contentPath = await writeZoenJsonFile(generatedDirectory, "world.json", {
+    world,
+    parent: null,
+    ontology: { bytes: ontologyBytes() },
+    policy: { bytes: policy },
+    executors: { bytes: "executor catalog object-key v1\n" },
+    components: { bytes: "component catalog object-key v1\n" },
+  });
+  const release = constructWorldRelease(zoenPath, databaseUrl, contentPath);
+
+  await bootstrapSchema();
+  await seedMemberships();
+  const published = publish(contentPath);
+  assert.equal(published.status, 0, published.stderr);
+  activateRelease(requireString(release.digest, "release digest"));
+
+  const discovered = kernel("discover", builder, ["--world", world]);
+  assert.equal(discovered.status, 0, discovered.stderr);
+  record(
+    "catalog_exposes_only_the_seven_ontology_verbs",
+    JSON.stringify(discovered.body?.publicVerbs) === JSON.stringify(sevenVerbs),
+  );
+  const mismatched = kernel("propose", { ...builder, membership: owner.membership }, [
+    "--world",
+    world,
+    "--proposal-id",
+    "proposal.mismatched.membership",
+    "--input",
+    JSON.stringify({ operation: "mismatch" }),
+  ]);
+  record(
+    "kernel_actor_requires_matching_durable_membership",
+    mismatched.status !== 0 && mismatched.stderr.toLowerCase().includes("denied"),
+  );
+
+  const entity = "memory.dentist";
+  const assignmentId = "type-assignment.memory.dentist";
+  const proposalId = "proposal.memory.dentist";
+  const draft = typeAssignmentDraft({ assignmentId, entity, objectType: memoryType });
+  const proposed = propose(builder, proposalId, draft);
+  assert.equal(proposed.status, 0, proposed.stderr);
+  await assertNoMaterialization(proposalId, entity, assignmentId);
+  const decided = decide(owner, proposalId);
+  assert.equal(decided.status, 0, decided.stderr);
+  await assertNoMaterialization(proposalId, entity, assignmentId);
+
+  const committed = commit(owner, proposalId);
+  assert.equal(committed.status, 0, committed.stderr);
+  const receiptId = requireString(committed.body?.receiptId, "receiptId");
+  record("commit_returns_receipt", receiptId === `receipt.kernel.${proposalId}`);
+  record(
+    "receipt_object_assignment_and_grant_materialize_together",
+    (await scalarCount(
+      `SELECT COUNT(*)::text AS count
+       FROM world_kernel_receipts r
+       JOIN world_type_assignments a ON a.receipt_id = r.receipt_id
+       JOIN world_object_keys o
+         ON o.world_id = a.world_id AND o.entity_id = a.entity_id
+       JOIN world_typed_object_grants g
+         ON g.type_assignment_id = a.assignment_id
+        AND g.world_id = a.world_id
+        AND g.entity_id = a.entity_id
+        AND g.object_type = a.object_type
+       WHERE r.proposal_id = $1
+         AND a.assignment_id = $2
+         AND o.minted_by = $3
+         AND g.principal_id = $4
+         AND g.membership_id = $5`,
+      [proposalId, assignmentId, builder.principal, human.principal, human.membership],
+    )) === 1,
+  );
+
+  const explained = kernel("explain", owner, ["--receipt-id", receiptId]);
+  assert.equal(explained.status, 0, explained.stderr);
+  const explanation = JSON.parse(
+    requireString(explained.body?.explanationJcs, "explanationJcs"),
+  ) as {
+    typedArtifact?: {
+      assignmentId?: string;
+      evidenceRef?: string;
+      objectKey?: { world?: string; entity?: string };
+    };
+  };
+  record(
+    "commit_derives_attributed_evidence_reference",
+    explanation.typedArtifact?.assignmentId === assignmentId &&
+      /^evidence\.[0-9a-f]{64}$/.test(explanation.typedArtifact.evidenceRef ?? "") &&
+      explanation.typedArtifact.objectKey?.world === world &&
+      explanation.typedArtifact.objectKey.entity === entity,
+  );
+
+  const replay = commit(owner, proposalId);
+  assert.equal(replay.status, 0, replay.stderr);
+  record("commit_replay_returns_same_receipt", replay.body?.receiptId === receiptId);
+  record(
+    "commit_replay_keeps_exact_single_materialization",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE receipt_id = $1",
+      [receiptId],
+    )) === 1 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_typed_object_grants WHERE type_assignment_id = $1",
+        [assignmentId],
+      )) === 1,
+  );
+
+  const typedArtifacts = admitTypedArtifacts();
+
+  proveTypedArtifactQueries(typedArtifacts);
+
+  proveTypedLinkVisibilityRecovery(typedArtifacts);
+
+  await proveTypedArtifactNegativeCases(typedArtifacts);
 
   const recoveryProposal = "proposal.membership.recovery";
   const recoveryEntity = "memory.recovery";
