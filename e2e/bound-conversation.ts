@@ -434,9 +434,7 @@ async function waitForBlockedDoorAccountResolution(
            FROM pg_stat_activity AS activity
           WHERE activity.pid <> $1
             AND activity.datname = current_database()
-            AND activity.wait_event_type = 'Lock'
-            AND position('FROM channel_bindings' IN activity.query) > 0
-            AND position('WHERE provider = $1' IN activity.query) > 0
+            AND $1 = ANY(pg_blocking_pids(activity.pid))
        ) AS blocked`,
       [lockerPid],
     );
