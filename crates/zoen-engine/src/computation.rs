@@ -8,11 +8,11 @@ use std::{
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    ActionId, ActionInput, CapabilityId, CapabilityManifestDigest, ClaimId, CommitSequence,
-    ComponentDigest, ComponentExecutionEvidence, ComponentInterface, DefinitionReference, EntityId,
-    ExactInteger, ExactValue, ExecutionContext, ExecutionId, ExecutionRequestDigest,
-    ExecutionResultDigest, IntentDigest, OperationId, ProposalId, ResourceId, SemanticSelection,
-    TimestampMicros,
+    ActionId, ActionInput, BudgetClass, CapabilityId, CapabilityManifestDigest, ClaimId,
+    CommitSequence, ComponentDigest, ComponentExecutionEvidence, ComponentInterface,
+    DefinitionReference, EntityId, ExactInteger, ExactValue, ExecutionContext, ExecutionId,
+    ExecutionRequestDigest, ExecutionResultDigest, IntentDigest, OperationId, ProposalId,
+    ResourceId, SemanticSelection, TimestampMicros,
 };
 
 pub const COMPONENT_INTERFACE_V1: &str = "zoen:code-mode/computation@1.0.0";
@@ -195,6 +195,20 @@ impl ComputationLimits {
     #[must_use]
     pub fn tables(self) -> usize {
         self.tables
+    }
+
+    /// Materialize Wasmtime limits from a release-owned [`BudgetClass`].
+    #[must_use]
+    pub fn from_budget_class(class: &BudgetClass) -> Self {
+        Self {
+            deadline_millis: class.deadline_millis(),
+            fuel: class.fuel(),
+            instances: class.instances(),
+            memories: class.memories(),
+            memory_bytes: class.memory_bytes(),
+            table_elements: class.table_elements(),
+            tables: class.tables(),
+        }
     }
 }
 

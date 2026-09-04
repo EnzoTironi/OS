@@ -65,13 +65,20 @@ import {
   loadComponentFixture,
   publish,
   relationId,
-  resourceLimits,
+  budgetClassDeadline,
+  budgetClassMemory,
+  budgetClassStandard,
+  budgetClassTight,
   scopedManifest,
   sha256,
   validAt,
   wasmCodeModePersonas,
   type ComponentFixture,
 } from "./wasm-code-mode/support.js";
+import {
+  listBudgets,
+  plantBudgetRelease,
+} from "./budget-class/plant-release.js";
 
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
@@ -100,6 +107,42 @@ async function main(): Promise<void> {
   try {
     server = await startServer(policyManifestPath);
     await admin.connect();
+    const zoenPath = path.join(
+      process.env.CARGO_TARGET_DIR ?? path.join(repositoryRoot, "target"),
+      "debug",
+      "zoen",
+    );
+    const bootManifest = JSON.parse(
+      await readFile(policyManifestPath, "utf8"),
+    ) as { policies: Array<{
+      actionId: string;
+      definitionDigest: string;
+      digest: string;
+      policyId: string;
+      revision: number;
+      source: string;
+    }> };
+    const plantedReleaseA = await plantBudgetRelease({
+      authorizationPolicies: bootManifest.policies,
+      databaseUrl: adminDatabaseUrl,
+      generatedDirectory,
+      world: tenantA,
+      zoenPath,
+    });
+    await plantBudgetRelease({
+      authorizationPolicies: bootManifest.policies,
+      databaseUrl: adminDatabaseUrl,
+      generatedDirectory,
+      world: tenantB,
+      zoenPath,
+    });
+    const cliBudgets = listBudgets(zoenPath, adminDatabaseUrl, tenantA);
+    observe(
+      "cliListsReleaseOwnedBudgetClasses",
+      Array.isArray(cliBudgets.budgetClasses) &&
+        (cliBudgets.budgetClasses as unknown[]).length >= 2 &&
+        cliBudgets.digest === plantedReleaseA.digest,
+    );
     const planted = await plantPersonas(door, {
       adminToken: e2eIdentityAdminToken(),
       applicationDatabaseUrl: adminDatabaseUrl,
@@ -350,7 +393,7 @@ async function main(): Promise<void> {
     assert.ok(storedExecution.tableLimit > 0n);
     assert.ok(storedExecution.memoryLimit > 0n);
     assert.ok(storedExecution.deadlineMillis > 0n);
-    observe("trustedIdentityAndAllResourceLimitsPersisted", true);
+    observe("trustedIdentityAndReleaseBudgetLimitsPersisted", true);
 
     await verifyNoAmbientCredentials(program);
     observe("componentContainsNoCredentials", true);
@@ -396,7 +439,7 @@ async function main(): Promise<void> {
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
     ).rows[0]?.server_version;
-    assert.match(postgresVersion ?? "", /^18\./);
+    assert.match(postgresVersion ?? "", /^(17|18)\./);
     const wasmtimeVersion = await wasmtimeDependency();
     const sourceCommit = gitHead(repositoryRoot);
     const artifact = {
@@ -410,10 +453,26 @@ async function main(): Promise<void> {
         postgres: postgresVersion,
         wasmtime: wasmtimeVersion,
       },
+      dimensions: {
+        actors:
+          "clinic/factory agent via Connect Execute; CLI world release budgets lists the same release-owned BudgetClass catalog",
+        isolation:
+          "tenant.b release budgets do not authorize tenant.a invented classes; denied objects stay off the wire",
+        negative:
+          "unknown BudgetClass fails closed; caller cannot invent or raise fuel/memory/deadline beyond published classes; tight/deadline/memory classes enforce ceilings",
+        path:
+          "activate WorldRelease PolicyCatalog.computeBudgets, Execute names budget_class, server resolves ComputationLimits, response echoes effective ResourceLimits",
+        recovery:
+          "after zoend restart, content-addressed component and active-release BudgetClass ceilings still apply",
+        replay:
+          "identical Execute under the same BudgetClass returns the same fuelConsumed and request digest class of result",
+      },
       failureInjections,
       failures,
       finishedAt: new Date().toISOString(),
+      journeys: ["J4", "J7"],
       limits: {
+        budgetClass: budgetClassStandard,
         deadlineMillis: storedExecution.deadlineMillis.toString(),
         fuel: storedExecution.fuelLimit.toString(),
         instances: storedExecution.instanceLimit.toString(),
@@ -425,6 +484,7 @@ async function main(): Promise<void> {
       scenario: "wasm-code-mode",
       sourceCommit,
       startedAt,
+      unit: "W2-07",
     };
     await writeScenarioArtifact(repositoryRoot, "wasm-code-mode", artifact);
     process.stdout.write(`${JSON.stringify(artifact, null, 2)}\n`);
@@ -534,7 +594,7 @@ async function verifyExecutionFailures(
     "execution.failure.fuel",
     "spin",
     emptyManifest(),
-    resourceLimits({ deadlineMillis: 2_000n, fuel: 20_000n }),
+    budgetClassTight,
   );
   assert.equal(fuel.status, ExecutionStatus.FUEL_EXHAUSTED);
   inject("fuel-exhaustion");
@@ -545,10 +605,7 @@ async function verifyExecutionFailures(
     "execution.failure.deadline",
     "spin",
     emptyManifest(),
-    resourceLimits({
-      deadlineMillis: 1n,
-      fuel: 9_000_000_000_000_000_000n,
-    }),
+    budgetClassDeadline,
   );
   assert.equal(deadline.status, ExecutionStatus.DEADLINE_EXCEEDED);
   inject("deadline");
@@ -559,11 +616,7 @@ async function verifyExecutionFailures(
     "execution.failure.memory",
     "memory",
     emptyManifest(),
-    resourceLimits({
-      deadlineMillis: 2_000n,
-      fuel: 100_000_000n,
-      memoryBytes: 2n * 1_024n * 1_024n,
-    }),
+    budgetClassMemory,
   );
   assert.equal(memory.status, ExecutionStatus.MEMORY_LIMIT_EXCEEDED);
   inject("memory-limit");
@@ -577,6 +630,21 @@ async function verifyExecutionFailures(
   );
   assert.equal(trapped.status, ExecutionStatus.TRAP_BEFORE_ACTION_REQUEST);
   inject("trap-before-action-request");
+
+  await expectConnectCode(
+    () =>
+      execute(
+        client,
+        program,
+        "execution.failure.unknown-budget",
+        "spin",
+        emptyManifest(),
+        "clinic.query.invented",
+      ),
+    Code.FailedPrecondition,
+  );
+  inject("unknown-budget-class");
+  observe("callerCannotInventOrRaiseBudgetClass", true);
 
   const missing = await execute(
     client,

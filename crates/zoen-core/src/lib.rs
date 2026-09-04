@@ -5,6 +5,7 @@ use std::{
 };
 
 mod action_preview;
+mod budget;
 mod effect;
 mod expression;
 mod external_signal;
@@ -21,6 +22,7 @@ pub use action_preview::{
     ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
     canonical_preview_text,
 };
+pub use budget::{BudgetCatalogError, BudgetClass, BudgetClassCatalog, BudgetClassId};
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,

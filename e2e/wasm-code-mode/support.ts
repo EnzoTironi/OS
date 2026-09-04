@@ -17,10 +17,8 @@ import {
   ComputationService,
   ExplainCapabilitySchema,
   QueryCapabilitySchema,
-  ResourceLimitsSchema,
   type CapabilityManifest,
   type ExecuteResponse,
-  type ResourceLimits,
 } from "../../gen/connect/zoen/computation/v1/computation_pb.js";
 import {
   QuerySelectionSchema,
@@ -103,15 +101,10 @@ export interface ManifestOverrides {
   resourceId?: string;
 }
 
-export interface LimitsOverrides {
-  deadlineMillis?: bigint;
-  fuel?: bigint;
-  instances?: bigint;
-  memories?: bigint;
-  memoryBytes?: bigint;
-  tableElements?: bigint;
-  tables?: bigint;
-}
+export const budgetClassStandard = "clinic.query.standard";
+export const budgetClassTight = "clinic.query.tight";
+export const budgetClassDeadline = "clinic.query.deadline";
+export const budgetClassMemory = "clinic.query.memory";
 
 export function computationClient(
   token: string,
@@ -206,33 +199,19 @@ export function scopedManifest(
   });
 }
 
-export function resourceLimits(
-  overrides: LimitsOverrides = {},
-): ResourceLimits {
-  return create(ResourceLimitsSchema, {
-    deadlineMillis: overrides.deadlineMillis ?? 2_000n,
-    fuel: overrides.fuel ?? 5_000_000n,
-    instances: overrides.instances ?? 4n,
-    memories: overrides.memories ?? 2n,
-    memoryBytes: overrides.memoryBytes ?? 8n * 1_024n * 1_024n,
-    tableElements: overrides.tableElements ?? 1_024n,
-    tables: overrides.tables ?? 2n,
-  });
-}
-
 export async function execute(
   client: ComputationClient,
   fixture: ComponentFixture,
   executionId: string,
   input: string,
   manifest: CapabilityManifest,
-  limits = resourceLimits(),
+  budgetClass = budgetClassStandard,
 ): Promise<ExecuteResponse> {
   return client.execute({
+    budgetClass,
     componentDigest: fixture.digest,
     executionId,
     input: new TextEncoder().encode(input),
-    limits,
     manifest,
   });
 }

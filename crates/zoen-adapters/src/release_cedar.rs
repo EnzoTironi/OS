@@ -5,10 +5,15 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use zoen_core::{PolicyEvaluation, ReleaseDigest, WorldId};
+use zoen_core::{
+    BudgetClass, BudgetClassCatalog, BudgetClassId, PolicyEvaluation, ReleaseDigest, WorldId,
+};
 use zoen_engine::{PolicyEvaluator, PolicyRequest};
 
-use crate::{CedarConfigError, CedarPolicyEvaluator, PostgresWorldReleaseStore};
+use crate::{
+    CedarConfigError, CedarPolicyEvaluator, PostgresWorldReleaseStore,
+    cedar::budget_classes_from_policy_catalog,
+};
 
 /// Evaluates governed verbs from the World's active `PolicyCatalog`.
 ///
@@ -55,6 +60,64 @@ impl ReleaseCedarEvaluator {
             .ok_or_else(|| "world has no active release".to_owned())?;
         let evaluator = self.evaluator_for_release(&digest).await?;
         Ok((digest, evaluator))
+    }
+
+    /// Resolve a release-owned [`BudgetClass`] from the World's active catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the World has no active release, catalogs are missing,
+    /// the catalog cannot parse budget classes, or `class_id` is unpublished.
+    pub async fn budget_class_for_active_world(
+        &self,
+        world: &WorldId,
+        class_id: &BudgetClassId,
+    ) -> Result<(ReleaseDigest, BudgetClass), String> {
+        let digest = self
+            .store
+            .get_active(world)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "world has no active release".to_owned())?;
+        let catalogs = self
+            .store
+            .get_catalogs(&digest)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "active release catalogs were not found".to_owned())?;
+        let catalog = budget_classes_from_policy_catalog(catalogs.policy().bytes())
+            .map_err(|error| error.to_string())?;
+        let class = catalog
+            .require(class_id)
+            .map_err(|error| error.to_string())?
+            .clone();
+        Ok((digest, class))
+    }
+
+    /// List budget classes published on the World's active `PolicyCatalog`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the World has no active release or budgets cannot load.
+    pub async fn budget_catalog_for_active_world(
+        &self,
+        world: &WorldId,
+    ) -> Result<(ReleaseDigest, BudgetClassCatalog), String> {
+        let digest = self
+            .store
+            .get_active(world)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "world has no active release".to_owned())?;
+        let catalogs = self
+            .store
+            .get_catalogs(&digest)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "active release catalogs were not found".to_owned())?;
+        let catalog = budget_classes_from_policy_catalog(catalogs.policy().bytes())
+            .map_err(|error| error.to_string())?;
+        Ok((digest, catalog))
     }
 
     async fn evaluator_for_release(
@@ -129,5 +192,8 @@ pub fn require_loadable_policy_catalog(
             "authorization.policies must contain at least one Cedar policy".to_owned(),
         ));
     }
+    // Fail closed on malformed computeBudgets so releases cannot publish
+    // unusable BudgetClass entries (W2-07).
+    budget_classes_from_policy_catalog(bytes)?;
     Ok(evaluator)
 }

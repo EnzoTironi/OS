@@ -75,7 +75,9 @@ message ExecuteRequest {
   string component_digest = 2;
   CapabilityManifest manifest = 3;
   bytes input = 4;
-  ResourceLimits limits = 5;
+  // Release-owned BudgetClass id from the active PolicyCatalog.computeBudgets.
+  // Callers must not supply ResourceLimits; effective ceilings are server-resolved.
+  string budget_class = 5;
 }
 
 message ResourceLimits {

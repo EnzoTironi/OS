@@ -77,6 +77,7 @@ pub async fn run(
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
         ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
+        ReleaseCommand::Budgets { world } => budgets(&world).await,
         ReleaseCommand::Authorize {
             world,
             principal,
@@ -613,6 +614,49 @@ fn catalog_json(digest: &str, bytes: &[u8]) -> Value {
             "encoding": "base64",
         }),
     }
+}
+
+async fn budgets(world: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let world = WorldId::parse(world)?;
+    let store = store().await?;
+    let Some(active_digest) = store.get_active(&world).await? else {
+        return Ok(fail(1, "world has no active release"));
+    };
+    let Some(catalogs) = store.get_catalogs(&active_digest).await? else {
+        return Ok(fail(1, "active release lacks policy catalog bytes"));
+    };
+    let catalog = match zoen_adapters::budget_classes_from_policy_catalog(catalogs.policy().bytes())
+    {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            return Ok(fail(
+                1,
+                &format!("active release BudgetClass catalog is invalid: {error}"),
+            ));
+        }
+    };
+    let classes: Vec<Value> = catalog
+        .classes()
+        .map(|class| {
+            json!({
+                "deadlineMillis": class.deadline_millis(),
+                "fuel": class.fuel(),
+                "id": class.id().as_str(),
+                "instances": class.instances(),
+                "memories": class.memories(),
+                "memoryBytes": class.memory_bytes(),
+                "tableElements": class.table_elements(),
+                "tables": class.tables(),
+            })
+        })
+        .collect();
+    Ok(ok(json!({
+        "authority": "active-release-policy-catalog",
+        "budgetClasses": classes,
+        "digest": active_digest.as_str(),
+        "policyCatalogDigest": catalogs.policy().digest().as_str(),
+        "world": world.as_str(),
+    })))
 }
 
 async fn authorize(
