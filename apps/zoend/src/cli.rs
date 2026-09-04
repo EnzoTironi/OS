@@ -634,8 +634,6 @@ pub(crate) enum KernelCommand {
         cursor: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
-        #[arg(long = "budget-class")]
-        budget_class: Option<String>,
     },
     /// Propose a catalog-bound operation
     Propose {
@@ -1580,7 +1578,6 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             object_type,
             cursor,
             limit,
-            budget_class,
         } => K::Query {
             world,
             principal,
@@ -1588,7 +1585,6 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             object_type,
             cursor,
             limit,
-            budget_class,
         },
         KernelCommand::Propose {
             world,

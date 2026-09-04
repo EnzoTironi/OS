@@ -421,8 +421,8 @@ impl PostgresWorldKernel {
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when policy denies, the cursor is invalid, the requested
-    /// budget is not published by the active release, or the store fails.
+    /// Returns [`KernelError`] when policy denies, the cursor is invalid, the active release
+    /// omits the server-selected budget, or the store fails.
     pub async fn query_objects(
         &self,
         world: &WorldId,
@@ -431,7 +431,6 @@ impl PostgresWorldKernel {
         object_type: &str,
         page_token: &str,
         requested_limit: u32,
-        requested_budget: Option<&str>,
         surface: KernelSurface,
     ) -> Result<KernelQueryPage, KernelError> {
         let basis = self.catalog_basis(world).await?;
@@ -456,7 +455,6 @@ impl PostgresWorldKernel {
                 membership,
                 object_type,
                 requested_limit,
-                requested_budget,
                 trusted_authority_digest,
             )
             .await?;
@@ -543,18 +541,9 @@ impl PostgresWorldKernel {
         membership: &MembershipId,
         object_type: &str,
         requested_limit: u32,
-        requested_budget: Option<&str>,
         trusted_authority_digest: TrustedAuthorityDigest,
     ) -> Result<SealedCursorBasis, KernelError> {
-        let requested_budget_id = BudgetClassId::parse(
-            requested_budget
-                .filter(|value| !value.is_empty())
-                .unwrap_or(DEFAULT_QUERY_BUDGET),
-        )
-        .map_err(|error| KernelError::Denied(error.to_string()))?;
-        let budget_id = self
-            .resolve_query_budget(catalog, &requested_budget_id)
-            .await?;
+        let budget_id = self.resolve_query_budget(catalog).await?;
         let page_limit = effective_page_limit(requested_limit)
             .map_err(|error| KernelError::Denied(error.to_string()))?;
         let authority_cut: Option<CommitSequence> = None;
@@ -691,8 +680,9 @@ impl PostgresWorldKernel {
     async fn resolve_query_budget(
         &self,
         basis: &GovernedCatalogBasis,
-        requested: &BudgetClassId,
     ) -> Result<BudgetClassId, KernelError> {
+        let server_selected = BudgetClassId::parse(DEFAULT_QUERY_BUDGET)
+            .map_err(|error| KernelError::Store(error.to_string()))?;
         let catalogs = self
             .releases
             .get_catalogs(&basis.release_digest)
@@ -703,10 +693,10 @@ impl PostgresWorldKernel {
             })?;
         let catalog = budget_classes_from_policy_catalog(catalogs.policy().bytes())
             .map_err(|error| KernelError::Denied(error.to_string()))?;
-        let budget = catalog.require(requested).map_err(|_| {
+        let budget = catalog.require(&server_selected).map_err(|_| {
             KernelError::Denied(format!(
-                "caller cannot use unpublished query budget {}",
-                requested.as_str()
+                "active release does not publish the server-selected query budget {}",
+                server_selected.as_str()
             ))
         })?;
         Ok(budget.id().clone())

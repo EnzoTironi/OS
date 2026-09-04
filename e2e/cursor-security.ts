@@ -210,7 +210,6 @@ function runZoen(
 function queryObjects(
   subject: { membership: string; principal: string },
   options: {
-    budget?: string;
     config?: CursorServerConfig | null;
     cursor?: string;
     limit?: number;
@@ -233,9 +232,6 @@ function queryObjects(
   ];
   if (options.cursor !== undefined) {
     args.push("--cursor", options.cursor);
-  }
-  if (options.budget !== undefined) {
-    args.push("--budget-class", options.budget);
   }
   return runZoen(args, options.config === undefined ? stableConfig : options.config);
 }
@@ -426,6 +422,10 @@ const firstClaims = firstPage.body?.cursorClaims as
   | undefined;
 record("v3_key_id_is_carried", firstCursor.startsWith("v3/cursor-old/"));
 record(
+  "server_selects_the_release_query_budget",
+  firstPage.body?.budgetId === defaultBudget,
+);
+record(
   "membership_authority_digest_is_server_issued",
   firstPage.body?.authorityEvaluation === "MEMBERSHIP_EVALUATED" &&
     typeof firstClaims?.trustedAuthorityDigest === "string" &&
@@ -481,7 +481,6 @@ const basisMismatches = [
   queryObjects(alternateMembership, { cursor: firstCursor }),
   queryObjects(alternatePrincipal, { cursor: firstCursor }),
   queryObjects(actor, { cursor: firstCursor, limit: 3 }),
-  queryObjects(actor, { budget: alternateBudget, cursor: firstCursor }),
   queryObjects(actor, { cursor: firstCursor, type: alternateObjectType }),
 ];
 record(
@@ -489,21 +488,26 @@ record(
   basisMismatches.every(deniedForCursorBinding),
 );
 
-const unpublishedBudget = queryObjects(actor, {
-  budget: "budget.query.unpublished",
-});
+const callerSelectedBudget = runZoen([
+  "kernel",
+  "query",
+  "--world",
+  world,
+  "--principal",
+  actor.principal,
+  "--membership",
+  actor.membership,
+  "--type",
+  objectType,
+  "--limit",
+  "2",
+  "--budget-class",
+  alternateBudget,
+]);
 record(
-  "unpublished_budget_class_is_denied",
-  unpublishedBudget.status !== 0 &&
-    unpublishedBudget.stderr.includes("unpublished query budget"),
-);
-const publishedAlternateBudget = queryObjects(actor, {
-  budget: alternateBudget,
-});
-record(
-  "published_release_budget_class_is_accepted",
-  publishedAlternateBudget.status === 0 &&
-    publishedAlternateBudget.body?.budgetId === alternateBudget,
+  "caller_cannot_select_a_published_budget_class",
+  callerSelectedBudget.status !== 0 &&
+    callerSelectedBudget.stderr.includes("unexpected argument '--budget-class'"),
 );
 
 const rotatedPage = queryObjects(actor, {
@@ -554,12 +558,13 @@ const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     cursorExpiry: "EVALUATED",
     cursorIntegrity: "EVALUATED",
     cursorKeyPersistenceAndRotation: "EVALUATED",
+    serverSelectedBudget: "EVALUATED",
     trustedAuthorityCut: "NOT_EVALUATED",
     trustedAuthorityDigest: "EVALUATED",
   },
   dimensions: {
     basis:
-      "HMAC binds principal, membership, World, object type, active release, policy, release-owned BudgetClass, page limit, sort order, authorized plan digest, position, key id, and expiry",
+      "HMAC binds principal, membership, World, object type, active release, policy, server-selected release BudgetClass, page limit, sort order, authorized plan digest, position, key id, and expiry",
     forgery:
       "one-byte tag mutation and a full canonical-payload SHA-256 recomputation without the server key are denied",
     persistence:

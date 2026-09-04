@@ -35,7 +35,6 @@ pub enum KernelCommand {
         object_type: Option<String>,
         cursor: Option<String>,
         limit: Option<u32>,
-        budget_class: Option<String>,
     },
     Propose {
         world: String,
@@ -89,7 +88,6 @@ pub async fn run(
             object_type,
             cursor,
             limit,
-            budget_class,
         } => {
             query(
                 &world,
@@ -98,7 +96,6 @@ pub async fn run(
                 object_type.as_deref(),
                 cursor.as_deref(),
                 limit,
-                budget_class.as_deref(),
                 surface,
             )
             .await
@@ -170,7 +167,6 @@ async fn query(
     object_type: Option<&str>,
     cursor: Option<&str>,
     limit: Option<u32>,
-    budget_class: Option<&str>,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
@@ -194,7 +190,6 @@ async fn query(
             object_type,
             page_token,
             requested_limit,
-            budget_class,
             surface,
         )
         .await
