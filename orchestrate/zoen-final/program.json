@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3"
+    "sha": "13395c50f2c4aa458497f01bb2350f49883a37e4"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -387,13 +387,14 @@
       "track": "world-authority",
       "wave": 2,
       "size": "M",
-      "status": "active",
+      "status": "done",
       "dependencies": ["W0-05", "W1-01", "W1-03", "W1-04"],
       "journeys": ["J1"],
-      "branch": "codex/w2-01-world-release-contract",
-      "pr": null,
-      "sourceHeadSha": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
-      "acceptance": "WorldRelease has private fields, exactly four catalog digests, no publication metadata, and an ID derived from its canonical content. One World can have only one active release. The integration migrates every W1-03 TenantId reference to WorldId, preserves RegistrationGate, Backoff, dispatch-version mismatch handling, secure session exchange, scoped revoke, and credential-race safety, accepts W1-04 deletions, and imports no PR 616 runtime file."
+      "acceptance": "WorldRelease has private fields, exactly four catalog digests, no publication metadata, and an ID derived from its canonical content. One World can have only one active release. The integration migrates every W1-03 TenantId reference to WorldId, preserves RegistrationGate, Backoff, dispatch-version mismatch handling, secure session exchange, scoped revoke, and credential-race safety, accepts W1-04 deletions, and imports no PR 616 runtime file.",
+      "branch": "feat/w2-01-world-release",
+      "pr": 673,
+      "headSha": "630dddd948d8f1a7b2da553d54fb3b4e7526fee1",
+      "mergeSha": "fce9bc524b8c54b388968a12e0b918ff2f5d6fe5"
     },
     {
       "id": "W2-02",
@@ -401,9 +402,13 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "done",
       "dependencies": ["W2-01"],
-      "journeys": ["J1"]
+      "journeys": ["J1"],
+      "branch": "coder/w2-02-release-catalogs",
+      "pr": 675,
+      "headSha": "61b92229f4951d68e4871bf9a68ac5983deaffbb",
+      "mergeSha": "26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d"
     },
     {
       "id": "W2-03",
@@ -411,9 +416,13 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "done",
       "dependencies": ["W2-02"],
-      "journeys": ["J1"]
+      "journeys": ["J1"],
+      "branch": "coder/w2-03-cedar-policy-catalog",
+      "pr": 676,
+      "headSha": "e7cfb16ba00e594bfb4543ad59474c6233881571",
+      "mergeSha": "5d6134d4b0d4d97c8f493ed0c22fcf8416887da5"
     },
     {
       "id": "W2-04",
@@ -421,9 +430,13 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "done",
       "dependencies": ["W2-03"],
-      "journeys": ["J1"]
+      "journeys": ["J1"],
+      "branch": "coder/w2-04-world-release-activate",
+      "pr": 678,
+      "headSha": "eb33b4162f061cdcee3858e164a9f834d54fd50d",
+      "mergeSha": "13395c50f2c4aa458497f01bb2350f49883a37e4"
     },
     {
       "id": "W2-05",
@@ -431,9 +444,10 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W2-04"],
-      "journeys": ["J1", "J7"]
+      "journeys": ["J1", "J7"],
+      "branch": "coder/w2-05-seven-verbs"
     },
     {
       "id": "W2-06",
@@ -441,10 +455,11 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W2-04"],
       "journeys": ["J4"],
-      "finalGates": ["FIN-05"]
+      "finalGates": ["FIN-05"],
+      "branch": "coder/w2-06-sealed-cursors"
     },
     {
       "id": "W2-07",
@@ -452,9 +467,10 @@
       "track": "world-authority",
       "wave": 2,
       "size": "M",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W2-04"],
-      "journeys": ["J4", "J7"]
+      "journeys": ["J4", "J7"],
+      "branch": "coder/w2-07-budget-class"
     },
     {
       "id": "W2-08",
@@ -462,10 +478,11 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W2-04"],
       "journeys": ["J2", "J4"],
-      "finalGates": ["FIN-01"]
+      "finalGates": ["FIN-01"],
+      "branch": "coder/w2-08-object-key"
     },
     {
       "id": "W2-09",

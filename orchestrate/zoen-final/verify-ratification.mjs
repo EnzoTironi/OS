@@ -339,6 +339,10 @@ assert(
 );
 const effectRuntimeUnit = program.units.find(({ id }) => id === "W1-03");
 const eveRuntimeBoundaryUnit = program.units.find(({ id }) => id === "W1-04");
+const worldReleaseContractUnit = program.units.find(({ id }) => id === "W2-01");
+const worldReleaseCatalogsUnit = program.units.find(({ id }) => id === "W2-02");
+const cedarPolicyCatalogUnit = program.units.find(({ id }) => id === "W2-03");
+const worldReleaseActivateUnit = program.units.find(({ id }) => id === "W2-04");
 const worldIdentityUnit = program.units.find(({ id }) => id === "W1-05");
 const ratificationUnit = program.units.find(({ id }) => id === "W0-05");
 const effectRuntimeMerge = frontier.mergedPullRequests.find(
@@ -346,6 +350,18 @@ const effectRuntimeMerge = frontier.mergedPullRequests.find(
 );
 const eveRuntimeBoundaryMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 618
+);
+const worldReleaseContractMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 673
+);
+const worldReleaseCatalogsMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 675
+);
+const cedarPolicyCatalogMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 676
+);
+const worldReleaseActivateMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 678
 );
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
@@ -360,8 +376,8 @@ const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 622
 );
 assert(
-  program.base.sha === "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
-  "program base must track the W1-04 journey-proof main tip"
+  program.base.sha === "13395c50f2c4aa458497f01bb2350f49883a37e4",
+  "program base must track the W2-04 journey-proof main tip"
 );
 assert(
   worldIdentityUnit?.status === "done" &&
@@ -425,7 +441,8 @@ assert(
     eveRuntimeBoundaryUnit.pr === 618 &&
     eveRuntimeBoundaryUnit.headSha ===
       "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3" &&
-    eveRuntimeBoundaryUnit.mergeSha === program.base.sha &&
+    eveRuntimeBoundaryUnit.mergeSha ===
+      "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3" &&
     eveRuntimeBoundaryMerge?.unit === "W1-04" &&
     eveRuntimeBoundaryMerge.head === eveRuntimeBoundaryUnit.headSha &&
     eveRuntimeBoundaryMerge.merge === eveRuntimeBoundaryUnit.mergeSha &&
@@ -435,6 +452,66 @@ assert(
     eveRuntimeBoundaryMerge.fact.includes("effect-runtime 44/44") &&
     !frontier.activeCandidates.some(({ unit }) => unit === "W1-04"),
   "PR #618 must close W1-04 with its journey-verified exact-tip proof"
+);
+assert(
+  worldReleaseContractUnit?.status === "done" &&
+    worldReleaseContractUnit.pr === 673 &&
+    worldReleaseContractUnit.headSha ===
+      "630dddd948d8f1a7b2da553d54fb3b4e7526fee1" &&
+    worldReleaseContractUnit.mergeSha ===
+      "fce9bc524b8c54b388968a12e0b918ff2f5d6fe5" &&
+    worldReleaseContractMerge?.unit === "W2-01" &&
+    worldReleaseContractMerge.head === worldReleaseContractUnit.headSha &&
+    worldReleaseContractMerge.merge === worldReleaseContractUnit.mergeSha &&
+    worldReleaseContractMerge.mergedAt === "2026-09-03T22:30:02Z" &&
+    worldReleaseContractMerge.verification === "journey-verified" &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W2-01"),
+  "PR #673 must close W2-01 with its journey-verified merge"
+);
+assert(
+  worldReleaseCatalogsUnit?.status === "done" &&
+    worldReleaseCatalogsUnit.pr === 675 &&
+    worldReleaseCatalogsUnit.headSha ===
+      "61b92229f4951d68e4871bf9a68ac5983deaffbb" &&
+    worldReleaseCatalogsUnit.mergeSha ===
+      "26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d" &&
+    worldReleaseCatalogsMerge?.unit === "W2-02" &&
+    worldReleaseCatalogsMerge.head === worldReleaseCatalogsUnit.headSha &&
+    worldReleaseCatalogsMerge.merge === worldReleaseCatalogsUnit.mergeSha &&
+    worldReleaseCatalogsMerge.mergedAt === "2026-09-04T01:37:18Z" &&
+    worldReleaseCatalogsMerge.verification === "journey-verified" &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W2-02"),
+  "PR #675 must close W2-02 with its journey-verified merge"
+);
+assert(
+  cedarPolicyCatalogUnit?.status === "done" &&
+    cedarPolicyCatalogUnit.pr === 676 &&
+    cedarPolicyCatalogUnit.headSha ===
+      "e7cfb16ba00e594bfb4543ad59474c6233881571" &&
+    cedarPolicyCatalogUnit.mergeSha ===
+      "5d6134d4b0d4d97c8f493ed0c22fcf8416887da5" &&
+    cedarPolicyCatalogMerge?.unit === "W2-03" &&
+    cedarPolicyCatalogMerge.head === cedarPolicyCatalogUnit.headSha &&
+    cedarPolicyCatalogMerge.merge === cedarPolicyCatalogUnit.mergeSha &&
+    cedarPolicyCatalogMerge.mergedAt === "2026-09-04T03:58:36Z" &&
+    cedarPolicyCatalogMerge.verification === "journey-verified" &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W2-03"),
+  "PR #676 must close W2-03 with its journey-verified merge"
+);
+assert(
+  worldReleaseActivateUnit?.status === "done" &&
+    worldReleaseActivateUnit.pr === 678 &&
+    worldReleaseActivateUnit.headSha ===
+      "eb33b4162f061cdcee3858e164a9f834d54fd50d" &&
+    worldReleaseActivateUnit.mergeSha === program.base.sha &&
+    worldReleaseActivateMerge?.unit === "W2-04" &&
+    worldReleaseActivateMerge.head === worldReleaseActivateUnit.headSha &&
+    worldReleaseActivateMerge.merge === worldReleaseActivateUnit.mergeSha &&
+    worldReleaseActivateMerge.mergedAt === "2026-09-04T05:04:46Z" &&
+    worldReleaseActivateMerge.verification === "journey-verified" &&
+    worldReleaseActivateMerge.fact.includes("94/94 world-release journey") &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W2-04"),
+  "PR #678 must close W2-04 with its journey-verified exact-tip proof"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
@@ -466,6 +543,62 @@ assert(
     eveRuntimeBoundaryLedger.mergedAt === "2026-09-03T11:30:11Z",
   "W1-04 must retain its exact journey-verified ledger verdict"
 );
+const worldReleaseContractLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W2-01"
+);
+assert(
+  worldReleaseContractLedger?.pr === "673" &&
+    worldReleaseContractLedger.headSha === worldReleaseContractUnit.headSha &&
+    worldReleaseContractLedger.mergeSha === worldReleaseContractUnit.mergeSha &&
+    worldReleaseContractLedger.verdict === "journey-verified" &&
+    worldReleaseContractLedger.evidence ===
+      "orchestrate/zoen-final/reports/w2-01-validation.md" &&
+    worldReleaseContractLedger.verifiedAt === "2026-09-03T22:28:00Z" &&
+    worldReleaseContractLedger.mergedAt === "2026-09-03T22:30:02Z",
+  "W2-01 must retain its exact journey-verified ledger verdict"
+);
+const worldReleaseCatalogsLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W2-02"
+);
+assert(
+  worldReleaseCatalogsLedger?.pr === "675" &&
+    worldReleaseCatalogsLedger.headSha === worldReleaseCatalogsUnit.headSha &&
+    worldReleaseCatalogsLedger.mergeSha === worldReleaseCatalogsUnit.mergeSha &&
+    worldReleaseCatalogsLedger.verdict === "journey-verified" &&
+    worldReleaseCatalogsLedger.evidence ===
+      "orchestrate/zoen-final/reports/w2-02-validation.md" &&
+    worldReleaseCatalogsLedger.verifiedAt === "2026-09-04T01:35:00Z" &&
+    worldReleaseCatalogsLedger.mergedAt === "2026-09-04T01:37:18Z",
+  "W2-02 must retain its exact journey-verified ledger verdict"
+);
+const cedarPolicyCatalogLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W2-03"
+);
+assert(
+  cedarPolicyCatalogLedger?.pr === "676" &&
+    cedarPolicyCatalogLedger.headSha === cedarPolicyCatalogUnit.headSha &&
+    cedarPolicyCatalogLedger.mergeSha === cedarPolicyCatalogUnit.mergeSha &&
+    cedarPolicyCatalogLedger.verdict === "journey-verified" &&
+    cedarPolicyCatalogLedger.evidence ===
+      "orchestrate/zoen-final/reports/w2-03-validation.md" &&
+    cedarPolicyCatalogLedger.verifiedAt === "2026-09-04T03:50:00Z" &&
+    cedarPolicyCatalogLedger.mergedAt === "2026-09-04T03:58:36Z",
+  "W2-03 must retain its exact journey-verified ledger verdict"
+);
+const worldReleaseActivateLedger = ledgerRows.find(
+  ({ unitId }) => unitId === "W2-04"
+);
+assert(
+  worldReleaseActivateLedger?.pr === "678" &&
+    worldReleaseActivateLedger.headSha === worldReleaseActivateUnit.headSha &&
+    worldReleaseActivateLedger.mergeSha === worldReleaseActivateUnit.mergeSha &&
+    worldReleaseActivateLedger.verdict === "journey-verified" &&
+    worldReleaseActivateLedger.evidence ===
+      "orchestrate/zoen-final/reports/w2-04-validation.md" &&
+    worldReleaseActivateLedger.verifiedAt === "2026-09-04T05:00:00Z" &&
+    worldReleaseActivateLedger.mergedAt === "2026-09-04T05:04:46Z",
+  "W2-04 must retain its exact journey-verified ledger verdict"
+);
 const worldIdentityLedger = ledgerRows.find(({ unitId }) => unitId === "W1-05");
 assert(
   worldIdentityLedger?.pr === "621" &&
@@ -491,7 +624,7 @@ await Promise.all(
   })
 );
 assert(
-  frontier.landingOrder.join("|") === "W1-06|W2-01",
+  frontier.landingOrder.join("|") === "W2-05|W2-06|W2-07|W2-08|W3-01",
   "landing order changed"
 );
 const allowedInitialPullRequestClassifications = new Set([
@@ -1078,6 +1211,10 @@ const markdownFiles = [
   "orchestrate/zoen-final/reports/w1-03-validation.md",
   "orchestrate/zoen-final/reports/w1-04-validation.md",
   "orchestrate/zoen-final/reports/w1-05-validation.md",
+  "orchestrate/zoen-final/reports/w2-01-validation.md",
+  "orchestrate/zoen-final/reports/w2-02-validation.md",
+  "orchestrate/zoen-final/reports/w2-03-validation.md",
+  "orchestrate/zoen-final/reports/w2-04-validation.md",
 ];
 const markdownLinkTargets = (markdown) => {
   const targets = [];

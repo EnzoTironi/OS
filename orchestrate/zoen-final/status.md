@@ -3,8 +3,8 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3`
-- Units: 52 total, 10 done, 1 active, 0 proof pending, 41 queued
+- Base: `main@13395c50f2c4aa458497f01bb2350f49883a37e4`
+- Units: 52 total, 14 done, 4 active, 0 proof pending, 34 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -17,7 +17,10 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 | Unit | Status | Branch | Head or source | Pull request |
 | --- | --- | --- | --- | --- |
-| W2-01 | active | codex/w2-01-world-release-contract | f00efc7f245db80ff0d0d9051986d4d61e0e20e8 | not open |
+| W2-05 | active | coder/w2-05-seven-verbs | not recorded | not open |
+| W2-06 | active | coder/w2-06-sealed-cursors | not recorded | not open |
+| W2-07 | active | coder/w2-07-budget-class | not recorded | not open |
+| W2-08 | active | coder/w2-08-object-key | not recorded | not open |
 
 ## Merged pull requests
 
@@ -32,8 +35,14 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #622 | Better Auth device-flow repair | 4c45b95482e5b49a06b5cd05755495b6ff6aed9b | be24e0956e0bfb681634c796b5410afc5eef2e38 | 2026-09-03T06:42:21Z | not applicable |
 | #618 | W1-04 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 2026-09-03T11:30:11Z | journey-verified |
 | #625 | W1-03 | 6683cdcf47af02464a01aa021b34977f450da5d2 | 4e33c57151ec8e3e28ee4c43a894da63173febc0 | 2026-09-03T17:02:36Z | journey-verified |
+| #672 | W1-06 | b7379dac92cee3e5824e1b80990f5d9d1cf60670 | 50370d2c9e54af767a4f7ec3d2428fec0e303035 | 2026-09-03T20:22:07Z | pending-ledger-row |
+| #674 | W1-07 | ac604bfdb3ff6724efddf82a67acf158e9860eb2 | 0fcb200a69090ff8e4aebb54053914988926adaa | 2026-09-04T02:52:05Z | pending-ledger-row |
+| #673 | W2-01 | 630dddd948d8f1a7b2da553d54fb3b4e7526fee1 | fce9bc524b8c54b388968a12e0b918ff2f5d6fe5 | 2026-09-03T22:30:02Z | journey-verified |
+| #675 | W2-02 | 61b92229f4951d68e4871bf9a68ac5983deaffbb | 26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d | 2026-09-04T01:37:18Z | journey-verified |
+| #676 | W2-03 | e7cfb16ba00e594bfb4543ad59474c6233881571 | 5d6134d4b0d4d97c8f493ed0c22fcf8416887da5 | 2026-09-04T03:58:36Z | journey-verified |
+| #678 | W2-04 | eb33b4162f061cdcee3858e164a9f834d54fd50d | 13395c50f2c4aa458497f01bb2350f49883a37e4 | 2026-09-04T05:04:46Z | journey-verified |
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04 with journey proof on main@4dc06a4, which is the recorded current main. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04. PRs #673–#678 completed W2-01 through W2-04 with journey proof on main@13395c50, which is the recorded current main. W1-06 and W1-07 remain queued for ledger rows. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 
