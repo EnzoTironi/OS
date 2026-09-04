@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file zoen/computation/v1/computation.proto.
  */
 export const file_zoen_computation_v1_computation: GenFile = /*@__PURE__*/
-  fileDesc("CiV6b2VuL2NvbXB1dGF0aW9uL3YxL2NvbXB1dGF0aW9uLnByb3RvEhN6b2VuLmNvbXB1dGF0aW9uLnYxImEKF1B1Ymxpc2hDb21wb25lbnRSZXF1ZXN0EhEKCWNvbXBvbmVudBgBIAEoDBIWCg5jbGFpbWVkX2RpZ2VzdBgCIAEoCRIbChNjb21wb25lbnRfaW50ZXJmYWNlGAMgASgJIr8BChhQdWJsaXNoQ29tcG9uZW50UmVzcG9uc2USPQoGc3RhdHVzGAEgASgOMi0uem9lbi5jb21wdXRhdGlvbi52MS5Db21wb25lbnRBZG1pc3Npb25TdGF0dXMSGAoQY29tcG9uZW50X2RpZ2VzdBgCIAEoCRIbChNjb21wb25lbnRfaW50ZXJmYWNlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAQSGQoRZGVuaWVkX2NhcGFiaWxpdHkYBSABKAki0wEKD1F1ZXJ5Q2FwYWJpbGl0eRIVCg1jYXBhYmlsaXR5X2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEjAKCXNlbGVjdGlvbhgEIAEoCzIdLnpvZW4ud29ybGQudjEuUXVlcnlTZWxlY3Rpb24SLAoIdmFsaWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIioKEUV4cGxhaW5DYXBhYmlsaXR5EhUKDWNhcGFiaWxpdHlfaWQYASABKAkimAIKEEFjdGlvbkNhcGFiaWxpdHkSFQoNY2FwYWJpbGl0eV9pZBgBIAEoCRI2CgpkZWZpbml0aW9uGAIgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEhEKCWFjdGlvbl9pZBgDIAEoCRITCgtyZXNvdXJjZV9pZBgEIAEoCRIsCgh2YWxpZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLcHJvcG9zZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmV4cGlyZXNfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsUBCgpDYXBhYmlsaXR5EjUKBXF1ZXJ5GAEgASgLMiQuem9lbi5jb21wdXRhdGlvbi52MS5RdWVyeUNhcGFiaWxpdHlIABI5CgdleHBsYWluGAIgASgLMiYuem9lbi5jb21wdXRhdGlvbi52MS5FeHBsYWluQ2FwYWJpbGl0eUgAEjcKBmFjdGlvbhgDIAEoCzIlLnpvZW4uY29tcHV0YXRpb24udjEuQWN0aW9uQ2FwYWJpbGl0eUgAQgwKCmNhcGFiaWxpdHkiaAoSQ2FwYWJpbGl0eU1hbmlmZXN0EhsKE2NvbXBvbmVudF9pbnRlcmZhY2UYASABKAkSNQoMY2FwYWJpbGl0aWVzGAIgAygLMh8uem9lbi5jb21wdXRhdGlvbi52MS5DYXBhYmlsaXR5IqABCg5FeGVjdXRlUmVxdWVzdBIUCgxleGVjdXRpb25faWQYASABKAkSGAoQY29tcG9uZW50X2RpZ2VzdBgCIAEoCRI5CghtYW5pZmVzdBgDIAEoCzInLnpvZW4uY29tcHV0YXRpb24udjEuQ2FwYWJpbGl0eU1hbmlmZXN0Eg0KBWlucHV0GAQgASgMEhQKDGJ1ZGdldF9jbGFzcxgFIAEoCSKaAQoOUmVzb3VyY2VMaW1pdHMSDAoEZnVlbBgBIAEoBBIUCgxtZW1vcnlfYnl0ZXMYAiABKAQSFgoOdGFibGVfZWxlbWVudHMYAyABKAQSEQoJaW5zdGFuY2VzGAQgASgEEg4KBnRhYmxlcxgFIAEoBBIQCghtZW1vcmllcxgGIAEoBBIXCg9kZWFkbGluZV9taWxsaXMYByABKAQi0QEKFFByb2dyYW1BY3Rpb25PdXRjb21lEjgKBnN0YXR1cxgBIAEoDjIoLnpvZW4uY29tcHV0YXRpb24udjEuUHJvZ3JhbUFjdGlvblN0YXR1cxIRCglhY3Rpb25faWQYAiABKAkSEwoLcHJvcG9zYWxfaWQYAyABKAkSFAoMb3BlcmF0aW9uX2lkGAQgASgJEhUKDWludGVudF9kaWdlc3QYBSABKAkSFwoPY29tbWl0X3NlcXVlbmNlGAYgASgEEhEKCXJlY292ZXJlZBgHIAEoCCLLAQoRQ29tcHV0YXRpb25PdXRwdXQSFgoOdmFsdWVzX3NjYW5uZWQYASABKA0SFwoPc2VsZWN0ZWRfdmFsdWVzGAIgASgNEhEKCWFnZ3JlZ2F0ZRgDIAEoCRIZChFzZWxlY3RlZF9jbGFpbV9pZBgEIAEoCRIcChRleHBsYW5hdGlvbl9jb21wbGV0ZRgFIAEoCBI5CgZhY3Rpb24YBiABKAsyKS56b2VuLmNvbXB1dGF0aW9uLnYxLlByb2dyYW1BY3Rpb25PdXRjb21lItMCCg9FeGVjdXRlUmVzcG9uc2USNAoGc3RhdHVzGAEgASgOMiQuem9lbi5jb21wdXRhdGlvbi52MS5FeGVjdXRpb25TdGF0dXMSPAoIZXZpZGVuY2UYAiABKAsyKi56b2VuLmFjdGlvbi52MS5Db21wb25lbnRFeGVjdXRpb25FdmlkZW5jZRIWCg5yZXF1ZXN0X2RpZ2VzdBgDIAEoCRIzCgZsaW1pdHMYBCABKAsyIy56b2VuLmNvbXB1dGF0aW9uLnYxLlJlc291cmNlTGltaXRzEjYKBm91dHB1dBgFIAEoCzImLnpvZW4uY29tcHV0YXRpb24udjEuQ29tcHV0YXRpb25PdXRwdXQSGQoRZGVuaWVkX2NhcGFiaWxpdHkYBiABKAkSFQoNZnVlbF9jb25zdW1lZBgHIAEoBBIVCg1yZXN1bHRfZGlnZXN0GAggASgJKt0CChhDb21wb25lbnRBZG1pc3Npb25TdGF0dXMSKgomQ09NUE9ORU5UX0FETUlTU0lPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIoCiRDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19QVUJMSVNIRUQQARIuCipDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19ESUdFU1RfTUlTTUFUQ0gQAhIoCiRDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19NQUxGT1JNRUQQAxIxCi1DT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19JTlRFUkZBQ0VfTUlTTUFUQ0gQBBIoCiRDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19UT09fTEFSR0UQBRI0CjBDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19VTkRFQ0xBUkVEX0NBUEFCSUxJVFkQBirZAQoTUHJvZ3JhbUFjdGlvblN0YXR1cxIlCiFQUk9HUkFNX0FDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABInCiNQUk9HUkFNX0FDVElPTl9TVEFUVVNfTk9UX1JFUVVFU1RFRBABEisKJ1BST0dSQU1fQUNUSU9OX1NUQVRVU19BV0FJVElOR19BUFBST1ZBTBACEiMKH1BST0dSQU1fQUNUSU9OX1NUQVRVU19DT01NSVRURUQQAxIgChxQUk9HUkFNX0FDVElPTl9TVEFUVVNfREVOSUVEEAQq/AMKD0V4ZWN1dGlvblN0YXR1cxIgChxFWEVDVVRJT05fU1RBVFVTX1VOU1BFQ0lGSUVEEAASHgoaRVhFQ1VUSU9OX1NUQVRVU19DT01QTEVURUQQARIjCh9FWEVDVVRJT05fU1RBVFVTX0ZVRUxfRVhIQVVTVEVEEAISJgoiRVhFQ1VUSU9OX1NUQVRVU19ERUFETElORV9FWENFRURFRBADEioKJkVYRUNVVElPTl9TVEFUVVNfTUVNT1JZX0xJTUlUX0VYQ0VFREVEEAQSJgoiRVhFQ1VUSU9OX1NUQVRVU19DQVBBQklMSVRZX0RFTklFRBAFEisKJ0VYRUNVVElPTl9TVEFUVVNfQ0FQQUJJTElUWV9VTkFWQUlMQUJMRRAGEiUKIUVYRUNVVElPTl9TVEFUVVNfSE9TVF9VTkFWQUlMQUJMRRAHEi8KK0VYRUNVVElPTl9TVEFUVVNfVFJBUF9CRUZPUkVfQUNUSU9OX1JFUVVFU1QQCBIuCipFWEVDVVRJT05fU1RBVFVTX1RSQVBfQUZURVJfQUNUSU9OX1JFUVVFU1QQCRInCiNFWEVDVVRJT05fU1RBVFVTX0lOVEVSRkFDRV9NSVNNQVRDSBAKEigKJEVYRUNVVElPTl9TVEFUVVNfTUFMRk9STUVEX0NPTVBPTkVOVBALMtsBChJDb21wdXRhdGlvblNlcnZpY2USbwoQUHVibGlzaENvbXBvbmVudBIsLnpvZW4uY29tcHV0YXRpb24udjEuUHVibGlzaENvbXBvbmVudFJlcXVlc3QaLS56b2VuLmNvbXB1dGF0aW9uLnYxLlB1Ymxpc2hDb21wb25lbnRSZXNwb25zZRJUCgdFeGVjdXRlEiMuem9lbi5jb21wdXRhdGlvbi52MS5FeGVjdXRlUmVxdWVzdBokLnpvZW4uY29tcHV0YXRpb24udjEuRXhlY3V0ZVJlc3BvbnNlYgZwcm90bzM", [file_google_protobuf_timestamp, file_zoen_action_v1_action, file_zoen_world_v1_world]);
+  fileDesc("CiV6b2VuL2NvbXB1dGF0aW9uL3YxL2NvbXB1dGF0aW9uLnByb3RvEhN6b2VuLmNvbXB1dGF0aW9uLnYxImEKF1B1Ymxpc2hDb21wb25lbnRSZXF1ZXN0EhEKCWNvbXBvbmVudBgBIAEoDBIWCg5jbGFpbWVkX2RpZ2VzdBgCIAEoCRIbChNjb21wb25lbnRfaW50ZXJmYWNlGAMgASgJIr8BChhQdWJsaXNoQ29tcG9uZW50UmVzcG9uc2USPQoGc3RhdHVzGAEgASgOMi0uem9lbi5jb21wdXRhdGlvbi52MS5Db21wb25lbnRBZG1pc3Npb25TdGF0dXMSGAoQY29tcG9uZW50X2RpZ2VzdBgCIAEoCRIbChNjb21wb25lbnRfaW50ZXJmYWNlGAMgASgJEhIKCnNpemVfYnl0ZXMYBCABKAQSGQoRZGVuaWVkX2NhcGFiaWxpdHkYBSABKAki0wEKD1F1ZXJ5Q2FwYWJpbGl0eRIVCg1jYXBhYmlsaXR5X2lkGAEgASgJEjYKCmRlZmluaXRpb24YAiABKAsyIi56b2VuLndvcmxkLnYxLkRlZmluaXRpb25SZWZlcmVuY2USEQoJZW50aXR5X2lkGAMgASgJEjAKCXNlbGVjdGlvbhgEIAEoCzIdLnpvZW4ud29ybGQudjEuUXVlcnlTZWxlY3Rpb24SLAoIdmFsaWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIioKEUV4cGxhaW5DYXBhYmlsaXR5EhUKDWNhcGFiaWxpdHlfaWQYASABKAkimAIKEEFjdGlvbkNhcGFiaWxpdHkSFQoNY2FwYWJpbGl0eV9pZBgBIAEoCRI2CgpkZWZpbml0aW9uGAIgASgLMiIuem9lbi53b3JsZC52MS5EZWZpbml0aW9uUmVmZXJlbmNlEhEKCWFjdGlvbl9pZBgDIAEoCRITCgtyZXNvdXJjZV9pZBgEIAEoCRIsCgh2YWxpZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLcHJvcG9zZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmV4cGlyZXNfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsUBCgpDYXBhYmlsaXR5EjUKBXF1ZXJ5GAEgASgLMiQuem9lbi5jb21wdXRhdGlvbi52MS5RdWVyeUNhcGFiaWxpdHlIABI5CgdleHBsYWluGAIgASgLMiYuem9lbi5jb21wdXRhdGlvbi52MS5FeHBsYWluQ2FwYWJpbGl0eUgAEjcKBmFjdGlvbhgDIAEoCzIlLnpvZW4uY29tcHV0YXRpb24udjEuQWN0aW9uQ2FwYWJpbGl0eUgAQgwKCmNhcGFiaWxpdHkiaAoSQ2FwYWJpbGl0eU1hbmlmZXN0EhsKE2NvbXBvbmVudF9pbnRlcmZhY2UYASABKAkSNQoMY2FwYWJpbGl0aWVzGAIgAygLMh8uem9lbi5jb21wdXRhdGlvbi52MS5DYXBhYmlsaXR5IpABCg5FeGVjdXRlUmVxdWVzdBIUCgxleGVjdXRpb25faWQYASABKAkSGAoQY29tcG9uZW50X2RpZ2VzdBgCIAEoCRI5CghtYW5pZmVzdBgDIAEoCzInLnpvZW4uY29tcHV0YXRpb24udjEuQ2FwYWJpbGl0eU1hbmlmZXN0Eg0KBWlucHV0GAQgASgMSgQIBRAGIpoBCg5SZXNvdXJjZUxpbWl0cxIMCgRmdWVsGAEgASgEEhQKDG1lbW9yeV9ieXRlcxgCIAEoBBIWCg50YWJsZV9lbGVtZW50cxgDIAEoBBIRCglpbnN0YW5jZXMYBCABKAQSDgoGdGFibGVzGAUgASgEEhAKCG1lbW9yaWVzGAYgASgEEhcKD2RlYWRsaW5lX21pbGxpcxgHIAEoBCLNAwoMQ29tcHV0ZUJhc2lzEhQKDGJhc2lzX2RpZ2VzdBgBIAEoCRIVCg1tZW1iZXJzaGlwX2lkGAIgASgJEhAKCGFjdG9yX2lkGAMgASgJEhQKDHByaW5jaXBhbF9pZBgEIAEoCRITCgt3b3JrbG9hZF9pZBgFIAEoCRIWCg5yZWxlYXNlX2RpZ2VzdBgGIAEoCRIdChVwb2xpY3lfY2F0YWxvZ19kaWdlc3QYByABKAkSFwoPYnVkZ2V0X2NsYXNzX2lkGAggASgJEhoKEmJ1ZGdldF9yZXNvdXJjZV9pZBgJIAEoCRIXCg9idWRnZXRfcHJpb3JpdHkYCiABKA0SEQoJYWN0aW9uX2lkGAsgASgJEhEKCW9wZXJhdGlvbhgMIAEoCRIcChRhdXRob3JpemVkX2F0X21pY3JvcxgNIAEoAxIRCglwb2xpY3lfaWQYDiABKAkSFQoNcG9saWN5X2RpZ2VzdBgPIAEoCRIXCg9wb2xpY3lfcmV2aXNpb24YECABKAQSHAoUZGV0ZXJtaW5pbmdfcG9saWNpZXMYESADKAkSFwoPZXhwbGFuYXRpb25famNzGBIgASgJEhAKCGFwcHJvdmVkGBMgASgIItEBChRQcm9ncmFtQWN0aW9uT3V0Y29tZRI4CgZzdGF0dXMYASABKA4yKC56b2VuLmNvbXB1dGF0aW9uLnYxLlByb2dyYW1BY3Rpb25TdGF0dXMSEQoJYWN0aW9uX2lkGAIgASgJEhMKC3Byb3Bvc2FsX2lkGAMgASgJEhQKDG9wZXJhdGlvbl9pZBgEIAEoCRIVCg1pbnRlbnRfZGlnZXN0GAUgASgJEhcKD2NvbW1pdF9zZXF1ZW5jZRgGIAEoBBIRCglyZWNvdmVyZWQYByABKAgiywEKEUNvbXB1dGF0aW9uT3V0cHV0EhYKDnZhbHVlc19zY2FubmVkGAEgASgNEhcKD3NlbGVjdGVkX3ZhbHVlcxgCIAEoDRIRCglhZ2dyZWdhdGUYAyABKAkSGQoRc2VsZWN0ZWRfY2xhaW1faWQYBCABKAkSHAoUZXhwbGFuYXRpb25fY29tcGxldGUYBSABKAgSOQoGYWN0aW9uGAYgASgLMikuem9lbi5jb21wdXRhdGlvbi52MS5Qcm9ncmFtQWN0aW9uT3V0Y29tZSKNAwoPRXhlY3V0ZVJlc3BvbnNlEjQKBnN0YXR1cxgBIAEoDjIkLnpvZW4uY29tcHV0YXRpb24udjEuRXhlY3V0aW9uU3RhdHVzEjwKCGV2aWRlbmNlGAIgASgLMiouem9lbi5hY3Rpb24udjEuQ29tcG9uZW50RXhlY3V0aW9uRXZpZGVuY2USFgoOcmVxdWVzdF9kaWdlc3QYAyABKAkSMwoGbGltaXRzGAQgASgLMiMuem9lbi5jb21wdXRhdGlvbi52MS5SZXNvdXJjZUxpbWl0cxI2CgZvdXRwdXQYBSABKAsyJi56b2VuLmNvbXB1dGF0aW9uLnYxLkNvbXB1dGF0aW9uT3V0cHV0EhkKEWRlbmllZF9jYXBhYmlsaXR5GAYgASgJEhUKDWZ1ZWxfY29uc3VtZWQYByABKAQSFQoNcmVzdWx0X2RpZ2VzdBgIIAEoCRI4Cg1jb21wdXRlX2Jhc2lzGAkgASgLMiEuem9lbi5jb21wdXRhdGlvbi52MS5Db21wdXRlQmFzaXMq3QIKGENvbXBvbmVudEFkbWlzc2lvblN0YXR1cxIqCiZDT01QT05FTlRfQURNSVNTSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEigKJENPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX1BVQkxJU0hFRBABEi4KKkNPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX0RJR0VTVF9NSVNNQVRDSBACEigKJENPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX01BTEZPUk1FRBADEjEKLUNPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX0lOVEVSRkFDRV9NSVNNQVRDSBAEEigKJENPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX1RPT19MQVJHRRAFEjQKMENPTVBPTkVOVF9BRE1JU1NJT05fU1RBVFVTX1VOREVDTEFSRURfQ0FQQUJJTElUWRAGKtkBChNQcm9ncmFtQWN0aW9uU3RhdHVzEiUKIVBST0dSQU1fQUNUSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEicKI1BST0dSQU1fQUNUSU9OX1NUQVRVU19OT1RfUkVRVUVTVEVEEAESKwonUFJPR1JBTV9BQ1RJT05fU1RBVFVTX0FXQUlUSU5HX0FQUFJPVkFMEAISIwofUFJPR1JBTV9BQ1RJT05fU1RBVFVTX0NPTU1JVFRFRBADEiAKHFBST0dSQU1fQUNUSU9OX1NUQVRVU19ERU5JRUQQBCr8AwoPRXhlY3V0aW9uU3RhdHVzEiAKHEVYRUNVVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIeChpFWEVDVVRJT05fU1RBVFVTX0NPTVBMRVRFRBABEiMKH0VYRUNVVElPTl9TVEFUVVNfRlVFTF9FWEhBVVNURUQQAhImCiJFWEVDVVRJT05fU1RBVFVTX0RFQURMSU5FX0VYQ0VFREVEEAMSKgomRVhFQ1VUSU9OX1NUQVRVU19NRU1PUllfTElNSVRfRVhDRUVERUQQBBImCiJFWEVDVVRJT05fU1RBVFVTX0NBUEFCSUxJVFlfREVOSUVEEAUSKwonRVhFQ1VUSU9OX1NUQVRVU19DQVBBQklMSVRZX1VOQVZBSUxBQkxFEAYSJQohRVhFQ1VUSU9OX1NUQVRVU19IT1NUX1VOQVZBSUxBQkxFEAcSLworRVhFQ1VUSU9OX1NUQVRVU19UUkFQX0JFRk9SRV9BQ1RJT05fUkVRVUVTVBAIEi4KKkVYRUNVVElPTl9TVEFUVVNfVFJBUF9BRlRFUl9BQ1RJT05fUkVRVUVTVBAJEicKI0VYRUNVVElPTl9TVEFUVVNfSU5URVJGQUNFX01JU01BVENIEAoSKAokRVhFQ1VUSU9OX1NUQVRVU19NQUxGT1JNRURfQ09NUE9ORU5UEAsy2wEKEkNvbXB1dGF0aW9uU2VydmljZRJvChBQdWJsaXNoQ29tcG9uZW50Eiwuem9lbi5jb21wdXRhdGlvbi52MS5QdWJsaXNoQ29tcG9uZW50UmVxdWVzdBotLnpvZW4uY29tcHV0YXRpb24udjEuUHVibGlzaENvbXBvbmVudFJlc3BvbnNlElQKB0V4ZWN1dGUSIy56b2VuLmNvbXB1dGF0aW9uLnYxLkV4ZWN1dGVSZXF1ZXN0GiQuem9lbi5jb21wdXRhdGlvbi52MS5FeGVjdXRlUmVzcG9uc2ViBnByb3RvMw", [file_google_protobuf_timestamp, file_zoen_action_v1_action, file_zoen_world_v1_world]);
 
 /**
  * @generated from message zoen.computation.v1.PublishComponentRequest
@@ -263,14 +263,6 @@ export type ExecuteRequest = Message<"zoen.computation.v1.ExecuteRequest"> & {
    * @generated from field: bytes input = 4;
    */
   input: Uint8Array;
-
-  /**
-   * Release-owned BudgetClass id from the active PolicyCatalog.computeBudgets.
-   * Callers must not supply ResourceLimits; effective ceilings are server-resolved.
-   *
-   * @generated from field: string budget_class = 5;
-   */
-  budgetClass: string;
 };
 
 /**
@@ -328,6 +320,113 @@ export const ResourceLimitsSchema: GenMessage<ResourceLimits> = /*@__PURE__*/
   messageDesc(file_zoen_computation_v1_computation, 8);
 
 /**
+ * @generated from message zoen.computation.v1.ComputeBasis
+ */
+export type ComputeBasis = Message<"zoen.computation.v1.ComputeBasis"> & {
+  /**
+   * @generated from field: string basis_digest = 1;
+   */
+  basisDigest: string;
+
+  /**
+   * @generated from field: string membership_id = 2;
+   */
+  membershipId: string;
+
+  /**
+   * @generated from field: string actor_id = 3;
+   */
+  actorId: string;
+
+  /**
+   * @generated from field: string principal_id = 4;
+   */
+  principalId: string;
+
+  /**
+   * @generated from field: string workload_id = 5;
+   */
+  workloadId: string;
+
+  /**
+   * @generated from field: string release_digest = 6;
+   */
+  releaseDigest: string;
+
+  /**
+   * @generated from field: string policy_catalog_digest = 7;
+   */
+  policyCatalogDigest: string;
+
+  /**
+   * @generated from field: string budget_class_id = 8;
+   */
+  budgetClassId: string;
+
+  /**
+   * @generated from field: string budget_resource_id = 9;
+   */
+  budgetResourceId: string;
+
+  /**
+   * @generated from field: uint32 budget_priority = 10;
+   */
+  budgetPriority: number;
+
+  /**
+   * @generated from field: string action_id = 11;
+   */
+  actionId: string;
+
+  /**
+   * @generated from field: string operation = 12;
+   */
+  operation: string;
+
+  /**
+   * @generated from field: int64 authorized_at_micros = 13;
+   */
+  authorizedAtMicros: bigint;
+
+  /**
+   * @generated from field: string policy_id = 14;
+   */
+  policyId: string;
+
+  /**
+   * @generated from field: string policy_digest = 15;
+   */
+  policyDigest: string;
+
+  /**
+   * @generated from field: uint64 policy_revision = 16;
+   */
+  policyRevision: bigint;
+
+  /**
+   * @generated from field: repeated string determining_policies = 17;
+   */
+  determiningPolicies: string[];
+
+  /**
+   * @generated from field: string explanation_jcs = 18;
+   */
+  explanationJcs: string;
+
+  /**
+   * @generated from field: bool approved = 19;
+   */
+  approved: boolean;
+};
+
+/**
+ * Describes the message zoen.computation.v1.ComputeBasis.
+ * Use `create(ComputeBasisSchema)` to create a new message.
+ */
+export const ComputeBasisSchema: GenMessage<ComputeBasis> = /*@__PURE__*/
+  messageDesc(file_zoen_computation_v1_computation, 9);
+
+/**
  * @generated from message zoen.computation.v1.ProgramActionOutcome
  */
 export type ProgramActionOutcome = Message<"zoen.computation.v1.ProgramActionOutcome"> & {
@@ -372,7 +471,7 @@ export type ProgramActionOutcome = Message<"zoen.computation.v1.ProgramActionOut
  * Use `create(ProgramActionOutcomeSchema)` to create a new message.
  */
 export const ProgramActionOutcomeSchema: GenMessage<ProgramActionOutcome> = /*@__PURE__*/
-  messageDesc(file_zoen_computation_v1_computation, 9);
+  messageDesc(file_zoen_computation_v1_computation, 10);
 
 /**
  * @generated from message zoen.computation.v1.ComputationOutput
@@ -414,7 +513,7 @@ export type ComputationOutput = Message<"zoen.computation.v1.ComputationOutput">
  * Use `create(ComputationOutputSchema)` to create a new message.
  */
 export const ComputationOutputSchema: GenMessage<ComputationOutput> = /*@__PURE__*/
-  messageDesc(file_zoen_computation_v1_computation, 10);
+  messageDesc(file_zoen_computation_v1_computation, 11);
 
 /**
  * @generated from message zoen.computation.v1.ExecuteResponse
@@ -459,6 +558,11 @@ export type ExecuteResponse = Message<"zoen.computation.v1.ExecuteResponse"> & {
    * @generated from field: string result_digest = 8;
    */
   resultDigest: string;
+
+  /**
+   * @generated from field: zoen.computation.v1.ComputeBasis compute_basis = 9;
+   */
+  computeBasis?: ComputeBasis | undefined;
 };
 
 /**
@@ -466,7 +570,7 @@ export type ExecuteResponse = Message<"zoen.computation.v1.ExecuteResponse"> & {
  * Use `create(ExecuteResponseSchema)` to create a new message.
  */
 export const ExecuteResponseSchema: GenMessage<ExecuteResponse> = /*@__PURE__*/
-  messageDesc(file_zoen_computation_v1_computation, 11);
+  messageDesc(file_zoen_computation_v1_computation, 12);
 
 /**
  * @generated from enum zoen.computation.v1.ComponentAdmissionStatus

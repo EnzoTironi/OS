@@ -38,31 +38,38 @@ const wasmDefinitionIds = [
   "inventory.governed.human",
 ] as const;
 
+export const budgetResourceStandard = "zoen.compute.budget.standard";
+export const budgetResourceTight = "zoen.compute.budget.tight";
+
 export const wasmCodeModePersonas: readonly DoorPersona[] = [
   invitePersona({
-    actionIds: ["inventory.requestStock"],
+    actionIds: ["inventory.requestStock", "zoen.world.execute"],
     actorId: "actor.agent.a",
     id: "agent-a",
     principalId: "principal.agent.a",
-    resourceIds: [entityId],
+    resourceIds: [entityId, budgetResourceStandard],
     tenantId: "tenant.a",
     workloadId: "workload.agent.a",
   }),
   invitePersona({
-    actionIds: ["zoen.definition.activate"],
+    actionIds: ["zoen.definition.activate", "zoen.world.execute"],
     actorId: "actor.agent.b",
     id: "agent-b",
     principalId: "principal.agent.b",
-    resourceIds: [entityId],
+    resourceIds: [entityId, budgetResourceStandard],
     tenantId: "tenant.b",
     workloadId: "workload.agent.b",
   }),
   invitePersona({
-    actionIds: [definitionPublishActionId, "zoen.definition.activate"],
+    actionIds: [
+      definitionPublishActionId,
+      "zoen.definition.activate",
+      "zoen.world.execute",
+    ],
     actorId: "actor.admin.a",
     id: "admin-a",
     principalId: "principal.admin.a",
-    resourceIds: wasmDefinitionIds,
+    resourceIds: [...wasmDefinitionIds, budgetResourceTight],
     tenantId: "tenant.a",
     workloadId: "workload.admin.a",
   }),
@@ -103,8 +110,6 @@ export interface ManifestOverrides {
 
 export const budgetClassStandard = "clinic.query.standard";
 export const budgetClassTight = "clinic.query.tight";
-export const budgetClassDeadline = "clinic.query.deadline";
-export const budgetClassMemory = "clinic.query.memory";
 
 export function computationClient(
   token: string,
@@ -205,10 +210,8 @@ export async function execute(
   executionId: string,
   input: string,
   manifest: CapabilityManifest,
-  budgetClass = budgetClassStandard,
 ): Promise<ExecuteResponse> {
   return client.execute({
-    budgetClass,
     componentDigest: fixture.digest,
     executionId,
     input: new TextEncoder().encode(input),

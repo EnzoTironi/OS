@@ -143,6 +143,8 @@ when {
         tables: 2,
         memories: 2,
         deadlineMillis: 2000,
+        priority: 100,
+        resourceId: "zoen.compute.budget.standard",
       },
       {
         id: "clinic.query.tight",
@@ -153,6 +155,8 @@ when {
         tables: 2,
         memories: 2,
         deadlineMillis: 2000,
+        priority: 10,
+        resourceId: "zoen.compute.budget.tight",
       },
     ],
   })}
@@ -1161,8 +1165,12 @@ async function main(): Promise<void> {
     const standard = budgetClasses.find((entry) => entry.id === "clinic.query.standard");
     const tight = budgetClasses.find((entry) => entry.id === "clinic.query.tight");
     record(
-      "caller_cannot_raise_budget_above_catalog",
-      standard !== undefined && tight !== undefined && Number(tight.fuel) < Number(standard.fuel),
+      "server_selection_order_is_release_owned",
+      standard !== undefined &&
+        tight !== undefined &&
+        Number(tight.fuel) < Number(standard.fuel) &&
+        Number(tight.priority) < Number(standard.priority) &&
+        tight.resourceId === "zoen.compute.budget.tight",
     );
     const schemaBudgets = runZoen(["schema", "world.release.budgets"]);
     record(

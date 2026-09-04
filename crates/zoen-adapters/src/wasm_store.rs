@@ -1,18 +1,19 @@
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionId, CapabilityId, ClaimId, CommitSequence, ComponentDigest, ComponentInterface,
-    ExactInteger, ExecutionContext, ExecutionResultDigest, IntentDigest, OperationId, ProposalId,
+    ExactInteger, ExecutionContext, ExecutionResultDigest, IntentDigest, MembershipId, OperationId,
+    ProposalId,
 };
 use zoen_engine::{
     CompletedComputation, ComponentArtifact, ComputationError, ComputationExecution,
-    ComputationOutcome, ComputationOutput, ComputationRequest, ProgramActionOutcome,
-    PublishedComponent,
+    ComputationInvocation, ComputationLimits, ComputationOutcome, ComputationOutput,
+    ComputationRequest, ProgramActionOutcome, PublishedComponent,
 };
 
-use crate::{set_tenant, u64_to_i64};
+use crate::{ComputeBasisEvidence, set_tenant, u64_to_i64};
 
 pub(crate) enum BeginExecution {
     Completed(Box<ComputationExecution>),
@@ -128,10 +129,189 @@ pub(crate) async fn load_component(
     Ok((interface, bytes))
 }
 
+pub(crate) async fn replay_completed_execution(
+    pool: &PgPool,
+    context: &ExecutionContext,
+    membership_id: &MembershipId,
+    invocation: &ComputationInvocation,
+) -> Result<
+    Option<(
+        ComputationExecution,
+        ComputeBasisEvidence,
+        ComputationLimits,
+    )>,
+    ComputationError,
+> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    set_tenant(&mut transaction, context.world_id())
+        .await
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let row = sqlx::query(
+        "SELECT request_digest, invocation_digest, membership_id,
+                compute_basis_digest, compute_basis_jcs, release_digest,
+                policy_catalog_digest, budget_class_id, budget_resource_id,
+                execute_action_id, compute_operation, compute_approved, authorized_at_micros,
+                compute_policy_id, compute_policy_digest, compute_policy_revision,
+                compute_determining_policies, fuel_limit, memory_limit_bytes,
+                table_element_limit, instance_limit, table_limit, memory_limit,
+                deadline_millis, started_actor_id, started_principal_id,
+                started_workload_id, status, result_json
+         FROM wasm_executions
+         WHERE tenant_id = $1 AND execution_id = $2",
+    )
+    .bind(context.world_id().as_str())
+    .bind(invocation.execution_id.as_str())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let Some(row) = row else {
+        transaction
+            .commit()
+            .await
+            .map_err(|error| ComputationError::Store(error.to_string()))?;
+        return Ok(None);
+    };
+    require_replay_identity(&row, context, membership_id, invocation)?;
+    let status = row_text(&row, "status")?;
+    if status != "completed" {
+        return Err(ComputationError::Store(
+            "Wasm execution is already running".to_owned(),
+        ));
+    }
+    let basis_jcs = row_text(&row, "compute_basis_jcs")?;
+    let basis = ComputeBasisEvidence::from_canonical_jcs(&basis_jcs)
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    validate_stored_basis(&row, context, membership_id, &basis)?;
+    let limits = basis
+        .limits()
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    validate_stored_limits(&row, limits)?;
+    let request = ComputationRequest {
+        authority_basis_jcs: basis.canonical_jcs().to_owned(),
+        invocation: invocation.clone(),
+        limits,
+    };
+    if row_text(&row, "request_digest")? != request.request_digest().as_str() {
+        return Err(ComputationError::Store(
+            "stored compute request digest does not match its immutable basis".to_owned(),
+        ));
+    }
+    let value = row
+        .try_get::<serde_json::Value, _>("result_json")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let stored = serde_json::from_value::<StoredOutcome>(value)
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let execution = ComputationExecution {
+        evidence: invocation.evidence(),
+        outcome: stored.try_into()?,
+        request_digest: request.request_digest(),
+    };
+    transaction
+        .commit()
+        .await
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    Ok(Some((execution, basis, limits)))
+}
+
+fn require_replay_identity(
+    row: &sqlx::postgres::PgRow,
+    context: &ExecutionContext,
+    membership_id: &MembershipId,
+    invocation: &ComputationInvocation,
+) -> Result<(), ComputationError> {
+    if row_text(row, "invocation_digest")? != invocation.digest().as_str()
+        || row_text(row, "membership_id")? != membership_id.as_str()
+        || row_text(row, "started_actor_id")? != context.actor_id().as_str()
+        || row_text(row, "started_principal_id")? != context.principal_id().as_str()
+        || row_text(row, "started_workload_id")? != context.workload_id().as_str()
+    {
+        return Err(ComputationError::IdentityCollision);
+    }
+    Ok(())
+}
+
+fn validate_stored_basis(
+    row: &sqlx::postgres::PgRow,
+    context: &ExecutionContext,
+    membership_id: &MembershipId,
+    basis: &ComputeBasisEvidence,
+) -> Result<(), ComputationError> {
+    let policy_revision = row
+        .try_get::<i64, _>("compute_policy_revision")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    let determining = row
+        .try_get::<Vec<String>, _>("compute_determining_policies")
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    if row_text(row, "compute_basis_digest")? != basis.digest()
+        || row_text(row, "release_digest")? != basis.release_digest()
+        || row_text(row, "policy_catalog_digest")? != basis.policy_catalog_digest()
+        || row_text(row, "budget_class_id")? != basis.budget_class_id()
+        || row_text(row, "budget_resource_id")? != basis.budget_resource_id()
+        || row_text(row, "execute_action_id")? != basis.action_id()
+        || row_text(row, "compute_operation")? != basis.operation()
+        || row_bool(row, "compute_approved")? != basis.approved()
+        || row_i64(row, "authorized_at_micros")? != basis.authorized_at_micros()
+        || row_text(row, "compute_policy_id")? != basis.policy_id()
+        || row_text(row, "compute_policy_digest")? != basis.policy_digest()
+        || u64::try_from(policy_revision).ok() != Some(basis.policy_revision())
+        || determining != basis.determining_policies()
+        || basis.membership_id() != membership_id.as_str()
+        || basis.actor_id() != context.actor_id().as_str()
+        || basis.principal_id() != context.principal_id().as_str()
+        || basis.workload_id() != context.workload_id().as_str()
+        || basis.world_id() != context.world_id().as_str()
+    {
+        return Err(ComputationError::Store(
+            "stored compute basis columns do not match canonical evidence".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_stored_limits(
+    row: &sqlx::postgres::PgRow,
+    limits: ComputationLimits,
+) -> Result<(), ComputationError> {
+    if row_i64(row, "fuel_limit")? != to_i64(limits.fuel(), "fuel limit")?
+        || row_i64(row, "memory_limit_bytes")?
+            != usize_i64(limits.memory_bytes(), "memory byte limit")?
+        || row_i64(row, "table_element_limit")?
+            != usize_i64(limits.table_elements(), "table element limit")?
+        || row_i64(row, "instance_limit")? != usize_i64(limits.instances(), "instance limit")?
+        || row_i64(row, "table_limit")? != usize_i64(limits.tables(), "table limit")?
+        || row_i64(row, "memory_limit")? != usize_i64(limits.memories(), "memory limit")?
+        || row_i64(row, "deadline_millis")? != to_i64(limits.deadline_millis(), "deadline millis")?
+    {
+        return Err(ComputationError::Store(
+            "stored compute limits do not match canonical basis".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn row_text(row: &sqlx::postgres::PgRow, column: &str) -> Result<String, ComputationError> {
+    row.try_get::<String, _>(column)
+        .map_err(|error| ComputationError::Store(error.to_string()))
+}
+
+fn row_i64(row: &sqlx::postgres::PgRow, column: &str) -> Result<i64, ComputationError> {
+    row.try_get::<i64, _>(column)
+        .map_err(|error| ComputationError::Store(error.to_string()))
+}
+
+fn row_bool(row: &sqlx::postgres::PgRow, column: &str) -> Result<bool, ComputationError> {
+    row.try_get::<bool, _>(column)
+        .map_err(|error| ComputationError::Store(error.to_string()))
+}
+
 pub(crate) async fn begin_execution(
     pool: &PgPool,
     context: &ExecutionContext,
     request: &ComputationRequest,
+    basis: &ComputeBasisEvidence,
 ) -> Result<BeginExecution, ComputationError> {
     let mut transaction = pool
         .begin()
@@ -147,7 +327,7 @@ pub(crate) async fn begin_execution(
          WHERE tenant_id = $1 AND execution_id = $2",
     )
     .bind(context.world_id().as_str())
-    .bind(request.execution_id.as_str())
+    .bind(request.invocation.execution_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
     .map_err(|error| ComputationError::Store(error.to_string()))?;
@@ -159,7 +339,22 @@ pub(crate) async fn begin_execution(
             .map_err(|error| ComputationError::Store(error.to_string()))?;
         return Ok(result);
     }
+    insert_execution(&mut transaction, context, request, basis).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| ComputationError::Store(error.to_string()))?;
+    Ok(BeginExecution::Run)
+}
+
+async fn insert_execution(
+    transaction: &mut Transaction<'_, Postgres>,
+    context: &ExecutionContext,
+    request: &ComputationRequest,
+    basis: &ComputeBasisEvidence,
+) -> Result<(), ComputationError> {
     let manifest = request
+        .invocation
         .manifest
         .canonical_json()
         .map_err(|error| ComputationError::Store(error.to_string()))?;
@@ -167,30 +362,42 @@ pub(crate) async fn begin_execution(
         .map_err(|error| ComputationError::Store(error.to_string()))?;
     sqlx::query(
         "INSERT INTO wasm_executions (
-            tenant_id, execution_id, request_digest, component_digest,
+            tenant_id, execution_id, request_digest, invocation_digest, component_digest,
             component_interface, capability_manifest_digest, capability_manifest,
             capability_ids, input_digest, fuel_limit, memory_limit_bytes,
             table_element_limit, instance_limit, table_limit, memory_limit,
             deadline_millis, started_actor_id, started_principal_id,
-            started_workload_id, status
+            started_workload_id, membership_id, compute_basis_digest,
+            compute_basis_jcs, release_digest, policy_catalog_digest,
+            budget_class_id, budget_resource_id, execute_action_id,
+            compute_operation, compute_approved, authorized_at_micros, compute_policy_id,
+            compute_policy_digest, compute_policy_revision,
+            compute_determining_policies, status
          ) VALUES (
-            $1, $2, $3, $4,
-            $5, $6, $7,
-            $8, $9, $10, $11,
-            $12, $13, $14, $15,
-            $16, $17, $18,
-            $19, 'running'
+            $1, $2, $3, $4, $5,
+            $6, $7, $8,
+            $9, $10, $11, $12,
+            $13, $14, $15, $16,
+            $17, $18, $19,
+            $20, $21, $22,
+            $23, $24, $25,
+            $26, $27, $28,
+            $29, $30, $31,
+            $32, $33, $34,
+            $35, 'running'
          )",
     )
     .bind(context.world_id().as_str())
-    .bind(request.execution_id.as_str())
+    .bind(request.invocation.execution_id.as_str())
     .bind(request.request_digest().as_str())
-    .bind(request.component_digest.as_str())
-    .bind(request.manifest.interface().as_str())
-    .bind(request.manifest.digest().as_str())
+    .bind(request.invocation_digest().as_str())
+    .bind(request.invocation.component_digest.as_str())
+    .bind(request.invocation.manifest.interface().as_str())
+    .bind(request.invocation.manifest.digest().as_str())
     .bind(manifest)
     .bind(
         request
+            .invocation
             .manifest
             .capability_ids()
             .iter()
@@ -214,14 +421,25 @@ pub(crate) async fn begin_execution(
     .bind(context.actor_id().as_str())
     .bind(context.principal_id().as_str())
     .bind(context.workload_id().as_str())
-    .execute(&mut *transaction)
+    .bind(basis.membership_id())
+    .bind(basis.digest())
+    .bind(basis.canonical_jcs())
+    .bind(basis.release_digest())
+    .bind(basis.policy_catalog_digest())
+    .bind(basis.budget_class_id())
+    .bind(basis.budget_resource_id())
+    .bind(basis.action_id())
+    .bind(basis.operation())
+    .bind(basis.approved())
+    .bind(basis.authorized_at_micros())
+    .bind(basis.policy_id())
+    .bind(basis.policy_digest())
+    .bind(to_i64(basis.policy_revision(), "compute policy revision")?)
+    .bind(basis.determining_policies())
+    .execute(&mut **transaction)
     .await
     .map_err(|error| ComputationError::Store(error.to_string()))?;
-    transaction
-        .commit()
-        .await
-        .map_err(|error| ComputationError::Store(error.to_string()))?;
-    Ok(BeginExecution::Run)
+    Ok(())
 }
 
 fn replay_existing_execution(
@@ -305,7 +523,7 @@ pub(crate) async fn finish_execution(
            AND status = 'running'",
     )
     .bind(context.world_id().as_str())
-    .bind(request.execution_id.as_str())
+    .bind(request.invocation.execution_id.as_str())
     .bind(outcome_kind(outcome))
     .bind(value)
     .bind(result_digest)

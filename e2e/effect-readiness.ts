@@ -100,7 +100,6 @@ export async function proveProductReadiness(input: {
   });
   const releaseB = await plantBudgetRelease({
     authorizationPolicies,
-    budgets: [],
     databaseUrl: applicationDatabaseUrl,
     generatedDirectory: path.join(effectGeneratedDirectory, "readiness-releases"),
     identityBaseUrl: zoenBaseUrl,

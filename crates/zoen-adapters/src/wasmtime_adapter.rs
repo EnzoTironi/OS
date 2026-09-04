@@ -16,17 +16,22 @@ use wasmtime::{
 use zoen_core::{
     ActionId, ActionInput, CapabilityId, ClaimId, CommitSequence, ComponentDigest,
     ComponentExecutionEvidence, EntityId, ExactDecimal, ExactInteger, ExactValue, InputId,
-    IntentDigest, OperationId, ProposalId, RelationId, ResourceId, SemanticSelection, UnitId,
+    IntentDigest, MembershipId, OperationId, ProposalId, RelationId, ResourceId, SemanticSelection,
+    UnitId,
 };
 use zoen_engine::{
     COMPONENT_INTERFACE_V1, CompletedComputation, ComponentAdmissionError, ComponentArtifact,
-    ComputationError, ComputationExecution, ComputationExecutor, ComputationHost,
-    ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError, HostCommitOutcome,
-    HostCommitRequest, HostExplainRequest, HostProposalOutcome, HostProposeRequest,
-    HostQueryRequest, HostQueryResult, ProgramActionOutcome, PublishedComponent,
+    ComputationError, ComputationExecution, ComputationHost, ComputationInvocation,
+    ComputationLimits, ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError,
+    HostCommitOutcome, HostCommitRequest, HostExplainRequest, HostProposalOutcome,
+    HostProposeRequest, HostQueryRequest, HostQueryResult, ProgramActionOutcome,
+    PublishedComponent,
 };
 
-use crate::wasm_store::{self, BeginExecution};
+use crate::{
+    ComputeBasisEvidence, ResolvedComputeBasis,
+    wasm_store::{self, BeginExecution},
+};
 
 const HOST_INTERFACE_V1: &str = "zoen:code-mode/host@1.0.0";
 const PROGRAM_INTERFACE_V1: &str = "zoen:code-mode/program@1.0.0";
@@ -62,6 +67,25 @@ pub struct WasmtimeComputationExecutor {
     engine: Engine,
     _epoch_clock: EpochClock,
     pool: PgPool,
+}
+
+pub struct AuthorizedComputationExecution {
+    basis: ComputeBasisEvidence,
+    execution: ComputationExecution,
+    limits: ComputationLimits,
+}
+
+impl AuthorizedComputationExecution {
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        ComputationExecution,
+        ComputeBasisEvidence,
+        ComputationLimits,
+    ) {
+        (self.execution, self.basis, self.limits)
+    }
 }
 
 impl WasmtimeComputationExecutor {
@@ -102,8 +126,14 @@ impl WasmtimeComputationExecutor {
     }
 }
 
-impl ComputationExecutor for WasmtimeComputationExecutor {
-    async fn publish(
+impl WasmtimeComputationExecutor {
+    /// Publish a validated component for the current World.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComponentAdmissionError`] when the component does not satisfy
+    /// admission rules or cannot be persisted.
+    pub async fn publish(
         &self,
         context: &zoen_core::ExecutionContext,
         artifact: ComponentArtifact,
@@ -127,42 +157,101 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
         wasm_store::publish(&self.pool, context, &artifact).await
     }
 
-    async fn execute<H>(
+    /// Replay a completed execution for this Membership and invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComputationError`] when persisted execution evidence is
+    /// unavailable, corrupt, or inconsistent with the invocation.
+    pub async fn replay(
         &self,
         context: &zoen_core::ExecutionContext,
-        request: ComputationRequest,
+        membership_id: &MembershipId,
+        invocation: &ComputationInvocation,
+    ) -> Result<Option<AuthorizedComputationExecution>, ComputationError> {
+        Ok(
+            wasm_store::replay_completed_execution(&self.pool, context, membership_id, invocation)
+                .await?
+                .map(
+                    |(execution, basis, limits)| AuthorizedComputationExecution {
+                        basis,
+                        execution,
+                        limits,
+                    },
+                ),
+        )
+    }
+
+    /// Execute a component with a server-resolved, single-use authority basis.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComputationError`] when component loading, execution, or
+    /// durable evidence recording fails.
+    pub async fn execute<H>(
+        &self,
+        basis: ResolvedComputeBasis,
+        invocation: ComputationInvocation,
         host: H,
-    ) -> Result<ComputationExecution, ComputationError>
+    ) -> Result<AuthorizedComputationExecution, ComputationError>
     where
         H: ComputationHost + 'static,
     {
+        let (context, basis, limits) = basis.into_parts();
+        let request = ComputationRequest {
+            authority_basis_jcs: basis.canonical_jcs().to_owned(),
+            invocation,
+            limits,
+        };
         let (stored_interface, bytes) =
-            wasm_store::load_component(&self.pool, context, &request.component_digest).await?;
-        match wasm_store::begin_execution(&self.pool, context, &request).await? {
-            BeginExecution::Completed(execution) => return Ok(*execution),
+            wasm_store::load_component(&self.pool, &context, &request.invocation.component_digest)
+                .await?;
+        match wasm_store::begin_execution(&self.pool, &context, &request, &basis).await? {
+            BeginExecution::Completed(execution) => {
+                return Ok(AuthorizedComputationExecution {
+                    basis,
+                    execution: *execution,
+                    limits,
+                });
+            }
             BeginExecution::Run => {}
         }
-        if stored_interface != *request.manifest.interface()
+        let outcome = self
+            .run_component(&request, host, stored_interface, &bytes)
+            .await?;
+        let execution = self.finish(&context, &request, outcome).await?;
+        Ok(AuthorizedComputationExecution {
+            basis,
+            execution,
+            limits,
+        })
+    }
+
+    async fn run_component<H>(
+        &self,
+        request: &ComputationRequest,
+        host: H,
+        stored_interface: zoen_core::ComponentInterface,
+        bytes: &[u8],
+    ) -> Result<ComputationOutcome, ComputationError>
+    where
+        H: ComputationHost + 'static,
+    {
+        if stored_interface != *request.invocation.manifest.interface()
             || stored_interface.as_str() != COMPONENT_INTERFACE_V1
         {
-            return self
-                .finish(context, &request, ComputationOutcome::InterfaceMismatch)
-                .await;
+            return Ok(ComputationOutcome::InterfaceMismatch);
         }
-        let Ok(component) = Component::new(&self.engine, &bytes) else {
-            return self
-                .finish(context, &request, ComputationOutcome::MalformedComponent)
-                .await;
+        let Ok(component) = Component::new(&self.engine, bytes) else {
+            return Ok(ComputationOutcome::MalformedComponent);
         };
         if validate_component_shape(&self.engine, &component).is_err() {
-            return self
-                .finish(context, &request, ComputationOutcome::InterfaceMismatch)
-                .await;
+            return Ok(ComputationOutcome::InterfaceMismatch);
         }
         let mut linker = Linker::new(&self.engine);
         Computation::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
             .map_err(|error| ComputationError::Store(error.to_string()))?;
-        let limits = StoreLimitsBuilder::new()
+        let store_limits = StoreLimitsBuilder::new()
             .memory_size(request.limits.memory_bytes())
             .table_elements(request.limits.table_elements())
             .instances(request.limits.instances())
@@ -176,7 +265,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
                 action_requested: false,
                 evidence: request.evidence(),
                 host,
-                limiter: ExecutionLimiter::new(limits),
+                limiter: ExecutionLimiter::new(store_limits),
             },
         );
         store.limiter(|state| &mut state.limiter);
@@ -188,7 +277,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
             let instance = Computation::instantiate_async(&mut store, &component, &linker).await?;
             instance
                 .zoen_code_mode_program()
-                .call_run(&mut store, &request.input)
+                .call_run(&mut store, &request.invocation.input)
                 .await
         };
         let result = run.await;
@@ -198,7 +287,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
         let fuel_consumed = request.limits.fuel().saturating_sub(fuel_remaining);
         let action_requested = store.data().action_requested;
         let memory_denied = store.data().limiter.memory_denied();
-        let outcome = match result {
+        Ok(match result {
             Err(error) => classify_runtime_error(&error, action_requested, memory_denied),
             Ok(Err(error)) => program_error(error, action_requested),
             Ok(Ok(output)) => match computation_output(output) {
@@ -214,8 +303,7 @@ impl ComputationExecutor for WasmtimeComputationExecutor {
                 Err(_) if action_requested => ComputationOutcome::TrapAfterActionRequest,
                 Err(_) => ComputationOutcome::TrapBeforeActionRequest,
             },
-        };
-        self.finish(context, &request, outcome).await
+        })
     }
 }
 
