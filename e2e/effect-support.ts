@@ -961,19 +961,44 @@ export async function stopRestate(): Promise<void> {
 
 export async function startRestate(): Promise<void> {
   await compose("start", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
-  await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
-  );
+  await waitForRestateReady();
 }
 
 export async function recreateRestateContainer(): Promise<void> {
   await compose("rm", "--stop", "--force", "restate");
   await compose("up", "--detach", "--wait", "restate");
-  await waitForPort(e2ePort("ZOEN_E2E_RESTATE_UI_PORT", restateUiFallback));
-  await waitForPort(
-    e2ePort("ZOEN_E2E_RESTATE_INGRESS_PORT", restateIngressFallback),
+  await waitForRestateReady();
+}
+
+// After Eve/coverage load, `docker compose start restate` can take well past
+// the old 10s TCP poll before admin/ingress answer. Match #680's deadline
+// budget and Restate's own readiness URLs (admin /health + ingress
+// /restate/health) instead of open-port alone.
+const restateReadyTimeoutMs = 60_000;
+
+async function waitForRestateReady(): Promise<void> {
+  const deadline = Date.now() + restateReadyTimeoutMs;
+  while (Date.now() < deadline) {
+    if (await restateIsReady()) {
+      return;
+    }
+    await delay(50);
+  }
+  throw new Error(
+    `Restate did not become ready on ${restateAdmin} / ${restateIngress} within ${restateReadyTimeoutMs}ms`,
   );
+}
+
+async function restateIsReady(): Promise<boolean> {
+  try {
+    const [admin, ingress] = await Promise.all([
+      fetch(`${restateAdmin}/health`),
+      fetch(`${restateIngress}/restate/health`),
+    ]);
+    return admin.ok && ingress.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function waitFor<T>(
