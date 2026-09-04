@@ -9,6 +9,7 @@ import {
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import { parseZoenJson, runZoenCli, type ZoenCliResult } from "./zoen-cli.js";
 
 const scenario = "world-release";
 const repositoryRoot = process.cwd();
@@ -144,41 +145,14 @@ function record(name: string, observed: boolean): void {
   assertions[name] = observed;
 }
 
-interface ZoenResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
+type ZoenResult = ZoenCliResult;
 
 function runZoen(args: readonly string[]): ZoenResult {
-  try {
-    const stdout = execFileSync(zoenPath, args, {
-      encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-    });
-    return { status: 0, stdout, stderr: "" };
-  } catch (error) {
-    if (error !== null && typeof error === "object" && "status" in error) {
-      const failed = error as {
-        status: number | null;
-        stdout: string | Buffer;
-        stderr: string | Buffer;
-      };
-      return {
-        status: failed.status ?? 1,
-        stdout: String(failed.stdout),
-        stderr: String(failed.stderr),
-      };
-    }
-    throw error;
-  }
+  return runZoenCli(zoenPath, databaseUrl, args);
 }
 
 function parseJson(text: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(text);
-  assert.equal(typeof value, "object");
-  assert.notEqual(value, null);
-  return value as Record<string, unknown>;
+  return parseZoenJson(text);
 }
 
 function sha256Hex(text: string): string {

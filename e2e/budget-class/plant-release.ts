@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { parseZoenJson, runZoenCli } from "../zoen-cli.js";
 
 export interface BudgetClassSpec {
   deadlineMillis: number;
@@ -115,47 +115,6 @@ function buildPolicyCatalog(
   return { bytes, evidenceDigest: sha256Hex(bytes) };
 }
 
-interface ZoenResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
-function runZoen(
-  zoenPath: string,
-  databaseUrl: string,
-  args: readonly string[],
-): ZoenResult {
-  try {
-    const stdout = execFileSync(zoenPath, args, {
-      encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-    });
-    return { status: 0, stdout, stderr: "" };
-  } catch (error) {
-    if (error !== null && typeof error === "object" && "status" in error) {
-      const failed = error as {
-        status: number | null;
-        stdout: string | Buffer;
-        stderr: string | Buffer;
-      };
-      return {
-        status: failed.status ?? 1,
-        stdout: String(failed.stdout),
-        stderr: String(failed.stderr),
-      };
-    }
-    throw error;
-  }
-}
-
-function parseJson(text: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(text);
-  assert.equal(typeof value, "object");
-  assert.notEqual(value, null);
-  return value as Record<string, unknown>;
-}
-
 /**
  * Publish + preview + decide + activate a WorldRelease whose PolicyCatalog
  * carries the given BudgetClass entries. World id equals the tenant/world label.
@@ -194,7 +153,7 @@ export async function plantBudgetRelease(input: {
   const file = path.join(input.generatedDirectory, `release-${input.world}.json`);
   await writeFile(file, `${JSON.stringify(content)}\n`);
 
-  const constructed = runZoen(input.zoenPath, input.databaseUrl, [
+  const constructed = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
     "release",
     "construct",
@@ -202,10 +161,10 @@ export async function plantBudgetRelease(input: {
     file,
   ]);
   assert.equal(constructed.status, 0, constructed.stderr || constructed.stdout);
-  const constructedBody = parseJson(constructed.stdout);
+  const constructedBody = parseZoenJson(constructed.stdout);
   const digest = String(constructedBody.digest);
 
-  const published = runZoen(input.zoenPath, input.databaseUrl, [
+  const published = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
     "release",
     "publish",
@@ -224,7 +183,7 @@ export async function plantBudgetRelease(input: {
   ]);
   assert.equal(published.status, 0, published.stderr || published.stdout);
 
-  const previewed = runZoen(input.zoenPath, input.databaseUrl, [
+  const previewed = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
     "release",
     "preview",
@@ -236,10 +195,10 @@ export async function plantBudgetRelease(input: {
     principal,
   ]);
   assert.equal(previewed.status, 0, previewed.stderr || previewed.stdout);
-  const previewBody = parseJson(previewed.stdout);
+  const previewBody = parseZoenJson(previewed.stdout);
   const previewDigest = String(previewBody.previewDigest);
 
-  const decided = runZoen(input.zoenPath, input.databaseUrl, [
+  const decided = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
     "release",
     "decide",
@@ -252,7 +211,7 @@ export async function plantBudgetRelease(input: {
   ]);
   assert.equal(decided.status, 0, decided.stderr || decided.stdout);
 
-  const activated = runZoen(input.zoenPath, input.databaseUrl, [
+  const activated = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
     "release",
     "activate",
@@ -279,7 +238,7 @@ export function listBudgets(
   databaseUrl: string,
   world: string,
 ): Record<string, unknown> {
-  const result = runZoen(zoenPath, databaseUrl, [
+  const result = runZoenCli(zoenPath, databaseUrl, [
     "world",
     "release",
     "budgets",
@@ -287,5 +246,5 @@ export function listBudgets(
     world,
   ]);
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  return parseJson(result.stdout);
+  return parseZoenJson(result.stdout);
 }
