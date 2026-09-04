@@ -1,9 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    fs::File,
-    io::Read,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeSet, fs::File, io::Read, time::Duration};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -16,7 +11,9 @@ use zoen_core::{
     MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
     TimestampMicros, TrustedExecutionContext, UnbindReason, WORKLOAD_CREDENTIALS_RESOURCE,
     WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
-    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId,
+    WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION,
+    WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION,
+    WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId, encode_hex,
     trusted_context_from_membership,
 };
 
@@ -45,7 +42,7 @@ impl PostgresIdentityStore {
             return Ok(account);
         }
         let now = now_micros();
-        let account_id = new_account_id();
+        let account_id = new_account_id()?;
         sqlx::query(
             "INSERT INTO zoen_accounts (account_id, status, created_at)
              VALUES ($1, 'provisional', to_timestamp($2::double precision / 1000000.0))",
@@ -55,7 +52,7 @@ impl PostgresIdentityStore {
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
-        let binding_id = new_binding_id();
+        let binding_id = new_binding_id()?;
         sqlx::query(
             "INSERT INTO external_bindings (
                 binding_id, account_id, provider, subject_key, status
@@ -149,7 +146,7 @@ impl PostgresIdentityStore {
             return Err(IdentityError::AlreadyBound);
         }
         let now = now_micros();
-        let binding_id = new_binding_id();
+        let binding_id = new_binding_id()?;
         sqlx::query(
             "INSERT INTO external_bindings (
                 binding_id, account_id, provider, subject_key, status, verified_at
@@ -237,10 +234,10 @@ impl PostgresIdentityStore {
             transaction.commit().await.map_err(unavailable)?;
             return Ok(membership);
         }
-        let tenant_id = new_tenant_id();
-        let principal_id = new_principal_id();
-        let membership_id = new_membership_id();
-        let actor_id = ActorId::parse(new_id_value("actor"))
+        let tenant_id = new_tenant_id()?;
+        let principal_id = new_principal_id()?;
+        let membership_id = new_membership_id()?;
+        let actor_id = ActorId::parse(new_id_value("actor")?)
             .map_err(|_| IdentityError::Conflict("invalid actor id".to_owned()))?;
         let workload_id = WorkloadId::parse("workload.personal")
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?;
@@ -289,7 +286,7 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn create_invite(&self, input: CreateInvite<'_>) -> Result<Invite, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let invite_id = new_invite_id();
+        let invite_id = new_invite_id()?;
         let token_hash = hash_token(input.token);
         sqlx::query(
             "INSERT INTO invites (
@@ -399,7 +396,7 @@ impl PostgresIdentityStore {
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
-        let membership_id = new_membership_id();
+        let membership_id = new_membership_id()?;
         insert_membership(
             &mut transaction,
             InsertMembership {
@@ -741,6 +738,56 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// Resolve one durable Membership authority cut.
+    ///
+    /// The caller-supplied principal and tenant are only selectors: the stored
+    /// active Membership remains authoritative, and its terminal delegation
+    /// grant must cover the requested Action, resource, workload, and time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::MembershipNotFound`] when the Membership does
+    /// not bind the requested principal/tenant, [`IdentityError::MembershipInactive`]
+    /// when it has ended, or [`IdentityError::IngressNotAllowed`] when its
+    /// delegation does not cover the requested operation.
+    pub async fn resolve_membership_authority(
+        &self,
+        id: &MembershipId,
+        tenant_id: &TenantId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<TrustedExecutionContext, IdentityError> {
+        let (_, context) = self
+            .load_membership_authority(id, tenant_id, principal_id, action_id, resource_id, at)
+            .await?;
+        Ok(context)
+    }
+
+    async fn load_membership_authority(
+        &self,
+        id: &MembershipId,
+        tenant_id: &TenantId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
+        let membership = self.get_membership(id).await?;
+        if membership.tenant_id != *tenant_id || membership.principal_id != *principal_id {
+            return Err(IdentityError::MembershipNotFound);
+        }
+        let context = trusted_context_from_membership(&membership)?;
+        if !context
+            .delegation()
+            .permits(action_id, resource_id, context.workload_id(), at)
+        {
+            return Err(IdentityError::IngressNotAllowed);
+        }
+        Ok((membership, context))
+    }
+
     /// # Errors
     ///
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
@@ -804,7 +851,7 @@ impl PostgresIdentityStore {
     ) -> Result<MintedOnboardToken, IdentityError> {
         let raw = random_onboard_token()?;
         let token_hash = hash_onboard_token(&raw);
-        let token_id = new_id_value("onboard");
+        let token_id = new_id_value("onboard")?;
         let now = now_micros();
         let expires_at = TimestampMicros::new(
             now.get()
@@ -1270,6 +1317,14 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORKLOAD_MANAGE_CREDENTIALS_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_PUBLISH_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_PREVIEW_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_DECIDE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_ACTIVATE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
         BTreeSet::from([
             ResourceId::parse("zoen.personal.workspace")
@@ -1281,6 +1336,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ResourceId::parse("personal.reminder")
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
             ResourceId::parse(WORKLOAD_CREDENTIALS_RESOURCE)
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE)
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
         ]),
         BTreeSet::from([workload_id.clone()]),
@@ -1330,30 +1387,37 @@ fn random_onboard_token() -> Result<String, IdentityError> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn new_id_value(prefix: &str) -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_nanos());
-    format!("{prefix}.{nanos:x}")
+fn new_id_value(prefix: &str) -> Result<String, IdentityError> {
+    let mut entropy = [0_u8; 16];
+    File::open("/dev/urandom")
+        .and_then(|mut file| file.read_exact(&mut entropy))
+        .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+    Ok(format!("{prefix}.{}", encode_hex(&entropy)))
 }
 
-fn new_account_id() -> ZoenAccountId {
-    ZoenAccountId::parse(new_id_value("account")).expect("generated account id")
+fn new_account_id() -> Result<ZoenAccountId, IdentityError> {
+    ZoenAccountId::parse(new_id_value("account")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_binding_id() -> ExternalBindingId {
-    ExternalBindingId::parse(new_id_value("binding")).expect("generated binding id")
+fn new_binding_id() -> Result<ExternalBindingId, IdentityError> {
+    ExternalBindingId::parse(new_id_value("binding")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_membership_id() -> MembershipId {
-    MembershipId::parse(new_id_value("membership")).expect("generated membership id")
+fn new_membership_id() -> Result<MembershipId, IdentityError> {
+    MembershipId::parse(new_id_value("membership")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_invite_id() -> InviteId {
-    InviteId::parse(new_id_value("invite")).expect("generated invite id")
+fn new_invite_id() -> Result<InviteId, IdentityError> {
+    InviteId::parse(new_id_value("invite")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_tenant_id() -> TenantId {
-    TenantId::parse(new_id_value("tenant")).expect("generated tenant id")
+fn new_tenant_id() -> Result<TenantId, IdentityError> {
+    TenantId::parse(new_id_value("tenant")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_principal_id() -> PrincipalId {
-    PrincipalId::parse(new_id_value("principal")).expect("generated principal id")
+fn new_principal_id() -> Result<PrincipalId, IdentityError> {
+    PrincipalId::parse(new_id_value("principal")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
 
 fn now_micros() -> TimestampMicros {

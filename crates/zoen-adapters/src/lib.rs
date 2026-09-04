@@ -75,6 +75,7 @@ pub use workload_credential_store::{
 pub use world_kernel_store::PostgresWorldKernel;
 pub use world_release_store::{
     ActivatePut, DecisionPut, PostgresWorldReleaseStore, PreviewPut, PublicationPut,
+    ReleaseAuthorityOperation, ReleaseAuthorization,
 };
 
 pub(crate) async fn set_tenant(

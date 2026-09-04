@@ -126,6 +126,7 @@ async function main(): Promise<void> {
       authorizationPolicies: bootManifest.policies,
       databaseUrl: adminDatabaseUrl,
       generatedDirectory,
+      identityBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
       world: tenantA,
       zoenPath,
     });
@@ -133,6 +134,7 @@ async function main(): Promise<void> {
       authorizationPolicies: bootManifest.policies,
       databaseUrl: adminDatabaseUrl,
       generatedDirectory,
+      identityBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
       world: tenantB,
       zoenPath,
     });

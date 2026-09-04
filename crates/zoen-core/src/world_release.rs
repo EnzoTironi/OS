@@ -13,6 +13,15 @@ use crate::{
 pub const WORLD_RELEASE_SCHEMA: &str = "zoen.world-release.v1";
 pub const WORLD_RELEASE_PREVIEW_SCHEMA: &str = "zoen.world-release-preview.v1";
 pub const WORLD_POLICY_CATALOG_SCHEMA: &str = "zoen.policy-catalog.v1";
+pub const WORLD_RELEASE_PUBLISH_ACTION: &str = "zoen.world.release.publish";
+pub const WORLD_RELEASE_PREVIEW_ACTION: &str = "zoen.world.release.preview";
+pub const WORLD_RELEASE_DECIDE_ACTION: &str = "zoen.world.release.decide";
+pub const WORLD_RELEASE_ACTIVATE_ACTION: &str = "zoen.world.release.activate";
+pub const WORLD_RELEASE_AUTHORITY_RESOURCE: &str = "zoen.world.release";
+pub const WORLD_RELEASE_AUTHORITY_DEFINITION: &str = "zoen.world.release.authority";
+/// SHA-256 of the stable authority domain `zoen.world-release-authority.v1`.
+pub const WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST: &str =
+    "e39d2372b5e94449657447a9a2109ed5e5f2e18bc424639ee25627e849f03862";
 
 macro_rules! catalog_digest {
     ($name:ident) => {

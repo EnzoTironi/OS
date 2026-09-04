@@ -449,12 +449,16 @@ fn cedar_value(input_id: &str, value: &ExactValue) -> Result<serde_json::Value, 
 
 fn operation_name(operation: PolicyOperation) -> &'static str {
     match operation {
+        PolicyOperation::ActivateRelease => "activate_release",
         PolicyOperation::ActivateRevision => "activate_revision",
         PolicyOperation::ApplyMigrationBatch => "apply_migration_batch",
         PolicyOperation::Approve => "approve",
         PolicyOperation::Commit => "commit",
+        PolicyOperation::DecideRelease => "decide_release",
         PolicyOperation::Discover => "discover",
         PolicyOperation::PrepareMigration => "prepare_migration",
+        PolicyOperation::PreviewRelease => "preview_release",
+        PolicyOperation::PublishRelease => "publish_release",
         PolicyOperation::PublishDefinition => "publish_definition",
         PolicyOperation::Read => "read",
         PolicyOperation::RequestApproval => "request_approval",

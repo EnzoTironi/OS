@@ -8,17 +8,17 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 use zoen_adapters::{
     ActivatePut, DecisionPut, PostgresAuthorityStore, PostgresWorldReleaseStore, PreviewPut,
-    PublicationPut, require_loadable_ontology_catalog, require_loadable_policy_catalog,
+    PublicationPut, ReleaseAuthorityOperation, require_loadable_ontology_catalog,
+    require_loadable_policy_catalog,
 };
 use zoen_core::{
     ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, ExecutorCatalog,
-    OntologyCatalog, PolicyCatalog, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
-    PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDecisionOutcome, ReleaseDigest,
-    ReleasePreviewDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
-    WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA, WorkloadId, WorldId, WorldRelease,
-    WorldReleaseCatalogs, WorldReleaseDecision, WorldReleaseError, WorldReleasePreview,
-    WorldReleasePublication, principal_may_activate, principal_may_decide, principal_may_publish,
+    MembershipId, OntologyCatalog, PolicyCatalog, PolicyEvaluation, PrincipalId,
+    ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest, ResourceId, TenantId,
+    TimestampMicros, TrustedExecutionContext, WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA,
+    WorkloadId, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseDecision,
+    WorldReleaseError, WorldReleasePreview, WorldReleasePublication,
 };
 use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
@@ -43,37 +43,27 @@ pub async fn run(
         ReleaseCommand::Publish {
             file,
             principal,
-            policy_id,
-            policy_digest,
-            policy_revision,
-            determining_policy,
-        } => {
-            publish(
-                &read_json(&file)?,
-                &principal,
-                &policy_id,
-                &policy_digest,
-                policy_revision,
-                &determining_policy,
-            )
-            .await
-        }
+            membership,
+        } => publish(&read_json(&file)?, &principal, &membership).await,
         ReleaseCommand::Preview {
             world,
             digest,
             principal,
-        } => preview(&world, &digest, &principal).await,
+            membership,
+        } => preview(&world, &digest, &principal, &membership).await,
         ReleaseCommand::Decide {
             preview_digest,
             principal,
+            membership,
             decision,
-        } => decide(&preview_digest, &principal, &decision).await,
+        } => decide(&preview_digest, &principal, &membership, &decision).await,
         ReleaseCommand::Activate {
             world,
             digest,
             preview_digest,
             principal,
-        } => activate(&world, &digest, &preview_digest, &principal).await,
+            membership,
+        } => activate(&world, &digest, &preview_digest, &principal, &membership).await,
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
         ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
@@ -115,24 +105,10 @@ fn construct(value: &Value) -> Result<ReleaseCliResult, Box<dyn Error + Send + S
 async fn publish(
     value: &Value,
     principal: &str,
-    policy_id: &str,
-    policy_digest: &str,
-    policy_revision: u64,
-    determining_policy: &[String],
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
-    if determining_policy.is_empty() || policy_id.is_empty() || policy_digest.is_empty() {
-        return Ok(fail(
-            2,
-            "world release publication requires policy evidence\n  zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world",
-        ));
-    }
-    let Some(revision) = PolicyRevisionNumber::new(policy_revision) else {
-        return Ok(fail(2, "policy revision must be greater than zero"));
-    };
     let published_by = PrincipalId::parse(principal)?;
-    if !principal_may_publish(&published_by) {
-        return Ok(fail(1, "principal is not a builder for this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let parsed = parse_release_document(value)?;
     let Some(catalogs) = parsed.catalogs else {
         return Ok(fail(2, "world release publish requires catalog bytes"));
@@ -149,25 +125,20 @@ async fn publish(
             &format!("policy catalog must contain a loadable Cedar bundle: {error}"),
         ));
     }
-    let publication = WorldReleasePublication::new(
-        parsed.release.id().clone(),
-        now(),
-        published_by,
-        PolicyEvidence {
-            determining_policies: determining_policy.to_vec(),
-            revision: PolicyRevision {
-                digest: PolicyDigest::parse(policy_digest)?,
-                id: PolicyId::parse(policy_id)?,
-                revision,
-            },
-        },
-    )?;
     let store = store().await?;
+    let at = now();
+    let authorization = match store
+        .authorize_candidate(&catalogs, &parsed.release, &published_by, &membership, at)
+        .await
+    {
+        Ok(authorization) => authorization,
+        Err(error) => return Ok(fail(1, &error.to_string())),
+    };
     let PublicationPut {
         publication: stored,
         replay,
     } = store
-        .publish_candidate(&catalogs, &parsed.release, &publication)
+        .publish_candidate(&catalogs, &parsed.release, authorization)
         .await?;
     Ok(ok(release_json(
         &parsed.release,
@@ -182,15 +153,30 @@ async fn preview(
     world: &str,
     digest: &str,
     principal: &str,
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_decide(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
     let store = store().await?;
-    let PreviewPut { preview, replay } = match store.preview(&world, &digest).await {
+    let at = now();
+    let authorization = match store
+        .authorize_published(
+            &world,
+            &digest,
+            &actor,
+            &membership,
+            ReleaseAuthorityOperation::Preview,
+            None,
+            at,
+        )
+        .await
+    {
+        Ok(authorization) => authorization,
+        Err(error) => return Ok(fail(1, &error.to_string())),
+    };
+    let PreviewPut { preview, replay } = match store.preview(&world, &digest, authorization).await {
         Ok(value) => value,
         Err(WorldReleaseError::NotFound) => {
             return Ok(fail(1, "world release was not found"));
@@ -212,20 +198,38 @@ async fn preview(
 async fn decide(
     preview_digest: &str,
     principal: &str,
+    membership: &str,
     decision: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_decide(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
     let outcome = match ReleaseDecisionOutcome::parse(decision) {
         Ok(value) => value,
         Err(error) => return Ok(fail(2, &error.to_string())),
     };
     let store = store().await?;
+    let Some(preview) = store.get_preview(&preview_digest).await? else {
+        return Ok(fail(1, "world release was not found"));
+    };
+    let at = now();
+    let authorization = match store
+        .authorize_published(
+            preview.content().world(),
+            preview.content().release(),
+            &actor,
+            &membership,
+            ReleaseAuthorityOperation::Decide,
+            Some(&preview_digest),
+            at,
+        )
+        .await
+    {
+        Ok(authorization) => authorization,
+        Err(error) => return Ok(fail(1, &error.to_string())),
+    };
     let DecisionPut { decision, replay } =
-        match store.decide(&preview_digest, &actor, outcome, now()).await {
+        match store.decide(&preview_digest, outcome, authorization).await {
             Ok(value) => value,
             Err(WorldReleaseError::NotFound) => {
                 return Ok(fail(1, "world release was not found"));
@@ -246,15 +250,30 @@ async fn activate(
     digest: &str,
     preview_digest: &str,
     principal: &str,
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_activate(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
     let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
     let store = store().await?;
+    let at = now();
+    let authorization = match store
+        .authorize_published(
+            &world,
+            &digest,
+            &actor,
+            &membership,
+            ReleaseAuthorityOperation::Activate,
+            Some(&preview_digest),
+            at,
+        )
+        .await
+    {
+        Ok(authorization) => authorization,
+        Err(error) => return Ok(fail(1, &error.to_string())),
+    };
     let Some(catalogs) = store.get_catalogs(&digest).await? else {
         return Ok(fail(1, "world release was not found"));
     };
@@ -265,7 +284,7 @@ async fn activate(
         ));
     }
     let ActivatePut { previous, replay } = match store
-        .activate(&world, &digest, &preview_digest, now())
+        .activate(&world, &digest, &preview_digest, authorization)
         .await
     {
         Ok(value) => value,

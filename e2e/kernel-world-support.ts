@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import path from "node:path";
+import { e2eHttpUrl, e2eIdentityAdminToken, e2eListenAddr } from "./host-env.js";
 
 export const WORLD_DEFINITION_DIGEST = "a".repeat(64);
 export const WORLD_ACTION_ID = "zoen.world.discover";
+export const RELEASE_AUTHORITY_DEFINITION_DIGEST =
+  "e39d2372b5e94449657447a9a2109ed5e5f2e18bc424639ee25627e849f03862";
+export const RELEASE_AUTHORITY_ACTIONS = [
+  { actionId: "zoen.world.release.publish", operation: "publish_release" },
+  { actionId: "zoen.world.release.preview", operation: "preview_release" },
+  { actionId: "zoen.world.release.decide", operation: "decide_release" },
+  { actionId: "zoen.world.release.activate", operation: "activate_release" },
+] as const;
 export const SEVEN_VERBS = [
   "Discover",
   "Query",
@@ -24,6 +34,42 @@ export interface ZoenResult {
   body?: Record<string, unknown>;
 }
 
+export interface ReleaseActor {
+  membership: string;
+  principal: string;
+}
+
+export interface ReleaseAuthorizationPolicy {
+  actionId: string;
+  definitionDigest: string;
+  digest: string;
+  policyId: string;
+  revision: number;
+  source: string;
+}
+
+export function releaseAuthorityPolicies(): ReleaseAuthorizationPolicy[] {
+  return RELEASE_AUTHORITY_ACTIONS.map(({ actionId, operation }) => {
+    const source = `permit (
+    principal,
+    action == Action::"${operation}",
+    resource
+)
+when {
+    context.actionId == "${actionId}"
+};
+`;
+    return {
+      actionId,
+      definitionDigest: RELEASE_AUTHORITY_DEFINITION_DIGEST,
+      digest: createHash("sha256").update(source).digest("hex"),
+      policyId: `policy.world.release.${operation}.r1`,
+      revision: 1,
+      source,
+    };
+  });
+}
+
 export function zoenBinaryPath(repositoryRoot: string): string {
   const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repositoryRoot, "target");
   return path.join(targetDir, "debug", "zoen");
@@ -39,7 +85,6 @@ export function ontologyCatalogBytes(label: string): string {
 
 export function buildDiscoverPolicyCatalog(): {
   bytes: string;
-  evidenceDigest: string;
   policyDigest: string;
 } {
   const source = `permit (
@@ -64,12 +109,13 @@ when {
           revision: 1,
           source,
         },
+        ...releaseAuthorityPolicies(),
       ],
     },
     membership: [],
     sourceAdmission: [],
   })}\n`;
-  return { bytes, evidenceDigest: policyDigest, policyDigest };
+  return { bytes, policyDigest };
 }
 
 export function createZoenRunner(zoenPath: string, databaseUrl: string) {
@@ -111,7 +157,7 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
     return parseJson(result.stdout);
   }
 
-  function publish(file: string, principal: string, evidenceDigest: string): ZoenResult {
+  function publish(file: string, actor: ReleaseActor): ZoenResult {
     return runZoen([
       "world",
       "release",
@@ -119,19 +165,13 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
       "--file",
       file,
       "--principal",
-      principal,
-      "--policy-id",
-      "policy.world",
-      "--policy-digest",
-      evidenceDigest,
-      "--policy-revision",
-      "1",
-      "--determining-policy",
-      "policy.world",
+      actor.principal,
+      "--membership",
+      actor.membership,
     ]);
   }
 
-  function preview(world: string, digest: string, principal: string): ZoenResult {
+  function preview(world: string, digest: string, actor: ReleaseActor): ZoenResult {
     return withBody(
       runZoen([
         "world",
@@ -142,14 +182,16 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
         "--digest",
         digest,
         "--principal",
-        principal,
+        actor.principal,
+        "--membership",
+        actor.membership,
       ]),
     );
   }
 
   function decideRelease(
     previewDigest: string,
-    principal: string,
+    actor: ReleaseActor,
     decision: "approve" | "reject",
   ): ZoenResult {
     return runZoen([
@@ -159,7 +201,9 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
       "--preview-digest",
       previewDigest,
       "--principal",
-      principal,
+      actor.principal,
+      "--membership",
+      actor.membership,
       "--decision",
       decision,
     ]);
@@ -168,7 +212,7 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
   function activate(
     world: string,
     digest: string,
-    principal: string,
+    actor: ReleaseActor,
     previewDigest: string,
   ): ZoenResult {
     return runZoen([
@@ -182,20 +226,22 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
       "--preview-digest",
       previewDigest,
       "--principal",
-      principal,
+      actor.principal,
+      "--membership",
+      actor.membership,
     ]);
   }
 
   function approveAndActivate(
     world: string,
     digest: string,
-    principal: string,
+    actor: ReleaseActor,
   ): { preview: Record<string, unknown>; activate: ZoenResult } {
-    const previewed = preview(world, digest, principal);
+    const previewed = preview(world, digest, actor);
     assert.equal(previewed.status, 0, previewed.stderr);
     const previewDigest = asString(previewed.body?.previewDigest);
-    assert.equal(decideRelease(previewDigest, principal, "approve").status, 0);
-    const activated = activate(world, digest, principal, previewDigest);
+    assert.equal(decideRelease(previewDigest, actor, "approve").status, 0);
+    const activated = activate(world, digest, actor, previewDigest);
     assert.equal(activated.status, 0, activated.stderr);
     return { preview: previewed.body ?? {}, activate: activated };
   }
@@ -211,6 +257,206 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
     runZoen,
     withBody,
   };
+}
+
+export interface WorldReleaseMembership extends ReleaseActor {
+  world: string;
+}
+
+export interface WorldReleaseActors {
+  builder: WorldReleaseMembership;
+  owner: WorldReleaseMembership;
+}
+
+export interface ReleaseIdentityServer {
+  baseUrl: string;
+  process: ChildProcessWithoutNullStreams;
+}
+
+export async function startReleaseIdentityServer(input: {
+  databaseUrl: string;
+  generatedDirectory: string;
+  portFallback: number;
+  zoenPath: string;
+}): Promise<ReleaseIdentityServer> {
+  await mkdir(input.generatedDirectory, { recursive: true });
+  const policyManifest = path.join(input.generatedDirectory, "release-identity-policies.json");
+  await writeFile(policyManifest, '{"policies":[]}\n');
+  const baseUrl = e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", input.portFallback);
+  const child = spawn(input.zoenPath, ["serve"], {
+    env: {
+      ...process.env,
+      DATABASE_URL: input.databaseUrl,
+      ZOEN_AUTH_DATABASE_URL: input.databaseUrl,
+      ZOEN_CEDAR_POLICY_MANIFEST: policyManifest,
+      ZOEN_IDENTITY_ADMIN_TOKEN: e2eIdentityAdminToken(),
+      ZOEN_LISTEN_ADDR: e2eListenAddr("ZOEN_E2E_ZOEND_PORT", input.portFallback),
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stdin.end();
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const port = Number(new URL(baseUrl).port);
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (child.exitCode !== null) {
+      throw new Error(`zoend exited during release identity setup:\n${output}`);
+    }
+    if (await portAcceptsConnections(port)) {
+      return { baseUrl, process: child };
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+  }
+  child.kill("SIGKILL");
+  throw new Error(`zoend did not listen for release identity setup:\n${output}`);
+}
+
+export async function stopReleaseIdentityServer(server: ReleaseIdentityServer): Promise<void> {
+  if (server.process.exitCode !== null || server.process.signalCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timer = globalThis.setTimeout(() => {
+      if (server.process.exitCode === null && server.process.signalCode === null) {
+        server.process.kill("SIGKILL");
+      }
+    }, 10_000);
+    server.process.once("close", () => {
+      globalThis.clearTimeout(timer);
+      resolve();
+    });
+    server.process.kill("SIGINT");
+  });
+}
+
+export async function provisionWorldReleaseActors(input: {
+  baseUrl: string;
+  subjectKey: string;
+  world: string;
+}): Promise<WorldReleaseActors> {
+  const [builder, owner] = await Promise.all([
+    provisionInvitedReleaseMembership({
+      ...input,
+      actionIds: ["zoen.world.release.publish"],
+      principal: `principal.release.${input.subjectKey}.publisher`,
+      role: "builder",
+    }),
+    provisionInvitedReleaseMembership({
+      ...input,
+      actionIds: [
+        "zoen.world.release.preview",
+        "zoen.world.release.decide",
+        "zoen.world.release.activate",
+      ],
+      principal: `principal.release.${input.subjectKey}.governor`,
+      role: "owner",
+    }),
+  ]);
+  assert.notEqual(builder.membership, owner.membership);
+  assert.notEqual(builder.principal, owner.principal);
+  return { builder, owner };
+}
+
+async function provisionInvitedReleaseMembership(input: {
+  actionIds: readonly string[];
+  baseUrl: string;
+  principal: string;
+  role: "builder" | "owner";
+  subjectKey: string;
+  world: string;
+}): Promise<WorldReleaseMembership> {
+  const provisional = await releaseIdentityPost(input.baseUrl, "/identity/admin/provisional", {
+    provider: "telegram",
+    subjectKey: `${input.subjectKey}-${input.role}`,
+  });
+  assert.equal(provisional.status, 200, JSON.stringify(provisional.body));
+  const accountId = String(provisional.body.accountId);
+  const verified = await releaseIdentityPost(input.baseUrl, "/identity/admin/verify-binding", {
+    accountId,
+  });
+  assert.equal(verified.status, 200, JSON.stringify(verified.body));
+  assert.equal(verified.body.status, "verified", JSON.stringify(verified.body));
+  const token = `invite.${input.subjectKey}.${input.role}`;
+  const invited = await releaseIdentityPost(input.baseUrl, "/identity/admin/invites", {
+    actionIds: [...input.actionIds],
+    actorId: `actor.release.${input.subjectKey}.${input.role}`,
+    expiresAtMicros: Date.now() * 1000 + 3_600_000_000,
+    principalId: input.principal,
+    resourceIds: ["zoen.world.release"],
+    tenantId: input.world,
+    token,
+    workloadId: `workload.world-release.${input.role}`,
+  });
+  assert.equal(invited.status, 200, JSON.stringify(invited.body));
+  assert.equal(invited.body.tenantId, input.world, JSON.stringify(invited.body));
+  assert.equal(invited.body.principalId, input.principal, JSON.stringify(invited.body));
+  const accepted = await releaseIdentityPost(input.baseUrl, "/identity/admin/accept-invite", {
+    accountId,
+    token,
+  });
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.kind, "invite", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.status, "active", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.tenantId, input.world, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.principalId, input.principal, JSON.stringify(accepted.body));
+  assert.deepEqual(
+    new Set(accepted.body.delegatedActionIds as string[]),
+    new Set(input.actionIds),
+    JSON.stringify(accepted.body),
+  );
+  assert.deepEqual(
+    accepted.body.delegatedResourceIds,
+    ["zoen.world.release"],
+    JSON.stringify(accepted.body),
+  );
+  return {
+    membership: String(accepted.body.membershipId),
+    principal: input.principal,
+    world: input.world,
+  };
+}
+
+async function releaseIdentityPost(
+  baseUrl: string,
+  route: string,
+  body: Record<string, unknown>,
+): Promise<{ body: Record<string, unknown>; status: number }> {
+  const response = await fetch(`${baseUrl}${route}`, {
+    body: JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${e2eIdentityAdminToken()}`,
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+  const text = await response.text();
+  return {
+    body: text === "" ? {} : (JSON.parse(text) as Record<string, unknown>),
+    status: response.status,
+  };
+}
+
+function portAcceptsConnections(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    let settled = false;
+    const finish = (connected: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      resolve(connected);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.setTimeout(200, () => finish(false));
+  });
 }
 
 export async function writeGeneratedJson(

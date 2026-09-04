@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { e2eHttpUrl } from "../host-env.js";
+import { provisionWorldReleaseActors, releaseAuthorityPolicies } from "../kernel-world-support.js";
 import { parseZoenJson, runZoenCli } from "../zoen-cli.js";
 
 export interface BudgetClassSpec {
@@ -99,21 +101,21 @@ function buildPolicyCatalog(
   authorizationPolicies?: AuthorizationPolicy[],
 ): {
   bytes: string;
-  evidenceDigest: string;
 } {
   const policies =
     authorizationPolicies !== undefined && authorizationPolicies.length > 0
       ? authorizationPolicies
       : [defaultDiscoverPolicy()];
+  const allPolicies = [...policies, ...releaseAuthorityPolicies()];
   const bytes = `${JSON.stringify({
     schema: "zoen.policy-catalog.v1",
-    authorization: { policies },
+    authorization: { policies: allPolicies },
     membershipDelegation: [],
     sourceAdmission: [],
     computeBudgets: budgets,
   })}
 `;
-  return { bytes, evidenceDigest: sha256Hex(bytes) };
+  return { bytes };
 }
 
 /**
@@ -125,7 +127,7 @@ export async function plantBudgetRelease(input: {
   budgets?: BudgetClassSpec[];
   databaseUrl: string;
   generatedDirectory: string;
-  principal?: string;
+  identityBaseUrl?: string;
   world: string;
   zoenPath: string;
 }): Promise<{
@@ -134,8 +136,12 @@ export async function plantBudgetRelease(input: {
   policyCatalogDigest: string;
 }> {
   const budgets = input.budgets ?? defaultBudgetClasses;
-  const principal = input.principal ?? "principal.owner";
   await mkdir(input.generatedDirectory, { recursive: true });
+  const actors = await provisionWorldReleaseActors({
+    baseUrl: input.identityBaseUrl ?? e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    subjectKey: `budget-release-${input.world}`,
+    world: input.world,
+  });
   const policy = buildPolicyCatalog(budgets, input.authorizationPolicies);
   const bytes = {
     ontology: `${JSON.stringify({
@@ -184,15 +190,9 @@ export async function plantBudgetRelease(input: {
     "--file",
     file,
     "--principal",
-    principal,
-    "--policy-id",
-    "policy.world",
-    "--policy-digest",
-    policy.evidenceDigest,
-    "--policy-revision",
-    "1",
-    "--determining-policy",
-    "policy.world",
+    actors.builder.principal,
+    "--membership",
+    actors.builder.membership,
   ]);
   assert.equal(published.status, 0, published.stderr || published.stdout);
 
@@ -205,7 +205,9 @@ export async function plantBudgetRelease(input: {
     "--digest",
     digest,
     "--principal",
-    principal,
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
   ]);
   assert.equal(previewed.status, 0, previewed.stderr || previewed.stdout);
   const previewBody = parseZoenJson(previewed.stdout);
@@ -218,7 +220,9 @@ export async function plantBudgetRelease(input: {
     "--preview-digest",
     previewDigest,
     "--principal",
-    principal,
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
     "--decision",
     "approve",
   ]);
@@ -235,7 +239,9 @@ export async function plantBudgetRelease(input: {
     "--preview-digest",
     previewDigest,
     "--principal",
-    principal,
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
   ]);
   assert.equal(activated.status, 0, activated.stderr || activated.stdout);
 
