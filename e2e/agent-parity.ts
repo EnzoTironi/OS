@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import {
   e2eGeneratedDirectory,
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  KERNEL_SURFACES,
+  SEVEN_VERBS,
+  buildDiscoverPolicyCatalog,
+  createZoenRunner,
+  ontologyCatalogBytes,
+  recordAssertion,
+  writeGeneratedJson,
+  zoenBinaryPath,
+  type ZoenResult,
+} from "./kernel-world-support.js";
 import { gitHead } from "./scenario-evidence.js";
 
 const scenario = "agent-parity";
@@ -15,70 +22,22 @@ const repositoryRoot = process.cwd();
 const postgresPortFallback = 55_491;
 const databaseUrl = e2ePostgresUrl("postgres", "postgres", postgresPortFallback);
 const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
-const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repositoryRoot, "target");
-const zoenPath = path.join(targetDir, "debug", "zoen");
+const zoen = createZoenRunner(zoenBinaryPath(repositoryRoot), databaseUrl);
+const {
+  approveAndActivate,
+  construct,
+  parseJson,
+  publish,
+  runZoen,
+} = zoen;
 
-const worldDefinitionDigest = "a".repeat(64);
-const worldActionId = "zoen.world.discover";
-const sevenVerbs = [
-  "Discover",
-  "Query",
-  "Propose",
-  "Decide",
-  "Commit",
-  "Explain",
-  "Execute",
-] as const;
-const surfaces = ["cli", "connect", "mcp", "eve"] as const;
+const surfaces = KERNEL_SURFACES;
+const sevenVerbs = SEVEN_VERBS;
 
 const assertions: Record<string, boolean> = {};
 
 function record(name: string, observed: boolean): void {
-  assert.ok(observed, name);
-  assertions[name] = observed;
-}
-
-function ontologyBytes(label: string): string {
-  return `${JSON.stringify({
-    label,
-    publicVerbs: [...sevenVerbs],
-    schema: "zoen.ontology-catalog.v1",
-  })}\n`;
-}
-
-function buildPolicyCatalog(): { bytes: string; evidenceDigest: string; policyDigest: string } {
-  const source = `permit (
-    principal,
-    action == Action::"discover",
-    resource
-)
-when {
-    context.actionId == "${worldActionId}"
-};
-`;
-  const policyDigest = createHash("sha256").update(source).digest("hex");
-  const bytes = `${JSON.stringify({
-    schema: "zoen.policy-catalog.v1",
-    authorization: {
-      policies: [
-        {
-          actionId: worldActionId,
-          definitionDigest: worldDefinitionDigest,
-          digest: policyDigest,
-          policyId: "policy.world.discover.r1",
-          revision: 1,
-          source,
-        },
-      ],
-    },
-    membership: [],
-    sourceAdmission: [],
-  })}\n`;
-  return {
-    bytes,
-    evidenceDigest: policyDigest,
-    policyDigest,
-  };
+  recordAssertion(assertions, name, observed);
 }
 
 interface CatalogBytes {
@@ -99,130 +58,8 @@ function contentFromBytes(world: string, bytes: CatalogBytes): Record<string, un
   };
 }
 
-interface ZoenResult {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-function runZoen(args: string[]): ZoenResult {
-  try {
-    const stdout = execFileSync(zoenPath, args, {
-      encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-    });
-    return { status: 0, stdout, stderr: "" };
-  } catch (error) {
-    const failure = error as {
-      status?: number | null;
-      stdout?: string;
-      stderr?: string;
-    };
-    return {
-      status: failure.status ?? 1,
-      stdout: failure.stdout ?? "",
-      stderr: failure.stderr ?? String(error),
-    };
-  }
-}
-
-function parseJson(text: string): Record<string, unknown> {
-  return JSON.parse(text) as Record<string, unknown>;
-}
-
 async function writeContent(name: string, content: Record<string, unknown>): Promise<string> {
-  await mkdir(generatedDirectory, { recursive: true });
-  const file = path.join(generatedDirectory, name);
-  await writeFile(file, `${JSON.stringify(content, null, 2)}\n`);
-  return file;
-}
-
-function construct(file: string): Record<string, unknown> {
-  const result = runZoen(["world", "release", "construct", "--file", file]);
-  assert.equal(result.status, 0, result.stderr);
-  return parseJson(result.stdout);
-}
-
-function publish(file: string, principal: string, evidenceDigest: string): ZoenResult {
-  return runZoen([
-    "world",
-    "release",
-    "publish",
-    "--file",
-    file,
-    "--principal",
-    principal,
-    "--policy-id",
-    "policy.world",
-    "--policy-digest",
-    evidenceDigest,
-    "--policy-revision",
-    "1",
-    "--determining-policy",
-    "policy.world",
-  ]);
-}
-
-function preview(world: string, digest: string, principal: string): ZoenResult & { body?: Record<string, unknown> } {
-  const result = runZoen([
-    "world",
-    "release",
-    "preview",
-    "--world",
-    world,
-    "--digest",
-    digest,
-    "--principal",
-    principal,
-  ]);
-  if (result.status === 0) {
-    return { ...result, body: parseJson(result.stdout) };
-  }
-  return result;
-}
-
-function decideRelease(previewDigest: string, principal: string, decision: "approve" | "reject"): ZoenResult {
-  return runZoen([
-    "world",
-    "release",
-    "decide",
-    "--preview-digest",
-    previewDigest,
-    "--principal",
-    principal,
-    "--decision",
-    decision,
-  ]);
-}
-
-function activate(world: string, digest: string, principal: string, previewDigest: string): ZoenResult {
-  return runZoen([
-    "world",
-    "release",
-    "activate",
-    "--world",
-    world,
-    "--digest",
-    digest,
-    "--preview-digest",
-    previewDigest,
-    "--principal",
-    principal,
-  ]);
-}
-
-function approveAndActivate(world: string, digest: string, principal: string): {
-  preview: Record<string, unknown>;
-  activate: ZoenResult;
-} {
-  const previewed = preview(world, digest, principal);
-  assert.equal(previewed.status, 0, previewed.stderr);
-  const previewDigest = String(previewed.body?.previewDigest);
-  assert.equal(decideRelease(previewDigest, principal, "approve").status, 0);
-  return {
-    preview: previewed.body ?? {},
-    activate: activate(world, digest, principal, previewDigest),
-  };
+  return writeGeneratedJson(generatedDirectory, name, content);
 }
 
 function kernel(
@@ -250,15 +87,15 @@ function catalogFingerprint(body: Record<string, unknown>): string {
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourceCommit = gitHead(repositoryRoot);
-  const policy = buildPolicyCatalog();
+  const policy = buildDiscoverPolicyCatalog();
   const alphaBytes: CatalogBytes = {
-    ontology: ontologyBytes("agent-parity.alpha"),
+    ontology: ontologyCatalogBytes("agent-parity.alpha"),
     policy: policy.bytes,
     executors: "executor catalog agent-parity v1\n",
     components: "component catalog agent-parity v1\n",
   };
   const betaBytes: CatalogBytes = {
-    ontology: ontologyBytes("agent-parity.beta"),
+    ontology: ontologyCatalogBytes("agent-parity.beta"),
     policy: policy.bytes,
     executors: "executor catalog agent-parity beta\n",
     components: "component catalog agent-parity beta\n",

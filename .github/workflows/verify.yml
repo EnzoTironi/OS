@@ -138,8 +138,11 @@ jobs:
           - effect-runtime
           - explain
           - governed-action
+          - governed-clinic
           - messaging-boundary
           - public-surface
+          - world-release
+          - agent-parity
           - cli-dest
           - semantic-query
           - wasm-code-mode

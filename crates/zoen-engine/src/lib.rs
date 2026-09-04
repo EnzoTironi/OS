@@ -27,6 +27,7 @@ mod migration;
 mod publication;
 mod read;
 mod scenario;
+mod sealed_cursor;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -69,8 +70,9 @@ pub use human::{
     parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
 };
 pub use kernel::{
-    GovernedCatalogBasis, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult, KernelError,
-    KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal, KernelReceipt,
+    GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
+    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelObjectGrant,
+    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
     KernelSurface,
 };
 pub use migration::{
@@ -83,6 +85,10 @@ pub use read::{
 };
 pub use scenario::{
     ApplyOutcome, Scenario, ScenarioEngine, ScenarioError, ScenarioProposalPlan, ScenarioStatus,
+};
+pub use sealed_cursor::{
+    DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis, SealedCursorError,
+    bind as bind_sealed_cursor, effective_page_limit, resolve_budget_id, seal_next,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

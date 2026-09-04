@@ -616,12 +616,39 @@ pub(crate) enum KernelCommand {
         #[arg(long, default_value = "cli")]
         surface: String,
     },
-    /// Query the active catalog basis
+    /// Query the active catalog basis, or page sealed entitled objects
     Query {
         #[arg(long)]
         world: String,
         #[arg(long)]
         principal: String,
+        #[arg(long)]
+        membership: Option<String>,
+        #[arg(long = "type")]
+        object_type: Option<String>,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long = "budget-class")]
+        budget_class: Option<String>,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Plant an immutable governed object with principal:membership grants
+    PlantObject {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long = "type")]
+        object_type: String,
+        #[arg(long = "object-id")]
+        object_id: String,
+        #[arg(long)]
+        fields: String,
+        #[arg(long = "grant", num_args = 0..)]
+        grants: Vec<String>,
         #[arg(long, default_value = "cli")]
         surface: String,
     },
@@ -1546,9 +1573,19 @@ fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
 async fn run_kernel_command(
     command: KernelCommand,
 ) -> Result<crate::kernel_cli::KernelCliResult, Box<dyn Error + Send + Sync>> {
+    let (surface, inner) = map_kernel_command(command)?;
+    crate::kernel_cli::run(surface, inner).await
+}
+
+fn map_kernel_command(
+    command: KernelCommand,
+) -> Result<
+    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
+    Box<dyn Error + Send + Sync>,
+> {
     use crate::kernel_cli::KernelCommand as K;
     use zoen_engine::KernelSurface;
-    let (surface, inner) = match command {
+    Ok(match command {
         KernelCommand::Discover {
             world,
             principal,
@@ -1560,11 +1597,56 @@ async fn run_kernel_command(
         KernelCommand::Query {
             world,
             principal,
+            membership,
+            object_type,
+            cursor,
+            limit,
+            budget_class,
             surface,
         } => (
             KernelSurface::parse(&surface)?,
-            K::Query { world, principal },
+            K::Query {
+                world,
+                principal,
+                membership,
+                object_type,
+                cursor,
+                limit,
+                budget_class,
+            },
         ),
+        KernelCommand::PlantObject {
+            world,
+            principal,
+            object_type,
+            object_id,
+            fields,
+            grants,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::PlantObject {
+                world,
+                principal,
+                object_type,
+                object_id,
+                fields,
+                grants,
+            },
+        ),
+        other => map_kernel_lifecycle_command(other)?,
+    })
+}
+
+fn map_kernel_lifecycle_command(
+    command: KernelCommand,
+) -> Result<
+    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
+    Box<dyn Error + Send + Sync>,
+> {
+    use crate::kernel_cli::KernelCommand as K;
+    use zoen_engine::KernelSurface;
+    Ok(match command {
         KernelCommand::Propose {
             world,
             principal,
@@ -1626,8 +1708,12 @@ async fn run_kernel_command(
                 principal,
             },
         ),
-    };
-    crate::kernel_cli::run(surface, inner).await
+        KernelCommand::Discover { .. }
+        | KernelCommand::Query { .. }
+        | KernelCommand::PlantObject { .. } => {
+            return Err("internal: read verb reached lifecycle mapper".into());
+        }
+    })
 }
 
 fn map_kernel_result(result: &crate::kernel_cli::KernelCliResult) -> CommandResult {
