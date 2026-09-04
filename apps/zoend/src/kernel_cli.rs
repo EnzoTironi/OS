@@ -4,11 +4,17 @@ use std::error::Error;
 
 use serde_json::{Value, json};
 use zoen_adapters::{PostgresAuthorityStore, PostgresWorldKernel, PostgresWorldReleaseStore};
-use zoen_core::{PrincipalId, WorldId};
+use zoen_core::{MembershipId, PrincipalId, WorldId};
 use zoen_engine::{
-    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelObjectGrant, KernelPlantObject,
-    KernelQueryPage, KernelSurface,
+    CursorKeyId, CursorKeyring, CursorSealer, CursorSigningKey, KernelDecisionOutcome,
+    KernelDiscoverResult, KernelError, KernelObjectGrant, KernelPlantObject, KernelQueryPage,
+    KernelSurface,
 };
+
+const DEFAULT_CURSOR_TTL_SECONDS: u64 = 300;
+const CURSOR_ACTIVE_KEY_ID_ENV: &str = "ZOEN_CURSOR_ACTIVE_KEY_ID";
+const CURSOR_KEYS_ENV: &str = "ZOEN_CURSOR_KEYS";
+const CURSOR_TTL_ENV: &str = "ZOEN_CURSOR_TTL_SECONDS";
 
 pub struct KernelCliResult {
     pub exit_code: u8,
@@ -173,7 +179,8 @@ async fn query(
             Err(error) => Ok(map_error(error)),
         };
     }
-    let membership = membership.ok_or("membership is required for sealed object query")?;
+    let membership =
+        MembershipId::parse(membership.ok_or("membership is required for sealed object query")?)?;
     let object_type = object_type.ok_or("type is required for sealed object query")?;
     let page_token = cursor.unwrap_or("");
     let requested_limit = limit.unwrap_or(5);
@@ -181,7 +188,7 @@ async fn query(
         .query_objects(
             &world,
             &principal,
-            membership,
+            &membership,
             object_type,
             page_token,
             requested_limit,
@@ -243,7 +250,16 @@ fn query_page_json(page: &KernelQueryPage) -> Value {
             "ontology": page.basis.ontology.as_str(),
             "policy": page.basis.policy.as_str(),
         },
-        "computeDigest": page.compute_digest,
+        "authorityEvaluation": "NOT_EVALUATED",
+        "computeEvaluation": "NOT_EVALUATED",
+        "cursorClaims": {
+            "authorityCut": page.authority_cut.map(zoen_core::CommitSequence::get),
+            "authorizedObjectSetPlanDigest": page.authorized_plan_digest.as_str(),
+            "trustedAuthorityDigest": page
+                .trusted_authority_digest
+                .as_ref()
+                .map(zoen_engine::TrustedAuthorityDigest::as_str),
+        },
         "decision": match &page.decision {
             zoen_engine::KernelPolicyDecision::Permit => Value::String("permit".to_owned()),
             zoen_engine::KernelPolicyDecision::Deny => Value::String("deny".to_owned()),
@@ -259,6 +275,7 @@ fn query_page_json(page: &KernelQueryPage) -> Value {
             "objectType": object.object_type,
         })).collect::<Vec<_>>(),
         "pageLimit": page.page_limit,
+        "pageDigest": page.page_digest,
         "releaseDigest": page.basis.release_digest.as_str(),
         "surface": page.surface.as_str(),
         "world": page.basis.world.as_str(),
@@ -429,5 +446,73 @@ async fn kernel() -> Result<PostgresWorldKernel, Box<dyn Error + Send + Sync>> {
     Ok(PostgresWorldKernel::new(
         PostgresWorldReleaseStore::new(pool.clone()),
         pool,
+        cursor_sealer_from_env()?,
     ))
+}
+
+fn cursor_sealer_from_env() -> Result<Option<CursorSealer>, Box<dyn Error + Send + Sync>> {
+    let active_key_id = optional_nonempty_env(CURSOR_ACTIVE_KEY_ID_ENV)?;
+    let encoded_keys = optional_nonempty_env(CURSOR_KEYS_ENV)?;
+    let configured_ttl = optional_nonempty_env(CURSOR_TTL_ENV)?;
+    let (active_key_id, encoded_keys) = match (active_key_id, encoded_keys, configured_ttl.as_ref())
+    {
+        (None, None, None) => return Ok(None),
+        (Some(active_key_id), Some(encoded_keys), _) => (active_key_id, encoded_keys),
+        _ => {
+            return Err(format!(
+                "{CURSOR_ACTIVE_KEY_ID_ENV} and {CURSOR_KEYS_ENV} must be configured together; \
+                 {CURSOR_TTL_ENV} is optional only for a configured keyring"
+            )
+            .into());
+        }
+    };
+    let active_key_id = CursorKeyId::parse(active_key_id)?;
+    let mut keys = Vec::new();
+    for encoded_key in encoded_keys.split(',') {
+        let (key_id, secret_hex) = encoded_key.split_once(':').ok_or_else(|| {
+            format!("{CURSOR_KEYS_ENV} entries must use <key-id>:<lowercase-hex-secret>")
+        })?;
+        let key_id = CursorKeyId::parse(key_id)?;
+        let secret = decode_secret_hex(secret_hex)?;
+        keys.push(CursorSigningKey::new(key_id, secret)?);
+    }
+    let ttl_seconds = match configured_ttl {
+        Some(value) => value
+            .parse::<u64>()
+            .map_err(|_| format!("{CURSOR_TTL_ENV} must be a positive integer"))?,
+        None => DEFAULT_CURSOR_TTL_SECONDS,
+    };
+    Ok(Some(CursorSealer::new(
+        CursorKeyring::new(active_key_id, keys)?,
+        ttl_seconds,
+    )?))
+}
+
+fn optional_nonempty_env(name: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    match std::env::var(name) {
+        Ok(value) if value.is_empty() => Err(format!("{name} must not be empty").into()),
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            Err(format!("{name} must contain Unicode text").into())
+        }
+    }
+}
+
+fn decode_secret_hex(value: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    if !value.len().is_multiple_of(2)
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(format!("{CURSOR_KEYS_ENV} contains an invalid secret encoding").into());
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16).map_err(|_| {
+                format!("{CURSOR_KEYS_ENV} contains an invalid secret encoding").into()
+            })
+        })
+        .collect()
 }

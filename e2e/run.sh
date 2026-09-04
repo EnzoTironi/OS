@@ -20,6 +20,7 @@ scenario_table=(
   "definition-publication:::live"
   "cedar-object-projection:::live"
   "commercial-identity:::live"
+  "cursor-security:::live"
   "dirty-quote:::live"
   "durable-commit:::live"
   "evolution-breaking:::live"
