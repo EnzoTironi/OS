@@ -1,4 +1,4 @@
-//! Release-scoped Cedar authority: active PolicyCatalog wins over boot manifest.
+//! Release-scoped Cedar authority: active `PolicyCatalog` wins over boot manifest.
 
 use std::{
     collections::BTreeMap,
@@ -42,7 +42,7 @@ impl ReleaseCedarEvaluator {
     /// # Errors
     ///
     /// Returns an error when the World has no active release, catalogs are
-    /// missing, or the PolicyCatalog cannot compile as Cedar.
+    /// missing, or the `PolicyCatalog` cannot compile as Cedar.
     pub async fn evaluator_for_active_world(
         &self,
         world: &WorldId,
@@ -91,36 +91,31 @@ impl ReleaseCedarEvaluator {
 }
 
 impl PolicyEvaluator for ReleaseCedarEvaluator {
-    fn evaluate(
-        &self,
-        request: &PolicyRequest<'_>,
-    ) -> impl std::future::Future<Output = PolicyEvaluation> + Send {
-        async move {
-            let Ok(world) = WorldId::parse(request.context.tenant_id().as_str()) else {
-                return self.boot.evaluate(request).await;
-            };
-            match self.store.get_active(&world).await {
-                Ok(None) => self.boot.evaluate(request).await,
-                Ok(Some(digest)) => match self.evaluator_for_release(&digest).await {
-                    Ok(evaluator) => evaluator.evaluate_request(request),
-                    Err(message) => PolicyEvaluation::EvaluationError {
-                        message: format!(
-                            "active-release Cedar unavailable for {}: {message}",
-                            digest.as_str()
-                        ),
-                        revision: None,
-                    },
-                },
-                Err(error) => PolicyEvaluation::EvaluationError {
-                    message: format!("active-release Cedar lookup failed: {error}"),
+    async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
+        let Ok(world) = WorldId::parse(request.context.tenant_id().as_str()) else {
+            return self.boot.evaluate(request).await;
+        };
+        match self.store.get_active(&world).await {
+            Ok(None) => self.boot.evaluate(request).await,
+            Ok(Some(digest)) => match self.evaluator_for_release(&digest).await {
+                Ok(evaluator) => evaluator.evaluate_request(request),
+                Err(message) => PolicyEvaluation::EvaluationError {
+                    message: format!(
+                        "active-release Cedar unavailable for {}: {message}",
+                        digest.as_str()
+                    ),
                     revision: None,
                 },
-            }
+            },
+            Err(error) => PolicyEvaluation::EvaluationError {
+                message: format!("active-release Cedar lookup failed: {error}"),
+                revision: None,
+            },
         }
     }
 }
 
-/// Validate PolicyCatalog candidate bytes before publish.
+/// Validate `PolicyCatalog` candidate bytes before publish.
 ///
 /// # Errors
 ///

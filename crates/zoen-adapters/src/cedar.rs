@@ -129,11 +129,11 @@ impl CedarPolicyEvaluator {
         self.policies.is_empty()
     }
 
-    /// Compile Cedar policies from PolicyCatalog bytes (§8.4).
+    /// Compile Cedar policies from `PolicyCatalog` bytes (§8.4).
     ///
     /// Catalog JSON must use schema `zoen.policy-catalog.v1` and carry a non-empty
     /// `authorization.policies` Cedar bundle. Membership/delegation and source
-    /// admission fields are retained in the catalog bytes for ReleaseDigest binding.
+    /// admission fields are retained in the catalog bytes for `ReleaseDigest` binding.
     ///
     /// # Errors
     ///
@@ -160,7 +160,7 @@ impl CedarPolicyEvaluator {
         Self::from_json(&manifest)
     }
 
-    /// Evaluate a request against this compiled PolicySet.
+    /// Evaluate a request against this compiled `PolicySet`.
     #[must_use]
     pub fn evaluate_request(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
         self.evaluate_sync(request)
