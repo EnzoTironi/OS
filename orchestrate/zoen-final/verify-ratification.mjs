@@ -375,7 +375,7 @@ const ratificationMerge = frontier.mergedPullRequests.find(
 const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 622
 );
-const roadmapAudit = frontier.roadmapAudit;
+const { roadmapAudit } = frontier;
 assert(
   program.base.sha === "c9d602eaa0babfef52668849774439310a0cb4c1",
   "program base must track the audited main tip"

@@ -445,7 +445,9 @@ const activeCandidatesByUnit = new Map(
 const currentUnitRow = (unit) => {
   const candidate = activeCandidatesByUnit.get(unit.id);
   const branch = candidate ? candidate.branch : unit.branch;
-  const head = candidate ? candidate.sourceHead : unit.headSha ?? unit.sourceHeadSha;
+  const head = candidate
+    ? candidate.sourceHead
+    : (unit.headSha ?? unit.sourceHeadSha);
   const pullRequest = candidate ? candidate.pr : unit.pr;
   return `| ${unit.id} | ${unit.status} | ${escapeCell(branch ?? "not assigned")} | ${escapeCell(head ?? "not recorded")} | ${pullRequestCell(pullRequest)} |`;
 };

@@ -14,6 +14,7 @@ A merge, a passing build, or a green scenario is supporting evidence. Completion
 - `./e2e/run.sh run governed-clinic` passed 27/27 assertions.
 - GitHub Actions run `33862675772`, attempt 2, passed after rerunning the failed artifact-download job.
 - Pull request #686 run `33860956145`, attempt 3, passed after rerunning its failed concurrent-journey job.
+- `node orchestrate/zoen-final/verify-roadmap-state.mjs` matched all 44 live GitHub issues to canonical units and confirmed 41 open / 3 verified closed.
 
 Those green results do not exercise the defects below, so they cannot close the affected units.
 
