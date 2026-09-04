@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const directory = dirname(fileURLToPath(import.meta.url));
+const GH_EXECUTABLE_CANDIDATES = ["/usr/bin/gh", "/opt/homebrew/bin/gh"];
 const UNIT_TITLE = /^(W\d+-\d+):/;
 const fail = (message) => {
   throw new Error(message);
@@ -25,6 +27,15 @@ const sameNumbers = (actual, expected, label) => {
   }
 };
 
+const ghExecutable = await Promise.any(
+  GH_EXECUTABLE_CANDIDATES.map(async (candidate) => {
+    await access(candidate, constants.X_OK);
+    return candidate;
+  })
+).catch(() =>
+  fail(`GitHub CLI not found at ${GH_EXECUTABLE_CANDIDATES.join(" or ")}`)
+);
+
 const [program, frontier] = await Promise.all(
   ["program.json", "frontier.json"].map(async (name) =>
     JSON.parse(await readFile(join(directory, name), "utf8"))
@@ -39,7 +50,7 @@ const first = Number(range.groups.first);
 const last = Number(range.groups.last);
 const issues = JSON.parse(
   execFileSync(
-    "gh",
+    ghExecutable,
     [
       "issue",
       "list",
