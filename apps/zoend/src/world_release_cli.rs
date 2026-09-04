@@ -506,8 +506,8 @@ async fn authorize(
     // Boot manifest must not authorize after activation — evaluate only catalog Cedar.
     // `bootManifestIgnored` is always true here: authorize never loads the boot file.
     let context = authorize_context(&world, &principal, &action, &resource)?;
-    let projection = directory_projection(&context, &resource)
-        .map_err(WorldReleaseError::Conflict)?;
+    let projection =
+        directory_projection(&context, &resource).map_err(WorldReleaseError::Conflict)?;
     let evaluation = evaluator.evaluate_request(&PolicyRequest {
         action_id: &action,
         approved: false,
