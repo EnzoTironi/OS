@@ -146,7 +146,7 @@ pub struct KernelExecution {
     pub workload: WorkloadId,
 }
 
-/// Planted ObjectKey with optional grants for typed query.
+/// Planted `ObjectKey` with optional grants for typed query.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelMintObject {
     pub entity_id: String,
@@ -160,7 +160,7 @@ pub struct KernelTypedGrant {
     pub object_type: String,
 }
 
-/// Authorized typed object row (private ObjectKey + verified TypeAssignmentRef).
+/// Authorized typed object row (private `ObjectKey` + verified `TypeAssignmentRef`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelTypedObject {
     pub key_world: String,
@@ -181,7 +181,7 @@ pub struct KernelTypedObjectPage {
     pub authorized_count: u64,
 }
 
-/// FIN-01 identity candidate (never silently selected).
+/// `FIN-01` identity candidate (never silently selected).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelIdentityCandidate {
     pub world: String,
@@ -202,7 +202,7 @@ pub struct KernelIdentityCandidate {
 pub struct KernelIdentityResolve {
     pub query: String,
     pub candidates: Vec<KernelIdentityCandidate>,
-    /// Always false/empty: FIN-01 forbids silent first-match selection.
+    /// Always false/empty: `FIN-01` forbids silent first-match selection.
     pub selected: Option<String>,
     pub fin01_artifact: String,
 }
