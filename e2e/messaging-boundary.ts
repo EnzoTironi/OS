@@ -130,18 +130,28 @@ async function seedBoundAccount(): Promise<{
   const principalId = String(bootstrap.body.principalId);
   const membershipId = String(bootstrap.body.membershipId);
 
-  const telegramBind = await admin("POST", "/identity/admin/bind-verified", {
-    accountId,
-    provider: "telegram",
-    subjectKey: telegramSubject,
-  });
+  const telegramBind = await admin(
+    "POST",
+    "/identity/admin/bind-verified",
+    {
+      accountId,
+      provider: "telegram",
+      subjectKey: telegramSubject,
+    },
+    e2eIdentityAdminToken(),
+  );
   assert.equal(telegramBind.status, 200, JSON.stringify(telegramBind.body));
 
-  const linqBind = await admin("POST", "/identity/admin/bind-verified", {
-    accountId,
-    provider: "linq",
-    subjectKey: linqSubject,
-  });
+  const linqBind = await admin(
+    "POST",
+    "/identity/admin/bind-verified",
+    {
+      accountId,
+      provider: "linq",
+      subjectKey: linqSubject,
+    },
+    e2eIdentityAdminToken(),
+  );
   assert.equal(linqBind.status, 200, JSON.stringify(linqBind.body));
 
   return {
