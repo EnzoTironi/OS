@@ -8,16 +8,15 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionId, ActorId, BudgetClassId, CommitSequence, DefinitionDigest, DefinitionId,
     DefinitionReference, DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence,
-    PrincipalId, PublicVerb, ReleaseDigest, ResourceId, TenantId, TimestampMicros,
-    TrustedExecutionContext, WORLD_KERNEL_AUTHORITY_DEFINITION,
-    WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST, WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId,
-    encode_hex,
+    PrincipalId, PublicVerb, ReleaseDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
+    WORLD_KERNEL_AUTHORITY_DEFINITION, WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST,
+    WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId, encode_hex,
 };
 use zoen_engine::{
-    AuthorizedObjectSetPlanDigest, CursorSealer, CursorSortOrder, DEFAULT_QUERY_BUDGET,
-    GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
-    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision,
-    KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest,
+    AuthorizedObjectSetPlanDigest, CursorSealer, CursorSortOrder, GovernedCatalogBasis,
+    KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult,
+    KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal,
+    KernelQueryPage, KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest,
     SealedCursorBasis, TrustedAuthorityDigest, directory_projection, effective_page_limit,
 };
 
@@ -99,7 +98,7 @@ impl KernelAuthorization {
             "membership": self.membership.as_str(),
             "principal": self.principal.as_str(),
             "schema": "zoen.membership-authority.v1",
-            "tenant": self.context.tenant_id().as_str(),
+            "world": self.context.world_id().as_str(),
             "workload": self.context.workload_id().as_str(),
         });
         let canonical =
@@ -680,8 +679,6 @@ impl PostgresWorldKernel {
         &self,
         basis: &GovernedCatalogBasis,
     ) -> Result<BudgetClassId, KernelError> {
-        let server_selected = BudgetClassId::parse(DEFAULT_QUERY_BUDGET)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
         let catalogs = self
             .releases
             .get_catalogs(&basis.release_digest)
@@ -692,12 +689,13 @@ impl PostgresWorldKernel {
             })?;
         let catalog = budget_classes_from_policy_catalog(catalogs.policy().bytes())
             .map_err(|error| KernelError::Denied(error.to_string()))?;
-        let budget = catalog.require(&server_selected).map_err(|_| {
-            KernelError::Denied(format!(
-                "active release does not publish the server-selected query budget {}",
-                server_selected.as_str()
-            ))
-        })?;
+        let budget = catalog
+            .selection_order()
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                KernelError::Denied("active release does not publish a query budget".to_owned())
+            })?;
         Ok(budget.id().clone())
     }
 
