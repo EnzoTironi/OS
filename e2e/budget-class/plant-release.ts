@@ -138,7 +138,19 @@ export async function plantBudgetRelease(input: {
   await mkdir(input.generatedDirectory, { recursive: true });
   const policy = buildPolicyCatalog(budgets, input.authorizationPolicies);
   const bytes = {
-    ontology: `ontology catalog for ${input.world} budget\n`,
+    ontology: `${JSON.stringify({
+      label: `${input.world}.budget`,
+      publicVerbs: [
+        "Discover",
+        "Query",
+        "Propose",
+        "Decide",
+        "Commit",
+        "Explain",
+        "Execute",
+      ],
+      schema: "zoen.ontology-catalog.v1",
+    })}\n`,
     policy: policy.bytes,
     executors: `executor catalog for ${input.world} budget\n`,
     components: `component catalog for ${input.world} budget\n`,
