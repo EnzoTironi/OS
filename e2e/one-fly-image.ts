@@ -355,13 +355,13 @@ async function provisionBetterAuthReleaseActor(input: {
       expiresAtMicros: 4_102_444_800_000_000,
       principalId: input.principal,
       resourceIds: ["zoen.world.release"],
-      tenantId: tenantA,
+      worldId: tenantA,
       token: inviteToken,
       workloadId,
     },
   );
   assert.equal(invited.status, 200, JSON.stringify(invited.body));
-  assert.equal(invited.body.tenantId, tenantA, JSON.stringify(invited.body));
+  assert.equal(invited.body.worldId, tenantA, JSON.stringify(invited.body));
   assert.equal(
     invited.body.principalId,
     input.principal,
@@ -376,7 +376,7 @@ async function provisionBetterAuthReleaseActor(input: {
   assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
   assert.equal(accepted.body.kind, "invite", JSON.stringify(accepted.body));
   assert.equal(accepted.body.status, "active", JSON.stringify(accepted.body));
-  assert.equal(accepted.body.tenantId, tenantA, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.worldId, tenantA, JSON.stringify(accepted.body));
   assert.equal(
     accepted.body.principalId,
     input.principal,
@@ -398,7 +398,7 @@ async function provisionBetterAuthReleaseActor(input: {
   );
   const resolved = await identityRequest(
     "GET",
-    `/identity/admin/resolve-context?tenant=${encodeURIComponent(tenantA)}`,
+    `/identity/admin/resolve-context?world=${encodeURIComponent(tenantA)}`,
     signed.token,
   );
   assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
