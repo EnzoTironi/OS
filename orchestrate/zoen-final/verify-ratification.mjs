@@ -375,9 +375,23 @@ const ratificationMerge = frontier.mergedPullRequests.find(
 const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 622
 );
+const roadmapAudit = frontier.roadmapAudit;
 assert(
-  program.base.sha === "13395c50f2c4aa458497f01bb2350f49883a37e4",
-  "program base must track the W2-04 journey-proof main tip"
+  program.base.sha === "c9d602eaa0babfef52668849774439310a0cb4c1",
+  "program base must track the audited main tip"
+);
+assert(
+  roadmapAudit?.issueRange === "#626-#669" &&
+    roadmapAudit.totalIssues === 44 &&
+    roadmapAudit.openIssues === 41 &&
+    roadmapAudit.verifiedClosedIssues?.join("|") === "630|631|632" &&
+    roadmapAudit.reopenedIssues?.join("|") ===
+      "626|627|628|629|633|634|635|636" &&
+    roadmapAudit.report ===
+      "orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md" &&
+    roadmapAudit.observedAt === frontier.main.observedAt &&
+    roadmapAudit.rule.includes("completion requires"),
+  "roadmap audit must preserve the 44-issue completion verdict"
 );
 assert(
   worldIdentityUnit?.status === "done" &&
@@ -423,7 +437,7 @@ assert(
   "PR #622 must remain recorded as the device-flow repair without changing a unit verdict"
 );
 assert(
-  effectRuntimeUnit?.status === "done" &&
+  effectRuntimeUnit?.status === "proof_pending" &&
     effectRuntimeUnit.pr === 625 &&
     effectRuntimeUnit.headSha === "6683cdcf47af02464a01aa021b34977f450da5d2" &&
     effectRuntimeUnit.mergeSha === "4e33c57151ec8e3e28ee4c43a894da63173febc0" &&
@@ -432,12 +446,13 @@ assert(
     effectRuntimeMerge.merge === effectRuntimeUnit.mergeSha &&
     effectRuntimeMerge.mergedAt === "2026-09-03T17:02:36Z" &&
     effectRuntimeMerge.verification === "journey-verified" &&
+    effectRuntimeMerge.currentVerification === "proof-pending" &&
     effectRuntimeMerge.fact.includes("44/44 effect-runtime proof") &&
     !frontier.activeCandidates.some(({ unit }) => unit === "W1-03"),
-  "PR #625 must close W1-03 with its journey-verified merge"
+  "PR #625 substrate must remain exact while W1-03 awaits full journey proof"
 );
 assert(
-  eveRuntimeBoundaryUnit?.status === "done" &&
+  eveRuntimeBoundaryUnit?.status === "proof_pending" &&
     eveRuntimeBoundaryUnit.pr === 618 &&
     eveRuntimeBoundaryUnit.headSha ===
       "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3" &&
@@ -448,10 +463,11 @@ assert(
     eveRuntimeBoundaryMerge.merge === eveRuntimeBoundaryUnit.mergeSha &&
     eveRuntimeBoundaryMerge.mergedAt === "2026-09-03T11:30:11Z" &&
     eveRuntimeBoundaryMerge.verification === "journey-verified" &&
+    eveRuntimeBoundaryMerge.currentVerification === "proof-pending" &&
     eveRuntimeBoundaryMerge.fact.includes("messaging-boundary 27/27") &&
     eveRuntimeBoundaryMerge.fact.includes("effect-runtime 44/44") &&
     !frontier.activeCandidates.some(({ unit }) => unit === "W1-04"),
-  "PR #618 must close W1-04 with its journey-verified exact-tip proof"
+  "PR #618 substrate must remain exact while W1-04 awaits full journey proof"
 );
 assert(
   worldReleaseContractUnit?.status === "done" &&
@@ -499,19 +515,21 @@ assert(
   "PR #676 must close W2-03 with its journey-verified merge"
 );
 assert(
-  worldReleaseActivateUnit?.status === "done" &&
+  worldReleaseActivateUnit?.status === "active" &&
     worldReleaseActivateUnit.pr === 678 &&
     worldReleaseActivateUnit.headSha ===
       "eb33b4162f061cdcee3858e164a9f834d54fd50d" &&
-    worldReleaseActivateUnit.mergeSha === program.base.sha &&
+    worldReleaseActivateUnit.mergeSha ===
+      "13395c50f2c4aa458497f01bb2350f49883a37e4" &&
     worldReleaseActivateMerge?.unit === "W2-04" &&
     worldReleaseActivateMerge.head === worldReleaseActivateUnit.headSha &&
     worldReleaseActivateMerge.merge === worldReleaseActivateUnit.mergeSha &&
     worldReleaseActivateMerge.mergedAt === "2026-09-04T05:04:46Z" &&
     worldReleaseActivateMerge.verification === "journey-verified" &&
-    worldReleaseActivateMerge.fact.includes("94/94 world-release journey") &&
-    !frontier.activeCandidates.some(({ unit }) => unit === "W2-04"),
-  "PR #678 must close W2-04 with its journey-verified exact-tip proof"
+    worldReleaseActivateMerge.currentVerification === "audit-rejected" &&
+    worldReleaseActivateMerge.fact.includes("94/94") &&
+    frontier.activeCandidates.some(({ unit }) => unit === "W2-04"),
+  "PR #678 historical proof must remain exact while W2-04 is under repair"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
@@ -624,7 +642,8 @@ await Promise.all(
   })
 );
 assert(
-  frontier.landingOrder.join("|") === "W2-05|W2-06|W2-07|W2-08|W3-01",
+  frontier.landingOrder.join("|") ===
+    "W2-04|W1-06|W1-07|W2-05|W2-06|W2-07|W2-08|W3-01",
   "landing order changed"
 );
 const allowedInitialPullRequestClassifications = new Set([
@@ -1215,6 +1234,7 @@ const markdownFiles = [
   "orchestrate/zoen-final/reports/w2-02-validation.md",
   "orchestrate/zoen-final/reports/w2-03-validation.md",
   "orchestrate/zoen-final/reports/w2-04-validation.md",
+  "orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md",
 ];
 const markdownLinkTargets = (markdown) => {
   const targets = [];
