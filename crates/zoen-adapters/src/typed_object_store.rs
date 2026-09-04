@@ -180,7 +180,7 @@ impl PostgresWorldKernel {
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when JSON is malformed or the ObjectKey is missing.
+    /// Returns [`KernelError`] when JSON is malformed or the `ObjectKey` is missing.
     pub async fn materialize_type_assignment_from_commit(
         &self,
         world: &WorldId,
@@ -423,7 +423,7 @@ impl PostgresWorldKernel {
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when the principal cannot plant or the ObjectKey is missing.
+    /// Returns [`KernelError`] when the principal cannot plant or the `ObjectKey` is missing.
     pub async fn plant_type_assignment(
         &self,
         world: &WorldId,
