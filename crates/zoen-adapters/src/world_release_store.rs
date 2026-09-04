@@ -615,6 +615,26 @@ impl PostgresWorldReleaseStore {
                     release.components_digest,
                     release.canonical_jcs,
                     publication.digest AS publication_digest,
+                    publication.published_at_micros AS publication_published_at_micros,
+                    publication.published_by AS publication_published_by,
+                    publication.policy_id AS publication_policy_id,
+                    publication.policy_revision AS publication_policy_revision,
+                    publication.policy_digest AS publication_policy_digest,
+                    publication.determining_policies AS publication_determining_policies,
+                    EXISTS (
+                        SELECT 1
+                        FROM world_release_authorizations AS publication_authorization
+                        WHERE publication_authorization.operation = 'publish'
+                          AND publication_authorization.target_digest = publication.digest
+                          AND publication_authorization.release_digest = publication.digest
+                          AND publication_authorization.preview_digest IS NULL
+                          AND publication_authorization.authorized_at_micros = publication.published_at_micros
+                          AND publication_authorization.principal_id = publication.published_by
+                          AND publication_authorization.policy_id = publication.policy_id
+                          AND publication_authorization.policy_revision = publication.policy_revision
+                          AND publication_authorization.policy_digest = publication.policy_digest
+                          AND publication_authorization.determining_policies = publication.determining_policies
+                    ) AS publication_authorization_matches,
                     ontology.digest AS stored_ontology_digest,
                     ontology.content AS ontology_content,
                     policy.digest AS stored_policy_digest,
@@ -646,7 +666,25 @@ impl PostgresWorldReleaseStore {
             return Ok(None);
         };
         let release = active_release_from_row(&row, world)?;
+        let publication = active_publication_from_row(&row, &release)?;
+        if !row
+            .try_get::<bool, _>("publication_authorization_matches")
+            .map_err(store)?
+        {
+            return Err(WorldReleaseError::Conflict(
+                "active WorldRelease publication does not match its publish authorization"
+                    .to_owned(),
+            ));
+        }
         let catalogs = active_catalogs_from_row(&row, &release)?;
+        let evaluator = require_loadable_policy_catalog(catalogs.policy().bytes())
+            .map_err(|error| WorldReleaseError::InvalidPolicyCatalog(error.to_string()))?;
+        if !evaluator.contains_revision(&publication.policy().revision) {
+            return Err(WorldReleaseError::Conflict(
+                "active WorldRelease publication policy evidence is not bound to its PolicyCatalog"
+                    .to_owned(),
+            ));
+        }
         let policy = catalogs.policy().clone();
         Ok(Some(ActiveReleasePolicySnapshot { release, policy }))
     }
@@ -689,14 +727,64 @@ fn active_release_from_row(
     if release.id() != &active_digest || release.content().world() != world {
         return Err(WorldReleaseError::WorldMismatch);
     }
-    let publication_digest = row
-        .try_get::<Option<String>, _>("publication_digest")
-        .map_err(store)?
-        .ok_or(WorldReleaseError::MissingPolicy)?;
-    if publication_digest != active_digest.as_str() {
-        return Err(WorldReleaseError::MissingPolicy);
-    }
     Ok(release)
+}
+
+fn active_publication_from_row(
+    row: &PgRow,
+    release: &WorldRelease,
+) -> Result<WorldReleasePublication, WorldReleaseError> {
+    let revision = PolicyRevisionNumber::new(
+        u64::try_from(
+            row.try_get::<Option<i64>, _>("publication_policy_revision")
+                .map_err(store)?
+                .ok_or(WorldReleaseError::MissingPolicy)?,
+        )
+        .map_err(|_| WorldReleaseError::Store("policy revision is negative".to_owned()))?,
+    )
+    .ok_or_else(|| WorldReleaseError::Store("policy revision must be positive".to_owned()))?;
+    let publication = WorldReleasePublication::new(
+        ReleaseDigest::parse(
+            row.try_get::<Option<String>, _>("publication_digest")
+                .map_err(store)?
+                .ok_or(WorldReleaseError::MissingPolicy)?,
+        )?,
+        TimestampMicros::new(
+            row.try_get::<Option<i64>, _>("publication_published_at_micros")
+                .map_err(store)?
+                .ok_or(WorldReleaseError::MissingPolicy)?,
+        ),
+        PrincipalId::parse(
+            row.try_get::<Option<String>, _>("publication_published_by")
+                .map_err(store)?
+                .ok_or(WorldReleaseError::MissingPolicy)?,
+        )?,
+        PolicyEvidence {
+            determining_policies: row
+                .try_get::<Option<Vec<String>>, _>("publication_determining_policies")
+                .map_err(store)?
+                .ok_or(WorldReleaseError::MissingPolicy)?,
+            revision: PolicyRevision {
+                digest: PolicyDigest::parse(
+                    row.try_get::<Option<String>, _>("publication_policy_digest")
+                        .map_err(store)?
+                        .ok_or(WorldReleaseError::MissingPolicy)?,
+                )?,
+                id: PolicyId::parse(
+                    row.try_get::<Option<String>, _>("publication_policy_id")
+                        .map_err(store)?
+                        .ok_or(WorldReleaseError::MissingPolicy)?,
+                )?,
+                revision,
+            },
+        },
+    )?;
+    if publication.release() != release.id() {
+        return Err(WorldReleaseError::Conflict(
+            "active WorldRelease publication does not bind the active release".to_owned(),
+        ));
+    }
+    Ok(publication)
 }
 
 fn active_catalogs_from_row(

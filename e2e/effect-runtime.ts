@@ -476,11 +476,11 @@ async function main(): Promise<void> {
         isolation:
           "corrupting another World's distinct active PolicyCatalog leaves the configured World's readiness unchanged",
         negative:
-          "broken bootstrap Cedar, missing or corrupt active release authority, and missing, corrupt, or unloadable release-bound catalogs fail readiness closed",
+          "broken bootstrap Cedar, invalid or policy-mismatched active publication evidence, missing or corrupt active release authority, and missing, corrupt, or unloadable release-bound catalogs fail readiness closed",
         path:
-          "governed WorldRelease activation -> one-statement active release and four-catalog snapshot -> fresh Cedar compilation -> /ready",
+          "governed WorldRelease activation -> one-statement active release, full publication, and four-catalog snapshot -> publication evidence verification -> fresh Cedar compilation -> /ready",
         recovery:
-          "governed CLI activation restores a deleted active pointer; dependency, Restate, and zoend restarts converge only after exact authority recovers",
+          "publication identity and policy evidence are restored in place; governed CLI activation restores a deleted active pointer; dependency, Restate, and zoend restarts converge only after exact authority recovers",
         replay:
           "identical governed activation reports replay and concurrent readiness probes do not mutate release authority",
       },
@@ -512,7 +512,7 @@ async function main(): Promise<void> {
           ],
           proven: [
             "ZoenEffect registration survives a Restate container recreation on its persistent volume",
-            "readiness verifies the exact active release, publication, and four bound catalog blobs without mutation",
+            "readiness reconstructs the full active publication, verifies its policy evidence against the release-bound catalog, and checks all four catalog blobs without mutation",
             "broken bootstrap Cedar and release-bound catalogs fail closed while another World's corruption remains isolated",
             "missing handler and runtime dependencies fail readiness closed",
             "dispatcher, handler, Restate, connector, and zoend restart recovery converges",

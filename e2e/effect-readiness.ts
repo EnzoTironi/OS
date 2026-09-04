@@ -156,6 +156,10 @@ export async function proveProductReadiness(input: {
   await waitForReady((body) => body === "ready\n", "bootstrap Cedar restored");
 
   const releaseARow = await requireActiveReleaseRow(admin, tenantA);
+  const publicationARow = await requireReleasePublicationRow(
+    admin,
+    releaseA.digest,
+  );
   const catalogsA = await requireReleaseCatalogRows(admin, releaseA.digest);
   const policyARow = await requirePolicyCatalogRow(
     admin,
@@ -179,6 +183,32 @@ export async function proveProductReadiness(input: {
     admin,
     releaseB.policyCatalogDigest,
     policyBRow.content,
+  );
+
+  await replacePublicationPublishedBy(admin, releaseA.digest, "not a principal");
+  await assertReadyFailsWithoutMutation(
+    admin,
+    observe,
+    "active WorldRelease is broken",
+    "activePublicationPrincipalBroken",
+  );
+  await restoreReleasePublication(admin, publicationARow);
+  await waitForReady(
+    (body) => body === "ready\n",
+    "active WorldRelease publication principal restored",
+  );
+
+  await replacePublicationPolicyDigest(admin, releaseA.digest, "0".repeat(64));
+  await assertReadyFailsWithoutMutation(
+    admin,
+    observe,
+    "active WorldRelease is broken",
+    "activePublicationPolicyEvidenceMismatch",
+  );
+  await restoreReleasePublication(admin, publicationARow);
+  await waitForReady(
+    (body) => body === "ready\n",
+    "active WorldRelease publication policy evidence restored",
   );
 
   await replacePolicyCatalogContent(
@@ -407,6 +437,16 @@ interface PolicyCatalogRow {
   stored_at_micros: string;
 }
 
+interface ReleasePublicationRow {
+  determining_policies: string[];
+  digest: string;
+  policy_digest: string;
+  policy_id: string;
+  policy_revision: string;
+  published_at_micros: string;
+  published_by: string;
+}
+
 interface ReleaseCatalogRows {
   componentsContent: Buffer;
   componentsDigest: string;
@@ -443,6 +483,22 @@ async function requirePolicyCatalogRow(
   );
   const row = result.rows[0];
   assert.ok(row, `PolicyCatalog ${digest} must exist`);
+  return row;
+}
+
+async function requireReleasePublicationRow(
+  admin: PostgresClient,
+  digest: string,
+): Promise<ReleasePublicationRow> {
+  const result = await admin.query<ReleasePublicationRow>(
+    `SELECT digest, published_at_micros::text, published_by, policy_id,
+            policy_revision::text, policy_digest, determining_policies
+       FROM world_release_publications
+      WHERE digest = $1`,
+    [digest],
+  );
+  const row = result.rows[0];
+  assert.ok(row, `WorldRelease publication ${digest} must exist`);
   return row;
 }
 
@@ -516,6 +572,59 @@ async function restorePolicyCatalog(
     "INSERT INTO world_policy_catalogs (digest, content, stored_at_micros) VALUES ($1, $2, $3)",
     [row.digest, row.content, row.stored_at_micros],
   );
+}
+
+async function replacePublicationPublishedBy(
+  admin: PostgresClient,
+  digest: string,
+  publishedBy: string,
+): Promise<void> {
+  await withImmutableHistoryBypass(admin, async () => {
+    await admin.query(
+      "UPDATE world_release_publications SET published_by = $1 WHERE digest = $2",
+      [publishedBy, digest],
+    );
+  });
+}
+
+async function replacePublicationPolicyDigest(
+  admin: PostgresClient,
+  digest: string,
+  policyDigest: string,
+): Promise<void> {
+  await withImmutableHistoryBypass(admin, async () => {
+    await admin.query(
+      "UPDATE world_release_publications SET policy_digest = $1 WHERE digest = $2",
+      [policyDigest, digest],
+    );
+  });
+}
+
+async function restoreReleasePublication(
+  admin: PostgresClient,
+  row: ReleasePublicationRow,
+): Promise<void> {
+  await withImmutableHistoryBypass(admin, async () => {
+    await admin.query(
+      `UPDATE world_release_publications
+          SET published_at_micros = $1,
+              published_by = $2,
+              policy_id = $3,
+              policy_revision = $4,
+              policy_digest = $5,
+              determining_policies = $6
+        WHERE digest = $7`,
+      [
+        row.published_at_micros,
+        row.published_by,
+        row.policy_id,
+        row.policy_revision,
+        row.policy_digest,
+        row.determining_policies,
+        row.digest,
+      ],
+    );
+  });
 }
 
 async function replaceReleaseCatalogContent(
@@ -625,6 +734,20 @@ async function assertReadyFails(
   observe(
     `readyFailsClosedFor_${label}`,
     response.status === 503 && response.body.includes(reason),
+  );
+}
+
+async function assertReadyFailsWithoutMutation(
+  admin: PostgresClient,
+  observe: Observe,
+  reason: string,
+  label: string,
+): Promise<void> {
+  const before = await authorityFingerprint(admin);
+  await assertReadyFails(observe, reason, label);
+  observe(
+    `readyFailureDoesNotMutateAuthority_${label}`,
+    (await authorityFingerprint(admin)) === before,
   );
 }
 

@@ -129,6 +129,13 @@ impl CedarPolicyEvaluator {
         self.policies.is_empty()
     }
 
+    #[must_use]
+    pub(crate) fn contains_revision(&self, revision: &PolicyRevision) -> bool {
+        self.policies
+            .values()
+            .any(|policy| &policy.revision == revision)
+    }
+
     /// Compile Cedar policies from `PolicyCatalog` bytes (§8.4).
     ///
     /// Catalog JSON must use schema `zoen.policy-catalog.v1` and carry a non-empty

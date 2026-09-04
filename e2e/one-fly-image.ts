@@ -24,7 +24,6 @@ import {
   writeScenarioArtifact,
 } from "./host-env.js";
 import {
-  provisionWorldReleaseActors,
   releaseAuthorityPolicies,
   SEVEN_VERBS,
   type ReleaseAuthorizationPolicy,
@@ -61,10 +60,23 @@ interface CommandResult {
 }
 
 interface WorldReleaseFixture {
-  actors: WorldReleaseActors;
+  actors: BetterAuthWorldReleaseActors;
   digest: string;
   policyCatalogDigest: string;
   previewDigest: string;
+}
+
+interface BetterAuthReleaseActor {
+  accountId: string;
+  doorUserKey: string;
+  membership: string;
+  principal: string;
+  world: string;
+}
+
+interface BetterAuthWorldReleaseActors extends WorldReleaseActors {
+  builder: BetterAuthReleaseActor;
+  owner: BetterAuthReleaseActor;
 }
 
 interface WorldReleaseState {
@@ -285,6 +297,149 @@ async function worldReleaseState(
   };
 }
 
+async function identityRequest(
+  method: "GET" | "POST",
+  route: string,
+  bearer: string,
+  body?: Record<string, unknown>,
+): Promise<{ body: Record<string, unknown>; status: number }> {
+  const response = await fetch(`${baseUrl}${route}`, {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: {
+      authorization: `Bearer ${bearer}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    method,
+  });
+  const text = await response.text();
+  return {
+    body: text.length === 0 ? {} : parseJsonObject(text, `${method} ${route}`),
+    status: response.status,
+  };
+}
+
+async function provisionBetterAuthReleaseActor(input: {
+  actionIds: readonly string[];
+  identityAdminToken: string;
+  principal: string;
+  role: "builder" | "owner";
+}): Promise<BetterAuthReleaseActor> {
+  const actorId = `actor.release.one-fly.${input.role}`;
+  const workloadId = `workload.world-release.${input.role}`;
+  const signed = await signUpSession({
+    id: `one-fly-release-${input.role}`,
+    zoendBaseUrl: baseUrl,
+  });
+  const bootstrap = await identityRequest(
+    "POST",
+    "/identity/admin/bootstrap-bound",
+    signed.token,
+  );
+  assert.equal(bootstrap.status, 200, JSON.stringify(bootstrap.body));
+  const accountId = requiredString(
+    bootstrap.body.accountId,
+    `${input.role} Account`,
+  );
+  const doorUserKey = requiredString(
+    bootstrap.body.doorUserKey,
+    `${input.role} Better Auth user`,
+  );
+  const inviteToken = `invite.one-fly-release-${input.role}`;
+  const invited = await identityRequest(
+    "POST",
+    "/identity/admin/invites",
+    input.identityAdminToken,
+    {
+      actionIds: [...input.actionIds],
+      actorId,
+      expiresAtMicros: 4_102_444_800_000_000,
+      principalId: input.principal,
+      resourceIds: ["zoen.world.release"],
+      tenantId: tenantA,
+      token: inviteToken,
+      workloadId,
+    },
+  );
+  assert.equal(invited.status, 200, JSON.stringify(invited.body));
+  assert.equal(invited.body.tenantId, tenantA, JSON.stringify(invited.body));
+  assert.equal(
+    invited.body.principalId,
+    input.principal,
+    JSON.stringify(invited.body),
+  );
+  const accepted = await identityRequest(
+    "POST",
+    "/identity/admin/accept-invite",
+    signed.token,
+    { accountId, token: inviteToken },
+  );
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.kind, "invite", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.status, "active", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.tenantId, tenantA, JSON.stringify(accepted.body));
+  assert.equal(
+    accepted.body.principalId,
+    input.principal,
+    JSON.stringify(accepted.body),
+  );
+  assert.deepEqual(
+    new Set(accepted.body.delegatedActionIds as string[]),
+    new Set(input.actionIds),
+    JSON.stringify(accepted.body),
+  );
+  assert.deepEqual(
+    accepted.body.delegatedResourceIds,
+    ["zoen.world.release"],
+    JSON.stringify(accepted.body),
+  );
+  const membership = requiredString(
+    accepted.body.membershipId,
+    `${input.role} Membership`,
+  );
+  const resolved = await identityRequest(
+    "GET",
+    `/identity/admin/resolve-context?tenant=${encodeURIComponent(tenantA)}`,
+    signed.token,
+  );
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.body));
+  assert.equal(resolved.body.membershipId, membership, JSON.stringify(resolved.body));
+  assert.equal(
+    resolved.body.principalId,
+    input.principal,
+    JSON.stringify(resolved.body),
+  );
+  assert.equal(resolved.body.actorId, actorId, JSON.stringify(resolved.body));
+  assert.equal(
+    resolved.body.workloadId,
+    workloadId,
+    JSON.stringify(resolved.body),
+  );
+  return { accountId, doorUserKey, membership, principal: input.principal, world: tenantA };
+}
+
+async function provisionBetterAuthWorldReleaseActors(): Promise<BetterAuthWorldReleaseActors> {
+  const identityAdminToken = requiredEnv("ZOEN_IDENTITY_ADMIN_TOKEN");
+  const [builder, owner] = await Promise.all([
+    provisionBetterAuthReleaseActor({
+      actionIds: ["zoen.world.release.publish"],
+      identityAdminToken,
+      principal: "principal.release.one-fly.publisher",
+      role: "builder",
+    }),
+    provisionBetterAuthReleaseActor({
+      actionIds: [
+        "zoen.world.release.preview",
+        "zoen.world.release.decide",
+        "zoen.world.release.activate",
+      ],
+      identityAdminToken,
+      principal: "principal.release.one-fly.governor",
+      role: "owner",
+    }),
+  ]);
+  return { builder, owner };
+}
+
 async function plantActiveWorldRelease(
   admin: PostgresClient,
 ): Promise<WorldReleaseFixture> {
@@ -303,15 +458,13 @@ async function plantActiveWorldRelease(
       releasePolicies.every((entry) => entry.digest === sha256(entry.source)),
   );
 
-  const actors = await provisionWorldReleaseActors({
-    baseUrl,
-    subjectKey: "one-fly",
-    world: tenantA,
-  });
+  const actors = await provisionBetterAuthWorldReleaseActors();
   observe(
-    "worldReleaseUsesDistinctDurableBuilderAndOwnerMemberships",
+    "worldReleaseUsesDistinctBetterAuthBuilderAndOwnerMemberships",
     actors.builder.membership !== actors.owner.membership &&
-      actors.builder.principal !== actors.owner.principal,
+      actors.builder.principal !== actors.owner.principal &&
+      actors.builder.accountId !== actors.owner.accountId &&
+      actors.builder.doorUserKey !== actors.owner.doorUserKey,
   );
 
   const constructed = runWorldReleaseCli(["construct", "--file", worldReleaseFile]);
