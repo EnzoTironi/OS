@@ -7,7 +7,8 @@ use zoen_adapters::{PostgresAuthorityStore, PostgresWorldKernel, PostgresWorldRe
 use zoen_core::{MembershipId, PrincipalId, WorldId};
 use zoen_engine::{
     CursorKeyId, CursorKeyring, CursorSealer, CursorSigningKey, KernelDecisionOutcome,
-    KernelDiscoverResult, KernelError, KernelQueryPage, KernelSurface,
+    KernelDiscoverResult, KernelError, KernelIdentifierQueryPage, KernelIdentifierSelector,
+    KernelQueryPage, KernelSurface,
 };
 
 const DEFAULT_CURSOR_TTL_SECONDS: u64 = 300;
@@ -59,6 +60,15 @@ pub enum KernelCommand {
         principal: String,
         membership: String,
         object_type: Option<String>,
+        identifier: Option<String>,
+        scheme: Option<String>,
+        venue_entity: Option<String>,
+        mic: Option<String>,
+        currency: Option<String>,
+        share_class: Option<String>,
+        provider: Option<String>,
+        identifier_level: Option<String>,
+        valid_at_micros: Option<i64>,
         cursor: Option<String>,
         limit: Option<u32>,
     },
@@ -112,6 +122,15 @@ pub async fn run(
             principal,
             membership,
             object_type,
+            identifier,
+            scheme,
+            venue_entity,
+            mic,
+            currency,
+            share_class,
+            provider,
+            identifier_level,
+            valid_at_micros,
             cursor,
             limit,
         } => {
@@ -120,6 +139,15 @@ pub async fn run(
                 &principal,
                 &membership,
                 object_type.as_deref(),
+                identifier.as_deref(),
+                scheme.as_deref(),
+                venue_entity.as_deref(),
+                mic.as_deref(),
+                currency.as_deref(),
+                share_class.as_deref(),
+                provider.as_deref(),
+                identifier_level.as_deref(),
+                valid_at_micros,
                 cursor.as_deref(),
                 limit,
                 surface,
@@ -191,6 +219,15 @@ async fn query(
     principal: &str,
     membership: &str,
     object_type: Option<&str>,
+    identifier: Option<&str>,
+    scheme: Option<&str>,
+    venue_entity: Option<&str>,
+    mic: Option<&str>,
+    currency: Option<&str>,
+    share_class: Option<&str>,
+    provider: Option<&str>,
+    identifier_level: Option<&str>,
+    valid_at_micros: Option<i64>,
     cursor: Option<&str>,
     limit: Option<u32>,
     surface: KernelSurface,
@@ -199,6 +236,53 @@ async fn query(
     let world = WorldId::parse(world)?;
     let principal = PrincipalId::parse(principal)?;
     let membership = MembershipId::parse(membership)?;
+    if let Some(identifier) = identifier {
+        let Some(valid_at_micros) = valid_at_micros else {
+            return Ok(map_error(KernelError::Conflict(
+                "--valid-at-micros is required for identifier queries".to_owned(),
+            )));
+        };
+        let selector = KernelIdentifierSelector {
+            value: identifier.to_owned(),
+            scheme: scheme.map(str::to_owned),
+            object_type: object_type.map(str::to_owned),
+            venue_entity_id: venue_entity.map(str::to_owned),
+            mic: mic.map(str::to_owned),
+            currency: currency.map(str::to_owned),
+            share_class: share_class.map(str::to_owned),
+            provider: provider.map(str::to_owned),
+            identifier_level: identifier_level.map(str::to_owned),
+            valid_at_micros,
+        };
+        return match kernel
+            .query_identifier_candidates(
+                &world,
+                &principal,
+                &membership,
+                selector,
+                cursor.unwrap_or(""),
+                limit.unwrap_or(5),
+                surface,
+            )
+            .await
+        {
+            Ok(page) => Ok(ok(identifier_query_page_json(&page))),
+            Err(error) => Ok(map_error(error)),
+        };
+    }
+    if scheme.is_some()
+        || venue_entity.is_some()
+        || mic.is_some()
+        || currency.is_some()
+        || share_class.is_some()
+        || provider.is_some()
+        || identifier_level.is_some()
+        || valid_at_micros.is_some()
+    {
+        return Ok(map_error(KernelError::Conflict(
+            "identifier context flags require --identifier".to_owned(),
+        )));
+    }
     if object_type.is_none() {
         return match kernel.query(&world, &principal, &membership, surface).await {
             Ok(result) => Ok(ok(discover_json(&result))),
@@ -223,6 +307,67 @@ async fn query(
         Ok(page) => Ok(ok(query_page_json(&page))),
         Err(error) => Ok(map_error(error)),
     }
+}
+
+fn identifier_query_page_json(page: &KernelIdentifierQueryPage) -> Value {
+    json!({
+        "authorizedCount": page.authorized_count,
+        "budgetId": page.budget_id,
+        "candidates": page.candidates.iter().map(|candidate| json!({
+            "context": {
+                "currency": candidate.context.currency,
+                "identifierLevel": candidate.context.identifier_level,
+                "mic": candidate.context.mic,
+                "provider": candidate.context.provider,
+                "shareClass": candidate.context.share_class,
+                "venueEntity": candidate.context.venue_entity_id,
+            },
+            "evidenceRef": candidate.evidence_ref,
+            "identifierAssignmentId": candidate.identifier_assignment_id,
+            "links": candidate.links.iter().map(|link| json!({
+                "evidenceRef": link.evidence_ref,
+                "linkAssertionId": link.link_assertion_id,
+                "linkType": link.link_type,
+                "targetObject": link.target_object_id,
+                "targetObjectType": link.target_object_type,
+                "targetTypeAssignmentId": link.target_type_assignment_id,
+            })).collect::<Vec<_>>(),
+            "objectKey": {"entity": candidate.object_id, "world": page.basis.world.as_str()},
+            "objectType": candidate.object_type,
+            "scheme": candidate.scheme,
+            "typeAssignmentId": candidate.type_assignment_id,
+            "validEndMicros": candidate.valid_end_micros,
+            "validStartMicros": candidate.valid_start_micros,
+            "value": candidate.value,
+        })).collect::<Vec<_>>(),
+        "catalog": {
+            "components": page.basis.components.as_str(),
+            "executors": page.basis.executors.as_str(),
+            "ontology": page.basis.ontology.as_str(),
+            "policy": page.basis.policy.as_str(),
+        },
+        "computeDigest": page.compute_digest,
+        "decision": "permit",
+        "explanationJcs": page.explanation_jcs,
+        "membership": page.membership.as_str(),
+        "nextCursor": page.next_cursor,
+        "pageLimit": page.page_limit,
+        "releaseDigest": page.basis.release_digest.as_str(),
+        "selector": {
+            "currency": page.selector.currency,
+            "identifier": page.selector.value,
+            "identifierLevel": page.selector.identifier_level,
+            "mic": page.selector.mic,
+            "objectType": page.selector.object_type,
+            "provider": page.selector.provider,
+            "scheme": page.selector.scheme,
+            "shareClass": page.selector.share_class,
+            "validAtMicros": page.selector.valid_at_micros,
+            "venueEntity": page.selector.venue_entity_id,
+        },
+        "surface": page.surface.as_str(),
+        "world": page.basis.world.as_str(),
+    })
 }
 
 fn query_page_json(page: &KernelQueryPage) -> Value {

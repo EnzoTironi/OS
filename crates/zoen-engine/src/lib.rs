@@ -70,9 +70,11 @@ pub use human::{
     parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
 };
 pub use kernel::{
-    GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
-    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision,
-    KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface,
+    GovernedCatalogBasis, KernelAuthorizedLink, KernelAuthorizedObject, KernelDecision,
+    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
+    KernelIdentifierCandidate, KernelIdentifierContext, KernelIdentifierQueryPage,
+    KernelIdentifierSelector, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
+    KernelSurface,
 };
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,

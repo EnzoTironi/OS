@@ -631,6 +631,24 @@ pub(crate) enum KernelCommand {
         #[arg(long = "type")]
         object_type: Option<String>,
         #[arg(long)]
+        identifier: Option<String>,
+        #[arg(long)]
+        scheme: Option<String>,
+        #[arg(long = "venue-entity")]
+        venue_entity: Option<String>,
+        #[arg(long)]
+        mic: Option<String>,
+        #[arg(long)]
+        currency: Option<String>,
+        #[arg(long = "share-class")]
+        share_class: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long = "identifier-level")]
+        identifier_level: Option<String>,
+        #[arg(long = "valid-at-micros")]
+        valid_at_micros: Option<i64>,
+        #[arg(long)]
         cursor: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
@@ -1650,6 +1668,15 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             principal,
             membership,
             object_type,
+            identifier,
+            scheme,
+            venue_entity,
+            mic,
+            currency,
+            share_class,
+            provider,
+            identifier_level,
+            valid_at_micros,
             cursor,
             limit,
         } => K::Query {
@@ -1657,6 +1684,15 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             principal,
             membership,
             object_type,
+            identifier,
+            scheme,
+            venue_entity,
+            mic,
+            currency,
+            share_class,
+            provider,
+            identifier_level,
+            valid_at_micros,
             cursor,
             limit,
         },

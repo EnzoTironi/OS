@@ -219,6 +219,7 @@ impl Debug for CursorKeyring {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorSortOrder {
     ObjectIdAscending,
+    IdentifierAssignmentIdAscending,
 }
 
 impl CursorSortOrder {
@@ -226,6 +227,7 @@ impl CursorSortOrder {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ObjectIdAscending => "object_id.asc",
+            Self::IdentifierAssignmentIdAscending => "identifier_assignment_id.asc",
         }
     }
 }
@@ -240,6 +242,9 @@ pub struct SealedCursorBasis {
     pub membership: MembershipId,
     pub world: WorldId,
     pub object_type: String,
+    pub selector_digest: String,
+    pub context_digest: String,
+    pub valid_at_micros: i64,
     pub release_digest: ReleaseDigest,
     pub policy_digest: PolicyCatalogDigest,
     pub budget_id: BudgetClassId,
@@ -429,6 +434,9 @@ struct CursorMacPayload<'a> {
     membership: &'a str,
     world: &'a str,
     object_type: &'a str,
+    selector_digest: &'a str,
+    context_digest: &'a str,
+    valid_at_micros: i64,
     release_digest: &'a str,
     policy_digest: &'a str,
     budget_id: &'a str,
@@ -457,6 +465,9 @@ fn canonical_payload(
         membership: basis.membership.as_str(),
         world: basis.world.as_str(),
         object_type: &basis.object_type,
+        selector_digest: &basis.selector_digest,
+        context_digest: &basis.context_digest,
+        valid_at_micros: basis.valid_at_micros,
         release_digest: basis.release_digest.as_str(),
         policy_digest: basis.policy_digest.as_str(),
         budget_id: basis.budget_id.as_str(),
