@@ -38,7 +38,8 @@ export const defaultBudgetClasses: BudgetClassSpec[] = [
   },
   {
     id: "clinic.query.deadline",
-    fuel: 5_000_000,
+    // High enough that the 1ms epoch deadline trips before fuel on spin.
+    fuel: Number.MAX_SAFE_INTEGER,
     memoryBytes: 8 * 1024 * 1024,
     tableElements: 1024,
     instances: 4,
