@@ -504,10 +504,10 @@ async fn authorize(
         }
     };
     // Boot manifest must not authorize after activation — evaluate only catalog Cedar.
-    let _boot_ignored = std::env::var("ZOEN_CEDAR_POLICY_MANIFEST").ok();
+    let boot_ignored = std::env::var("ZOEN_CEDAR_POLICY_MANIFEST").ok();
     let context = authorize_context(&world, &principal, &action, &resource)?;
     let projection = directory_projection(&context, &resource)
-        .map_err(|message| WorldReleaseError::Conflict(message))?;
+        .map_err(WorldReleaseError::Conflict)?;
     let evaluation = evaluator.evaluate_request(&PolicyRequest {
         action_id: &action,
         approved: false,
@@ -526,7 +526,7 @@ async fn authorize(
         PolicyEvaluation::EvaluationError { message, revision } => {
             return Ok(ok(json!({
                 "authority": "active-release-policy-catalog",
-                "bootManifestIgnored": _boot_ignored.is_some(),
+                "bootManifestIgnored": boot_ignored.is_some(),
                 "decision": "error",
                 "digest": active_digest.as_str(),
                 "message": message,

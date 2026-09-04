@@ -634,7 +634,7 @@ pub enum ReleaseCommand {
         #[arg(long)]
         world: Option<String>,
     },
-    /// Authorize a governed verb using active-release PolicyCatalog Cedar
+    /// Authorize a governed verb using active-release `PolicyCatalog` Cedar
     #[command(
         after_help = "Examples:\n  zoen world release authorize --world world.alpha --principal principal.owner --action-id zoen.world.discover --definition-digest <digest> --resource-id resource.world --operation discover"
     )]
