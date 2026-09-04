@@ -47,13 +47,7 @@
       "fact": "Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program."
     }
   ],
-  "landingOrder": [
-    "W2-05",
-    "W2-06",
-    "W2-07",
-    "W2-08",
-    "W3-01"
-  ],
+  "landingOrder": ["W2-05", "W2-06", "W2-07", "W2-08", "W3-01"],
   "mergedPullRequests": [
     {
       "number": 602,
