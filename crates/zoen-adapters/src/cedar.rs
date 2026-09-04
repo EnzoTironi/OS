@@ -12,7 +12,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use zoen_core::{
     Clearance, ExactValue, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
-    PolicyRevision, PolicyRevisionNumber, resource_label,
+    PolicyRevision, PolicyRevisionNumber, WORLD_POLICY_CATALOG_SCHEMA, resource_label,
 };
 use zoen_engine::{
     MAC_DETERMINING_POLICY, PolicyEvaluator, PolicyObjectProjection, PolicyOperation,
@@ -127,6 +127,43 @@ impl CedarPolicyEvaluator {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.policies.is_empty()
+    }
+
+    /// Compile Cedar policies from PolicyCatalog bytes (§8.4).
+    ///
+    /// Catalog JSON must use schema `zoen.policy-catalog.v1` and carry a non-empty
+    /// `authorization.policies` Cedar bundle. Membership/delegation and source
+    /// admission fields are retained in the catalog bytes for ReleaseDigest binding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CedarConfigError::Invalid`] when the catalog schema, Cedar bundle,
+    /// digests, or policy source cannot be compiled.
+    pub fn from_policy_catalog_bytes(bytes: &[u8]) -> Result<Self, CedarConfigError> {
+        let document = serde_json::from_slice::<PolicyCatalogDocument>(bytes)
+            .map_err(|error| CedarConfigError::Invalid(format!("policy catalog JSON: {error}")))?;
+        if document.schema != WORLD_POLICY_CATALOG_SCHEMA {
+            return Err(CedarConfigError::Invalid(format!(
+                "expected schema {WORLD_POLICY_CATALOG_SCHEMA}, got {}",
+                document.schema
+            )));
+        }
+        if document.authorization.policies.is_empty() {
+            return Err(CedarConfigError::Invalid(
+                "authorization.policies must contain at least one Cedar policy".to_owned(),
+            ));
+        }
+        let manifest = serde_json::to_string(&PolicyManifestWire {
+            policies: document.authorization.policies,
+        })
+        .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
+        Self::from_json(&manifest)
+    }
+
+    /// Evaluate a request against this compiled PolicySet.
+    #[must_use]
+    pub fn evaluate_request(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
+        self.evaluate_sync(request)
     }
 }
 
@@ -434,12 +471,50 @@ fn sha256(value: &[u8]) -> String {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+struct PolicyCatalogDocument {
+    schema: String,
+    authorization: AuthorizationBundle,
+    #[serde(default)]
+    membership_delegation: serde_json::Value,
+    #[serde(default)]
+    source_admission: serde_json::Value,
+    #[serde(default)]
+    identity_resolution: serde_json::Value,
+    #[serde(default)]
+    evidence_selection: serde_json::Value,
+    #[serde(default)]
+    quality: serde_json::Value,
+    #[serde(default)]
+    entitlements: serde_json::Value,
+    #[serde(default)]
+    purposes: serde_json::Value,
+    #[serde(default)]
+    contractual_usage: serde_json::Value,
+    #[serde(default)]
+    compute_budgets: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizationBundle {
+    policies: Vec<PolicyEntry>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PolicyManifestWire {
+    policies: Vec<PolicyEntry>,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PolicyManifest {
     policies: Vec<PolicyEntry>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PolicyEntry {
     action_id: String,

@@ -208,6 +208,20 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         stdout_json: r#"{"format":"json","fields":["digest","world","catalogs"]}"#,
     },
     SchemaEntry {
+        command: "world.release.authorize",
+        required_flags: &[
+            "--world",
+            "--principal",
+            "--action-id",
+            "--definition-digest",
+            "--resource-id",
+        ],
+        examples: &[
+            "zoen world release authorize --world world.alpha --principal principal.owner --action-id zoen.world.discover --definition-digest <digest> --resource-id resource.world --operation discover",
+        ],
+        stdout_json: r#"{"format":"json","fields":["authority","decision","digest","policyCatalogDigest","world"]}"#,
+    },
+    SchemaEntry {
         command: "definition.publish",
         required_flags: &["--file"],
         examples: &[
@@ -619,6 +633,26 @@ pub enum ReleaseCommand {
         digest: String,
         #[arg(long)]
         world: Option<String>,
+    },
+    /// Authorize a governed verb using active-release PolicyCatalog Cedar
+    #[command(
+        after_help = "Examples:\n  zoen world release authorize --world world.alpha --principal principal.owner --action-id zoen.world.discover --definition-digest <digest> --resource-id resource.world --operation discover"
+    )]
+    Authorize {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long = "action-id")]
+        action_id: String,
+        #[arg(long = "definition-digest")]
+        definition_digest: String,
+        #[arg(long = "definition-id", default_value = "definition.world")]
+        definition_id: String,
+        #[arg(long = "resource-id")]
+        resource_id: String,
+        #[arg(long, default_value = "discover")]
+        operation: String,
     },
 }
 

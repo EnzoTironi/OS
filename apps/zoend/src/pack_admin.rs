@@ -9,7 +9,7 @@ use axum::{
 };
 use connectrpc::{ConnectError, ErrorCode};
 use serde::Deserialize;
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore, PostgresPackStore};
+use zoen_adapters::{PostgresAuthorityStore, PostgresPackStore, ReleaseCedarEvaluator};
 use zoen_core::{
     ActivatedDefinitionRef, ActivationPrecondition, DefinitionDigest, DefinitionId,
     EvolutionAckDigest, ExecutionContext, FirstSuccessEval, GrantId, GrantStatus, InstallId,
@@ -22,7 +22,7 @@ use crate::session::SessionExchange;
 
 pub struct PackAdminState {
     pub packs: PostgresPackStore,
-    pub definitions: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
+    pub definitions: DefinitionEngine<PostgresAuthorityStore, Arc<ReleaseCedarEvaluator>>,
     pub sessions: SessionExchange,
 }
 

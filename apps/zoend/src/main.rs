@@ -13,7 +13,7 @@ use connectrpc::Router;
 use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresExternalSignalStore,
     PostgresIdentityStore, PostgresPackRegistryStore, PostgresPackStore,
-    PostgresWorkloadCredentialStore, SessionDoor,
+    PostgresWorkloadCredentialStore, PostgresWorldReleaseStore, ReleaseCedarEvaluator, SessionDoor,
 };
 use zoen_core::{MachineToken, WorkloadId};
 use zoen_engine::{
@@ -94,7 +94,7 @@ struct BootRuntime {
     credentials: PostgresWorkloadCredentialStore,
     identity: PostgresIdentityStore,
     listen_address: SocketAddr,
-    policy: Arc<CedarPolicyEvaluator>,
+    policy: Arc<ReleaseCedarEvaluator>,
     query: QueryRuntime,
     require_reference: bool,
     sessions: SessionExchange,
@@ -118,11 +118,13 @@ struct OntologyServices {
 async fn boot_runtime() -> Result<BootRuntime, Box<dyn Error + Send + Sync>> {
     let database_url = required_database_url()?;
     let ProcessAuth::SessionDoor { auth_database_url } = config::process_auth()?;
-    let policy = Arc::new(CedarPolicyEvaluator::from_path(
-        config::cedar_manifest_path()?,
-    )?);
+    let boot_policy = CedarPolicyEvaluator::from_path(config::cedar_manifest_path()?)?;
     let listen_address = listen_address()?;
     let store = PostgresAuthorityStore::connect(&database_url).await?;
+    let policy = Arc::new(ReleaseCedarEvaluator::new(
+        boot_policy,
+        PostgresWorldReleaseStore::new(store.pool()),
+    ));
     let identity = PostgresIdentityStore::new(store.pool());
     let credentials = PostgresWorkloadCredentialStore::new(store.pool());
     let machine = env::var("ZOEN_IDENTITY_ADMIN_TOKEN")

@@ -6,13 +6,20 @@ use std::{
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
-use zoen_adapters::{PostgresAuthorityStore, PostgresWorldReleaseStore, PublicationPut};
-use zoen_core::{
-    ComponentCatalog, ExecutorCatalog, OntologyCatalog, PolicyCatalog, PolicyDigest,
-    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest,
-    TimestampMicros, WORLD_RELEASE_SCHEMA, WorldId, WorldRelease, WorldReleaseCatalogs,
-    WorldReleaseError, WorldReleasePublication, principal_may_activate, principal_may_publish,
+use zoen_adapters::{
+    PostgresAuthorityStore, PostgresWorldReleaseStore, PublicationPut,
+    require_loadable_policy_catalog,
 };
+use zoen_core::{
+    ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, ExecutorCatalog,
+    OntologyCatalog, PolicyCatalog, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
+    PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest, ResourceId, TenantId,
+    TimestampMicros, TrustedExecutionContext, WORLD_RELEASE_SCHEMA, WorkloadId, WorldId,
+    WorldRelease, WorldReleaseCatalogs, WorldReleaseError, WorldReleasePublication,
+    principal_may_activate, principal_may_publish,
+};
+use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
 use crate::cli::ReleaseCommand;
 
@@ -58,6 +65,26 @@ pub async fn run(
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
         ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
+        ReleaseCommand::Authorize {
+            world,
+            principal,
+            action_id,
+            definition_digest,
+            definition_id,
+            resource_id,
+            operation,
+        } => {
+            authorize(
+                &world,
+                &principal,
+                &action_id,
+                &definition_digest,
+                &definition_id,
+                &resource_id,
+                &operation,
+            )
+            .await
+        }
     }
 }
 
@@ -97,6 +124,12 @@ async fn publish(
     let Some(catalogs) = parsed.catalogs else {
         return Ok(fail(2, "world release publish requires catalog bytes"));
     };
+    if let Err(error) = require_loadable_policy_catalog(catalogs.policy().bytes()) {
+        return Ok(fail(
+            2,
+            &format!("policy catalog must contain a loadable Cedar bundle: {error}"),
+        ));
+    }
     let publication = WorldReleasePublication::new(
         parsed.release.id().clone(),
         now(),
@@ -138,13 +171,21 @@ async fn activate(
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
     let store = store().await?;
+    let Some(catalogs) = store.get_catalogs(&digest).await? else {
+        return Ok(fail(1, "world release was not found"));
+    };
+    if let Err(error) = require_loadable_policy_catalog(catalogs.policy().bytes()) {
+        return Ok(fail(
+            1,
+            &format!("active release lacks a loadable Cedar bundle: {error}"),
+        ));
+    }
     let previous = store.activate(&world, &digest, now()).await?;
     let release = store
         .get(&digest)
         .await?
         .ok_or(WorldReleaseError::NotFound)?;
     let publication = store.get_publication(&digest).await?;
-    let catalogs = store.get_catalogs(&digest).await?;
     Ok(ok(json!({
         "activated": true,
         "digest": digest.as_str(),
@@ -155,7 +196,7 @@ async fn activate(
             publication.as_ref(),
             Some(digest.as_str()),
             None,
-            catalogs.as_ref(),
+            Some(&catalogs),
         ),
     })))
 }
@@ -423,6 +464,135 @@ fn catalog_json(digest: &str, bytes: &[u8]) -> Value {
             "encoding": "base64",
         }),
     }
+}
+
+async fn authorize(
+    world: &str,
+    principal: &str,
+    action_id: &str,
+    definition_digest: &str,
+    definition_id: &str,
+    resource_id: &str,
+    operation: &str,
+) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let world = WorldId::parse(world)?;
+    let principal = PrincipalId::parse(principal)?;
+    let action = ActionId::parse(action_id)?;
+    let resource = ResourceId::parse(resource_id)?;
+    let definition = DefinitionReference {
+        definition_id: DefinitionId::parse(definition_id)?,
+        digest: DefinitionDigest::parse(definition_digest)?,
+        revision: DefinitionRevisionNumber::new(1).ok_or_else(|| {
+            WorldReleaseError::Conflict("definition revision must be positive".to_owned())
+        })?,
+    };
+    let operation = parse_policy_operation(operation)?;
+    let store = store().await?;
+    let Some(active_digest) = store.get_active(&world).await? else {
+        return Ok(fail(1, "world has no active release"));
+    };
+    let Some(catalogs) = store.get_catalogs(&active_digest).await? else {
+        return Ok(fail(1, "active release lacks policy catalog bytes"));
+    };
+    let evaluator = match require_loadable_policy_catalog(catalogs.policy().bytes()) {
+        Ok(evaluator) => evaluator,
+        Err(error) => {
+            return Ok(fail(
+                1,
+                &format!("active release lacks a loadable Cedar bundle: {error}"),
+            ));
+        }
+    };
+    // Boot manifest must not authorize after activation — evaluate only catalog Cedar.
+    let _boot_ignored = std::env::var("ZOEN_CEDAR_POLICY_MANIFEST").ok();
+    let context = authorize_context(&world, &principal, &action, &resource)?;
+    let projection = directory_projection(&context, &resource)
+        .map_err(|message| WorldReleaseError::Conflict(message))?;
+    let evaluation = evaluator.evaluate_request(&PolicyRequest {
+        action_id: &action,
+        approved: false,
+        classification: None,
+        context: &context,
+        definition: &definition,
+        inputs: &[],
+        operation,
+        projection: Some(&projection),
+        resource_id: &resource,
+        written_classification: None,
+    });
+    let (decision, evidence) = match evaluation {
+        PolicyEvaluation::Permit(evidence) => ("permit", Some(evidence)),
+        PolicyEvaluation::Deny(evidence) => ("deny", Some(evidence)),
+        PolicyEvaluation::EvaluationError { message, revision } => {
+            return Ok(ok(json!({
+                "authority": "active-release-policy-catalog",
+                "bootManifestIgnored": _boot_ignored.is_some(),
+                "decision": "error",
+                "digest": active_digest.as_str(),
+                "message": message,
+                "policyCatalogDigest": catalogs.policy().digest().as_str(),
+                "revision": revision.map(|value| json!({
+                    "digest": value.digest.as_str(),
+                    "id": value.id.as_str(),
+                    "revision": value.revision.get(),
+                })),
+                "world": world.as_str(),
+            })));
+        }
+    };
+    Ok(ok(json!({
+        "authority": "active-release-policy-catalog",
+        "bootManifestIgnored": true,
+        "decision": decision,
+        "digest": active_digest.as_str(),
+        "policyCatalogDigest": catalogs.policy().digest().as_str(),
+        "policy": evidence.map(|value| json!({
+            "determiningPolicies": value.determining_policies,
+            "digest": value.revision.digest.as_str(),
+            "id": value.revision.id.as_str(),
+            "revision": value.revision.revision.get(),
+        })),
+        "world": world.as_str(),
+    })))
+}
+
+fn parse_policy_operation(value: &str) -> Result<PolicyOperation, WorldReleaseError> {
+    match value {
+        "discover" => Ok(PolicyOperation::Discover),
+        "approve" => Ok(PolicyOperation::Approve),
+        "commit" => Ok(PolicyOperation::Commit),
+        "read" => Ok(PolicyOperation::Read),
+        "publish_definition" => Ok(PolicyOperation::PublishDefinition),
+        "request_approval" => Ok(PolicyOperation::RequestApproval),
+        other => Err(WorldReleaseError::Conflict(format!(
+            "unsupported policy operation {other}"
+        ))),
+    }
+}
+
+fn authorize_context(
+    world: &WorldId,
+    principal: &PrincipalId,
+    action: &ActionId,
+    resource: &ResourceId,
+) -> Result<TrustedExecutionContext, Box<dyn Error + Send + Sync>> {
+    let workload = WorkloadId::parse("workload.world-release")?;
+    let grant = DelegationGrant::new(
+        DelegationId::parse("delegation.world-release")?,
+        std::collections::BTreeSet::from([action.clone()]),
+        std::collections::BTreeSet::from([resource.clone()]),
+        std::collections::BTreeSet::from([workload.clone()]),
+        TimestampMicros::new(0),
+        TimestampMicros::new(i64::MAX),
+    )?;
+    Ok(TrustedExecutionContext::new(
+        TenantId::parse(world.as_str())?,
+        ActorId::parse("actor.world-release")?,
+        principal.clone(),
+        workload,
+        DelegationChain::new(vec![grant])?,
+        zoen_core::Clearance::personal_owner(),
+    ))
 }
 
 async fn store() -> Result<PostgresWorldReleaseStore, Box<dyn Error + Send + Sync>> {

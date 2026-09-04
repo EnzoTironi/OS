@@ -7,7 +7,7 @@ use buffa::MessageView;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_adapters::{PostgresAuthorityStore, ReleaseCedarEvaluator};
 use zoen_core::{
     ActivationPrecondition, DefinitionActivation as CoreDefinitionActivation,
     DefinitionActivationKind as CoreDefinitionActivationKind,
@@ -54,13 +54,13 @@ use crate::{
 };
 
 pub struct DefinitionServiceImpl {
-    engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
+    engine: DefinitionEngine<PostgresAuthorityStore, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl DefinitionServiceImpl {
     pub fn new(
-        engine: DefinitionEngine<PostgresAuthorityStore, Arc<CedarPolicyEvaluator>>,
+        engine: DefinitionEngine<PostgresAuthorityStore, Arc<ReleaseCedarEvaluator>>,
         sessions: SessionExchange,
     ) -> Self {
         Self { engine, sessions }
