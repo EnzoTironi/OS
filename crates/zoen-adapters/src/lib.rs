@@ -64,12 +64,17 @@ pub use ontology_catalog::{
 };
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};
-pub use release_cedar::{ReleaseCedarEvaluator, require_loadable_policy_catalog};
+pub use release_cedar::{
+    ComputeBasisError, ComputeBasisEvidence, ReleaseCedarEvaluator, ResolvedComputeBasis,
+    require_loadable_policy_catalog,
+};
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 pub use session_door::SessionDoor;
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
-pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};
+pub use wasmtime_adapter::{
+    AuthorizedComputationExecution, WasmtimeComputationExecutor, WasmtimeConfigError,
+};
 pub use workload_credential_store::{
     IssueWorkloadCredential, IssuedWorkloadCredential, PostgresWorkloadCredentialStore,
 };

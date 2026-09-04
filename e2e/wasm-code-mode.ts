@@ -65,10 +65,10 @@ import {
   loadComponentFixture,
   publish,
   relationId,
-  budgetClassDeadline,
-  budgetClassMemory,
   budgetClassStandard,
   budgetClassTight,
+  budgetResourceStandard,
+  budgetResourceTight,
   scopedManifest,
   sha256,
   validAt,
@@ -76,6 +76,7 @@ import {
   type ComponentFixture,
 } from "./wasm-code-mode/support.js";
 import {
+  expectBudgetPublicationRejected,
   listBudgets,
   plantBudgetRelease,
 } from "./budget-class/plant-release.js";
@@ -122,6 +123,48 @@ async function main(): Promise<void> {
       revision: number;
       source: string;
     }> };
+    const invalidBudgetBase = {
+      deadlineMillis: 2000,
+      id: "clinic.query.invalid",
+      instances: 4,
+      memories: 2,
+      memoryBytes: 8 * 1024 * 1024,
+      priority: 1,
+      resourceId: "zoen.compute.budget.invalid",
+      tableElements: 1024,
+      tables: 2,
+    };
+    await expectBudgetPublicationRejected({
+      authorizationPolicies: bootManifest.policies,
+      budgets: [
+        {
+          ...invalidBudgetBase,
+          fuel: 9_223_372_036_854_776_000,
+        },
+      ],
+      databaseUrl: adminDatabaseUrl,
+      expected: /exceeds BIGINT/,
+      generatedDirectory,
+      name: "bigint",
+      world: tenantA,
+      zoenPath,
+    });
+    await expectBudgetPublicationRejected({
+      authorizationPolicies: bootManifest.policies,
+      budgets: [
+        {
+          ...invalidBudgetBase,
+          fuel: 100_000_001,
+        },
+      ],
+      databaseUrl: adminDatabaseUrl,
+      expected: /exceeds platform maximum 100000000/,
+      generatedDirectory,
+      name: "platform-ceiling",
+      world: tenantA,
+      zoenPath,
+    });
+    observe("publicationRejectsBigIntAndPlatformOverflow", true);
     const plantedReleaseA = await plantBudgetRelease({
       authorizationPolicies: bootManifest.policies,
       databaseUrl: adminDatabaseUrl,
@@ -157,7 +200,10 @@ async function main(): Promise<void> {
     const adminBToken = sessionOf(planted, "admin-b").token;
     const actionA = actionClient(agentAToken, tenantA);
     const computationA = computationClient(agentAToken, tenantA);
+    const computationAdminA = computationClient(adminAToken, tenantA);
     const computationB = computationClient(agentBToken, tenantB);
+    const computationAdminB = computationClient(adminBToken, tenantB);
+    const computationCrossWorld = computationClient(agentBToken, tenantA);
     const definitionAdminA = definitionClient(adminAToken, tenantA);
     const definitionAdminB = definitionClient(adminBToken, tenantB);
     const historyA = historyClient(agentAToken, tenantA);
@@ -190,6 +236,18 @@ async function main(): Promise<void> {
       Code.Unavailable,
     );
     inject("foreign-tenant-component-read");
+    await expectConnectCode(
+      () =>
+        execute(
+          computationCrossWorld,
+          program,
+          "execution.cross-world-membership",
+          "pure",
+          emptyManifest(),
+        ),
+      Code.PermissionDenied,
+    );
+    inject("cross-world-membership");
     const publishedB = await publish(computationB, program);
     assert.equal(publishedB.status, ComponentAdmissionStatus.PUBLISHED);
     assert.equal(publishedB.componentDigest, publishedA.componentDigest);
@@ -197,11 +255,24 @@ async function main(): Promise<void> {
       "identicalBytesHaveIdenticalDigestAcrossTenants",
       publishedB.componentDigest === program.digest,
     );
+    await expectConnectCode(
+      () =>
+        execute(
+          computationAdminB,
+          program,
+          "execution.no-compute-delegation",
+          "pure",
+          emptyManifest(),
+        ),
+      Code.PermissionDenied,
+    );
+    inject("membership-without-compute-delegation");
 
     await verifyAdmissionFailures(computationA, program);
     const actionStateBeforeFailures = await actionState(admin, tenantA);
     const failures = await verifyExecutionFailures(
       computationA,
+      computationAdminA,
       program,
       fixtures.direct.definition,
     );
@@ -225,9 +296,14 @@ async function main(): Promise<void> {
     assertCompleted(pureFirst);
     assertCompleted(pureSecond);
     assert.equal(pureFirst.output?.aggregate, "17");
-    assert.equal(pureFirst.requestDigest, pureSecond.requestDigest);
     assert.equal(pureFirst.resultDigest, pureSecond.resultDigest);
     assert.equal(pureFirst.fuelConsumed, pureSecond.fuelConsumed);
+    assert.equal(pureFirst.computeBasis?.budgetClassId, budgetClassStandard);
+    assert.equal(
+      pureFirst.computeBasis?.budgetResourceId,
+      budgetResourceStandard,
+    );
+    assert.equal(pureFirst.computeBasis?.releaseDigest, plantedReleaseA.digest);
     const pureReplay = await execute(
       computationA,
       program,
@@ -236,6 +312,11 @@ async function main(): Promise<void> {
       emptyManifest(),
     );
     assert.equal(pureReplay.resultDigest, pureFirst.resultDigest);
+    assert.equal(pureReplay.requestDigest, pureFirst.requestDigest);
+    assert.equal(
+      pureReplay.computeBasis?.basisDigest,
+      pureFirst.computeBasis?.basisDigest,
+    );
     await expectConnectCode(
       () =>
         execute(
@@ -250,8 +331,16 @@ async function main(): Promise<void> {
     inject("execution-id-request-collision");
     observe(
       "sameInputPureReplayIsDeterministic",
-      pureFirst.requestDigest === pureSecond.requestDigest &&
-        pureFirst.resultDigest === pureSecond.resultDigest,
+      pureReplay.requestDigest === pureFirst.requestDigest &&
+        pureReplay.resultDigest === pureFirst.resultDigest &&
+        pureReplay.computeBasis?.basisDigest ===
+          pureFirst.computeBasis?.basisDigest,
+    );
+    observe(
+      "serverSelectsBudgetWithoutCallerClass",
+      pureFirst.computeBasis?.budgetClassId === budgetClassStandard &&
+        pureFirst.computeBasis?.actionId === "zoen.world.execute" &&
+        pureFirst.computeBasis?.operation === "execute",
     );
 
     const ordinaryRead = await readOrdinaryPath(
@@ -388,6 +477,24 @@ async function main(): Promise<void> {
     assert.equal(storedExecution.startedActorId, "actor.agent.a");
     assert.equal(storedExecution.startedPrincipalId, "principal.agent.a");
     assert.equal(storedExecution.startedWorkloadId, "workload.agent.a");
+    assert.equal(
+      storedExecution.computeBasisDigest,
+      wasmAllowed.computeBasis?.basisDigest,
+    );
+    assert.equal(
+      storedExecution.releaseDigest,
+      plantedReleaseA.digest,
+    );
+    assert.equal(
+      storedExecution.policyCatalogDigest,
+      plantedReleaseA.policyCatalogDigest,
+    );
+    assert.equal(storedExecution.budgetClassId, budgetClassStandard);
+    assert.equal(storedExecution.membershipId, wasmAllowed.computeBasis?.membershipId);
+    assert.deepEqual(
+      JSON.parse(storedExecution.computeBasisJcs),
+      JSON.parse(wasmAllowed.computeBasis?.explanationJcs ?? "null"),
+    );
     assert.ok(storedExecution.fuelLimit > 0n);
     assert.ok(storedExecution.memoryLimitBytes > 0n);
     assert.ok(storedExecution.tableElementLimit > 0n);
@@ -395,10 +502,63 @@ async function main(): Promise<void> {
     assert.ok(storedExecution.tableLimit > 0n);
     assert.ok(storedExecution.memoryLimit > 0n);
     assert.ok(storedExecution.deadlineMillis > 0n);
-    observe("trustedIdentityAndReleaseBudgetLimitsPersisted", true);
+    observe("completeImmutableComputeBasisPersisted", true);
 
     await verifyNoAmbientCredentials(program);
     observe("componentContainsNoCredentials", true);
+
+    const plantedReleaseB = await plantBudgetRelease({
+      authorizationPolicies: bootManifest.policies,
+      budgets: [
+        {
+          deadlineMillis: 1500,
+          fuel: 4_000_000,
+          id: "clinic.query.standard.v2",
+          instances: 4,
+          memories: 2,
+          memoryBytes: 8 * 1024 * 1024,
+          priority: 100,
+          resourceId: budgetResourceStandard,
+          tableElements: 1024,
+          tables: 2,
+        },
+        {
+          deadlineMillis: 1500,
+          fuel: 15_000,
+          id: "clinic.query.tight.v2",
+          instances: 4,
+          memories: 2,
+          memoryBytes: 8 * 1024 * 1024,
+          priority: 10,
+          resourceId: budgetResourceTight,
+          tableElements: 1024,
+          tables: 2,
+        },
+      ],
+      databaseUrl: adminDatabaseUrl,
+      generatedDirectory,
+      world: tenantA,
+      zoenPath,
+    });
+    assert.notEqual(plantedReleaseB.digest, plantedReleaseA.digest);
+    const afterReleaseSwitch = await execute(
+      computationA,
+      program,
+      "execution.pure.release-b",
+      "pure",
+      emptyManifest(),
+    );
+    assertCompleted(afterReleaseSwitch);
+    assert.equal(
+      afterReleaseSwitch.computeBasis?.budgetClassId,
+      "clinic.query.standard.v2",
+    );
+    assert.equal(
+      afterReleaseSwitch.computeBasis?.releaseDigest,
+      plantedReleaseB.digest,
+    );
+    assert.notEqual(afterReleaseSwitch.requestDigest, pureFirst.requestDigest);
+    observe("releaseSwitchChangesNewExecutionBasis", true);
 
     const committedSequence = wasmAllowed.output?.action?.commitSequence;
     assert.ok(committedSequence);
@@ -422,6 +582,14 @@ async function main(): Promise<void> {
       committedSequence,
     );
     assert.equal(
+      recoveredExecution.computeBasis?.basisDigest,
+      wasmAllowed.computeBasis?.basisDigest,
+    );
+    assert.equal(
+      recoveredExecution.computeBasis?.releaseDigest,
+      plantedReleaseA.digest,
+    );
+    assert.equal(
       await operationCount(admin, tenantA, "operation.wasm.allowed"),
       1,
     );
@@ -434,9 +602,29 @@ async function main(): Promise<void> {
     );
     assertCompleted(pureAfterRestart);
     assert.equal(pureAfterRestart.resultDigest, pureFirst.resultDigest);
-    assert.equal(pureAfterRestart.requestDigest, pureFirst.requestDigest);
+    assert.equal(
+      pureAfterRestart.computeBasis?.releaseDigest,
+      plantedReleaseB.digest,
+    );
     observe("restartReloadsContentAddressedComponent", true);
+    observe("restartReplaysImmutableHistoricalComputeBasis", true);
     observe("committedActionRecoversAtMostOnce", true);
+
+    assert.ok(failures.tightMembershipId);
+    await revokeMembership(failures.tightMembershipId);
+    await expectConnectCode(
+      () =>
+        execute(
+          computationAdminA,
+          program,
+          "execution.revoked-membership",
+          "pure",
+          emptyManifest(),
+        ),
+      Code.PermissionDenied,
+    );
+    inject("revoked-membership");
+    observe("revokedMembershipDeniedBeforeExecution", true);
 
     const postgresVersion = (
       await admin.query<{ server_version: string }>("SHOW server_version")
@@ -457,22 +645,23 @@ async function main(): Promise<void> {
       },
       dimensions: {
         actors:
-          "clinic/factory agent via Connect Execute; CLI world release budgets lists the same release-owned BudgetClass catalog",
+          "two Better Auth Membership actors use Connect Execute and receive different server-selected BudgetClasses",
         isolation:
-          "tenant.b release budgets do not authorize tenant.a invented classes; denied objects stay off the wire",
+          "cross-World Membership resolution and Memberships without compute delegation fail closed",
         negative:
-          "unknown BudgetClass fails closed; caller cannot invent or raise fuel/memory/deadline beyond published classes; tight/deadline/memory classes enforce ceilings",
+          "the request has no BudgetClass field; delegation denial and revocation stop execution before Wasmtime",
         path:
-          "activate WorldRelease PolicyCatalog.computeBudgets, Execute names budget_class, server resolves ComputationLimits, response echoes effective ResourceLimits",
+          "Active Membership plus one pinned WorldRelease PolicyCatalog selects BudgetClass, evaluates Cedar, seals ResolvedComputeBasis, then consumes it in Wasmtime",
         recovery:
-          "after zoend restart, content-addressed component and active-release BudgetClass ceilings still apply",
+          "after zoend restart, new executions use the new active release while completed executions replay their immutable historical basis",
         replay:
-          "identical Execute under the same BudgetClass returns the same fuelConsumed and request digest class of result",
+          "same execution id, Membership, component, manifest, and input returns the persisted result, request digest, and basis digest",
       },
       failureInjections,
       failures,
       finishedAt: new Date().toISOString(),
-      journeys: ["J4", "J7"],
+      interfacesProven: ["connect"],
+      journeys: [],
       limits: {
         budgetClass: budgetClassStandard,
         deadlineMillis: storedExecution.deadlineMillis.toString(),
@@ -483,6 +672,10 @@ async function main(): Promise<void> {
         tableElements: storedExecution.tableElementLimit.toString(),
         tables: storedExecution.tableLimit.toString(),
       },
+      proofPending: [
+        "J4 requires the downstream governed clinic journey rather than a computation-local assertion",
+        "J7 requires real inbound MCP and Eve paths; this journey proves Connect only",
+      ],
       scenario: "wasm-code-mode",
       sourceCommit,
       startedAt,
@@ -497,6 +690,25 @@ async function main(): Promise<void> {
     }
     await stopAuthDoor(door);
   }
+}
+
+async function revokeMembership(membershipId: string): Promise<void> {
+  const response = await fetch(
+    `${e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171)}/identity/admin/revoke`,
+    {
+      body: JSON.stringify({ membershipId, reason: "admin" }),
+      headers: {
+        authorization: `Bearer ${e2eIdentityAdminToken()}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+    },
+  );
+  assert.equal(
+    response.ok,
+    true,
+    `revoke Membership ${membershipId}: ${response.status} ${await response.text()}`,
+  );
 }
 
 async function recordClaims(
@@ -587,46 +799,21 @@ async function verifyAdmissionFailures(
 
 async function verifyExecutionFailures(
   client: ReturnType<typeof computationClient>,
+  tightClient: ReturnType<typeof computationClient>,
   program: ComponentFixture,
   definition: Awaited<ReturnType<typeof loadFixture>>["definition"],
 ) {
   const fuel = await execute(
-    client,
+    tightClient,
     program,
     "execution.failure.fuel",
     "spin",
     emptyManifest(),
-    budgetClassTight,
   );
   assert.equal(fuel.status, ExecutionStatus.FUEL_EXHAUSTED);
+  assert.equal(fuel.computeBasis?.budgetClassId, budgetClassTight);
+  assert.equal(fuel.computeBasis?.budgetResourceId, budgetResourceTight);
   inject("fuel-exhaustion");
-
-  const deadline = await execute(
-    client,
-    program,
-    "execution.failure.deadline",
-    "spin",
-    emptyManifest(),
-    budgetClassDeadline,
-  );
-  // clinic.query.deadline is 1ms + high fuel; CI hosts may trip fuel first on spin.
-  assert.ok(
-    deadline.status === ExecutionStatus.DEADLINE_EXCEEDED ||
-      deadline.status === ExecutionStatus.FUEL_EXHAUSTED,
-    `deadline BudgetClass expected DEADLINE_EXCEEDED or FUEL_EXHAUSTED, got ${ExecutionStatus[deadline.status]}`,
-  );
-  inject("deadline");
-
-  const memory = await execute(
-    client,
-    program,
-    "execution.failure.memory",
-    "memory",
-    emptyManifest(),
-    budgetClassMemory,
-  );
-  assert.equal(memory.status, ExecutionStatus.MEMORY_LIMIT_EXCEEDED);
-  inject("memory-limit");
 
   const trapped = await execute(
     client,
@@ -637,21 +824,6 @@ async function verifyExecutionFailures(
   );
   assert.equal(trapped.status, ExecutionStatus.TRAP_BEFORE_ACTION_REQUEST);
   inject("trap-before-action-request");
-
-  await expectConnectCode(
-    () =>
-      execute(
-        client,
-        program,
-        "execution.failure.unknown-budget",
-        "spin",
-        emptyManifest(),
-        "clinic.query.invented",
-      ),
-    Code.FailedPrecondition,
-  );
-  inject("unknown-budget-class");
-  observe("callerCannotInventOrRaiseBudgetClass", true);
 
   const missing = await execute(
     client,
@@ -695,13 +867,12 @@ async function verifyExecutionFailures(
   inject("execution-interface-mismatch");
 
   return {
-    deadline: ExecutionStatus[deadline.status],
     foreignAction: ExecutionStatus[foreignAction.status],
     foreignEntity: ExecutionStatus[foreignEntity.status],
     fuel: ExecutionStatus[fuel.status],
     interfaceMismatch: ExecutionStatus[interfaceMismatch.status],
-    memory: ExecutionStatus[memory.status],
     missingCapability: ExecutionStatus[missing.status],
+    tightMembershipId: fuel.computeBasis?.membershipId ?? "",
     trap: ExecutionStatus[trapped.status],
   };
 }
@@ -876,23 +1047,31 @@ async function executionRecord(
   executionId: string,
 ) {
   const result = await client.query<{
+    budget_class_id: string;
     capability_ids: string[];
     capability_manifest_digest: string;
+    compute_basis_digest: string;
+    compute_basis_jcs: string;
     component_digest: string;
     deadline_millis: string;
     fuel_limit: string;
     instance_limit: string;
     memory_limit: string;
     memory_limit_bytes: string;
+    membership_id: string;
+    policy_catalog_digest: string;
+    release_digest: string;
     started_actor_id: string;
     started_principal_id: string;
     started_workload_id: string;
     table_element_limit: string;
     table_limit: string;
   }>(
-    `SELECT capability_ids, capability_manifest_digest, component_digest,
+    `SELECT budget_class_id, capability_ids, capability_manifest_digest,
+            compute_basis_digest, compute_basis_jcs, component_digest,
             deadline_millis::text, fuel_limit::text, instance_limit::text,
-            memory_limit::text, memory_limit_bytes::text, started_actor_id,
+            memory_limit::text, memory_limit_bytes::text, membership_id,
+            policy_catalog_digest, release_digest, started_actor_id,
             started_principal_id, started_workload_id,
             table_element_limit::text, table_limit::text
      FROM wasm_executions
@@ -902,14 +1081,20 @@ async function executionRecord(
   const row = result.rows[0];
   assert.ok(row);
   return {
+    budgetClassId: row.budget_class_id,
     capabilityIds: row.capability_ids,
     capabilityManifestDigest: row.capability_manifest_digest,
+    computeBasisDigest: row.compute_basis_digest,
+    computeBasisJcs: row.compute_basis_jcs,
     componentDigest: row.component_digest,
     deadlineMillis: BigInt(row.deadline_millis),
     fuelLimit: BigInt(row.fuel_limit),
     instanceLimit: BigInt(row.instance_limit),
     memoryLimit: BigInt(row.memory_limit),
     memoryLimitBytes: BigInt(row.memory_limit_bytes),
+    membershipId: row.membership_id,
+    policyCatalogDigest: row.policy_catalog_digest,
+    releaseDigest: row.release_digest,
     startedActorId: row.started_actor_id,
     startedPrincipalId: row.started_principal_id,
     startedWorkloadId: row.started_workload_id,

@@ -655,7 +655,8 @@ async fn budgets(world: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send +
         }
     };
     let classes: Vec<Value> = catalog
-        .classes()
+        .selection_order()
+        .into_iter()
         .map(|class| {
             json!({
                 "deadlineMillis": class.deadline_millis(),
@@ -664,6 +665,8 @@ async fn budgets(world: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send +
                 "instances": class.instances(),
                 "memories": class.memories(),
                 "memoryBytes": class.memory_bytes(),
+                "priority": class.priority(),
+                "resourceId": class.resource_id().as_str(),
                 "tableElements": class.table_elements(),
                 "tables": class.tables(),
             })

@@ -48,7 +48,7 @@ pub use admission::{
 pub use computation::{
     COMPONENT_INTERFACE_V1, CapabilityManifest, CompletedComputation, ComponentAdmissionError,
     ComponentArtifact, ComputationCapability, ComputationContractError, ComputationError,
-    ComputationExecution, ComputationExecutor, ComputationHost, ComputationLimits,
+    ComputationExecution, ComputationHost, ComputationInvocation, ComputationLimits,
     ComputationOutcome, ComputationOutput, ComputationRequest, HostCallError, HostCallFuture,
     HostCommitOutcome, HostCommitRequest, HostExplainRequest, HostExplainResult,
     HostProposalOutcome, HostProposeRequest, HostQueryRequest, HostQueryResult, HostSemanticValue,

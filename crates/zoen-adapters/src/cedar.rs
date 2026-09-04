@@ -542,7 +542,7 @@ struct PolicyEntry {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct BudgetClassWire {
     deadline_millis: u64,
     fuel: u64,
@@ -550,6 +550,8 @@ struct BudgetClassWire {
     instances: u64,
     memories: u64,
     memory_bytes: u64,
+    priority: u32,
+    resource_id: String,
     table_elements: u64,
     tables: u64,
 }
@@ -576,21 +578,25 @@ pub fn budget_classes_from_policy_catalog(
     for entry in document.compute_budgets {
         let id = zoen_core::BudgetClassId::parse(entry.id)
             .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
+        let resource_id = zoen_core::ResourceId::parse(entry.resource_id)
+            .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
         let instances = usize_budget(entry.instances, "instances")?;
         let memories = usize_budget(entry.memories, "memories")?;
         let memory_bytes = usize_budget(entry.memory_bytes, "memoryBytes")?;
         let table_elements = usize_budget(entry.table_elements, "tableElements")?;
         let tables = usize_budget(entry.tables, "tables")?;
-        let class = zoen_core::BudgetClass::new(
+        let class = zoen_core::BudgetClass::new(zoen_core::BudgetClassSpec {
+            deadline_millis: entry.deadline_millis,
+            fuel: entry.fuel,
             id,
-            entry.fuel,
-            memory_bytes,
-            table_elements,
             instances,
-            tables,
             memories,
-            entry.deadline_millis,
-        )
+            memory_bytes,
+            priority: entry.priority,
+            resource_id,
+            table_elements,
+            tables,
+        })
         .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
         classes.push(class);
     }

@@ -9,46 +9,46 @@ use connectrpc::{
 };
 use sha2::{Digest, Sha256};
 use zoen_adapters::{
-    PostgresAuthorityStore, ReleaseCedarEvaluator, WasmtimeComputationExecutor, WasmtimeConfigError,
+    CedarPolicyEvaluator, ComputeBasisError, ComputeBasisEvidence, PostgresAuthorityStore,
+    ReleaseCedarEvaluator, WasmtimeComputationExecutor, WasmtimeConfigError,
 };
 use zoen_core::{
-    ActionPreviewHash, BudgetClassId, CapabilityId, ClaimId, ComponentDigest,
-    ComponentExecutionEvidence, ComponentInterface, Consistency, ExecutionContext, ExecutionId,
-    ExecutionResultDigest, ExplanationTarget, IntentDigest, OperationId, ProposalAuthority,
-    ProposalId, SemanticQuery,
+    ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence,
+    ComponentInterface, Consistency, ExecutionContext, ExecutionId, ExecutionResultDigest,
+    ExplanationTarget, IntentDigest, OperationId, ProposalAuthority, ProposalId, SemanticQuery,
+    TimestampMicros,
 };
 use zoen_engine::{
     ActionEngine, ActionError, CapabilityManifest, CommitOutcome, ComponentAdmissionError,
     ComponentArtifact, ComputationCapability, ComputationContractError, ComputationError,
-    ComputationExecution, ComputationExecutor, ComputationHost, ComputationLimits,
-    ComputationOutcome, ComputationOutput as CoreComputationOutput, ComputationRequest,
-    HistoryEngine, HostCallError, HostCallFuture, HostCommitOutcome, HostCommitRequest,
-    HostExplainRequest, HostExplainResult, HostProposalOutcome, HostProposeRequest,
-    HostQueryRequest, HostQueryResult, HostSemanticValue, ProgramActionOutcome, ProposeCommand,
-    ProposeOutcome, QueryPortError, ReadEngine, ReadError, StoreError,
+    ComputationExecution, ComputationHost, ComputationInvocation, ComputationLimits,
+    ComputationOutcome, ComputationOutput as CoreComputationOutput, HistoryEngine, HostCallError,
+    HostCallFuture, HostCommitOutcome, HostCommitRequest, HostExplainRequest, HostExplainResult,
+    HostProposalOutcome, HostProposeRequest, HostQueryRequest, HostQueryResult, HostSemanticValue,
+    ProgramActionOutcome, ProposeCommand, ProposeOutcome, QueryPortError, ReadEngine, ReadError,
+    StoreError,
 };
 use zoen_query::QueryRuntime;
 
 use crate::{
     action_service::to_component_execution,
     proto::zoen::computation::v1::{
-        ComponentAdmissionStatus, ComputationOutput, ComputationService, ExecuteRequest,
-        ExecuteResponse, ExecutionStatus, ProgramActionOutcome as ProtocolProgramActionOutcome,
-        ProgramActionStatus, PublishComponentRequest, PublishComponentResponse, ResourceLimits,
-        capability,
+        ComponentAdmissionStatus, ComputationOutput, ComputationService, ComputeBasis,
+        ExecuteRequest, ExecuteResponse, ExecutionStatus,
+        ProgramActionOutcome as ProtocolProgramActionOutcome, ProgramActionStatus,
+        PublishComponentRequest, PublishComponentResponse, ResourceLimits, capability,
     },
     session::SessionExchange,
     world_service::{invalid, parse_definition_reference, parse_selection, parse_timestamp},
 };
 
 type DaemonActionEngine =
-    ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>;
+    ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>;
 
 pub struct ComputationServiceImpl {
     executor: WasmtimeComputationExecutor,
     policy: Arc<ReleaseCedarEvaluator>,
     query: QueryRuntime,
-    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
     store: PostgresAuthorityStore,
 }
@@ -63,9 +63,8 @@ impl ComputationServiceImpl {
         let executor = WasmtimeComputationExecutor::new(store.pool())?;
         Ok(Self {
             executor,
-            policy: policy.clone(),
-            query: query.clone(),
-            read: ReadEngine::new(query, policy),
+            policy,
+            query,
             sessions,
             store,
         })
@@ -109,11 +108,12 @@ impl ComputationService for ComputationServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ExecuteRequest>,
     ) -> ServiceResult<ExecuteResponse> {
-        let trusted = {
+        let (membership, trusted) = {
             let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
-                .resolve(SessionExchange::bearer_from(&context), tenant.as_ref())
-                .await?
+                .resolve_membership(SessionExchange::bearer_from(&context), tenant.as_ref())
+                .await
+                .map_err(crate::session::map_identity_error)?
         };
         let manifest = request
             .manifest
@@ -121,49 +121,54 @@ impl ComputationService for ComputationServiceImpl {
             .ok_or_else(|| invalid("capability manifest is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
-        let budget_class = BudgetClassId::parse(request.budget_class.trim())
-            .map_err(|error| invalid(error.to_string()))?;
         let manifest = parse_manifest(manifest)?;
-        let world = trusted.world_id().clone();
-        let (_release, class) = self
-            .policy
-            .budget_class_for_active_world(&world, &budget_class)
+        let invocation = ComputationInvocation {
+            component_digest: ComponentDigest::parse(request.component_digest)
+                .map_err(|error| invalid(error.to_string()))?,
+            execution_id: ExecutionId::parse(request.execution_id)
+                .map_err(|error| invalid(error.to_string()))?,
+            input: request.input.to_vec(),
+            manifest,
+        };
+        if let Some(replayed) = self
+            .executor
+            .replay(&trusted, &membership.id, &invocation)
             .await
-            .map_err(|message| ConnectError::new(ErrorCode::FailedPrecondition, message))?;
-        let limits = ComputationLimits::from_budget_class(&class);
+            .map_err(|error| map_computation_error(&error))?
+        {
+            let (execution, evidence, limits) = replayed.into_parts();
+            return Response::ok(execution_response(execution, &evidence, limits));
+        }
+        let basis = self
+            .policy
+            .resolve_compute_basis(membership, compute_authorized_at()?)
+            .await
+            .map_err(|error| map_compute_basis_error(&error))?;
+        let limits = basis.limits();
+        let basis_evidence = basis.evidence().clone();
         let host = ScopedComputationHost::new(
-            trusted.clone(),
-            manifest.clone(),
+            basis.context().clone(),
+            invocation.manifest.clone(),
             self.store.clone(),
             self.query.clone(),
-            self.policy.clone(),
-            self.read.clone(),
+            basis.pinned_evaluator(),
         );
         if let Err(capability) = host.authorize_pinned().await {
             return Response::ok(ExecuteResponse {
+                compute_basis: Some(protocol_compute_basis(&basis_evidence)).into(),
                 denied_capability: capability,
+                limits: Some(protocol_limits(limits)).into(),
                 status: ExecutionStatus::CapabilityDenied.into(),
                 ..Default::default()
             });
         }
-        let execution = self
+        let authorized = self
             .executor
-            .execute(
-                &trusted,
-                ComputationRequest {
-                    component_digest: ComponentDigest::parse(request.component_digest)
-                        .map_err(|error| invalid(error.to_string()))?,
-                    execution_id: ExecutionId::parse(request.execution_id)
-                        .map_err(|error| invalid(error.to_string()))?,
-                    input: request.input.to_vec(),
-                    limits,
-                    manifest,
-                },
-                host,
-            )
+            .execute(basis, invocation, host)
             .await
             .map_err(|error| map_computation_error(&error))?;
-        Response::ok(execution_response(execution, limits))
+        let (execution, evidence, limits) = authorized.into_parts();
+        Response::ok(execution_response(execution, &evidence, limits))
     }
 }
 
@@ -173,7 +178,7 @@ struct ScopedComputationHost {
     history: HistoryEngine<PostgresAuthorityStore>,
     manifest: CapabilityManifest,
     proposals: BTreeMap<CapabilityId, AuthorizedProposal>,
-    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
+    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
     query_claims: BTreeSet<ClaimId>,
 }
 
@@ -191,9 +196,9 @@ impl ScopedComputationHost {
         manifest: CapabilityManifest,
         store: PostgresAuthorityStore,
         query: QueryRuntime,
-        policy: Arc<ReleaseCedarEvaluator>,
-        read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
+        policy: Arc<CedarPolicyEvaluator>,
     ) -> Self {
+        let read = ReadEngine::new(query.clone(), policy.clone());
         Self {
             action: ActionEngine::new(store.clone(), query, policy),
             context,
@@ -604,9 +609,11 @@ fn admission_error(
 
 fn execution_response(
     execution: ComputationExecution,
+    basis: &ComputeBasisEvidence,
     limits: ComputationLimits,
 ) -> ExecuteResponse {
     let mut response = ExecuteResponse {
+        compute_basis: Some(protocol_compute_basis(basis)).into(),
         evidence: Some(to_component_execution(&execution.evidence)).into(),
         limits: Some(protocol_limits(limits)).into(),
         request_digest: execution.request_digest.as_str().to_owned(),
@@ -658,6 +665,30 @@ fn execution_response(
         }
     }
     response
+}
+
+fn protocol_compute_basis(basis: &ComputeBasisEvidence) -> ComputeBasis {
+    ComputeBasis {
+        action_id: basis.action_id().to_owned(),
+        actor_id: basis.actor_id().to_owned(),
+        authorized_at_micros: basis.authorized_at_micros(),
+        basis_digest: basis.digest().to_owned(),
+        budget_class_id: basis.budget_class_id().to_owned(),
+        budget_priority: basis.budget_priority(),
+        budget_resource_id: basis.budget_resource_id().to_owned(),
+        determining_policies: basis.determining_policies().to_vec(),
+        explanation_jcs: basis.canonical_jcs().to_owned(),
+        membership_id: basis.membership_id().to_owned(),
+        operation: basis.operation().to_owned(),
+        policy_catalog_digest: basis.policy_catalog_digest().to_owned(),
+        policy_digest: basis.policy_digest().to_owned(),
+        policy_id: basis.policy_id().to_owned(),
+        policy_revision: basis.policy_revision(),
+        principal_id: basis.principal_id().to_owned(),
+        release_digest: basis.release_digest().to_owned(),
+        workload_id: basis.workload_id().to_owned(),
+        ..Default::default()
+    }
 }
 
 fn protocol_limits(limits: ComputationLimits) -> ResourceLimits {
@@ -797,6 +828,28 @@ fn map_computation_error(error: &ComputationError) -> ConnectError {
         ComputationError::IdentityCollision => ConnectError::new(ErrorCode::AlreadyExists, message),
         ComputationError::Store(_) => ConnectError::new(ErrorCode::Unavailable, message),
     }
+}
+
+fn map_compute_basis_error(error: &ComputeBasisError) -> ConnectError {
+    let code = match error {
+        ComputeBasisError::Denied | ComputeBasisError::InvalidIdentity(_) => {
+            ErrorCode::PermissionDenied
+        }
+        ComputeBasisError::InvalidCatalog(_) | ComputeBasisError::PolicyEvaluation(_) => {
+            ErrorCode::FailedPrecondition
+        }
+        ComputeBasisError::InvalidStored(_) | ComputeBasisError::Store(_) => ErrorCode::Unavailable,
+    };
+    ConnectError::new(code, error.to_string())
+}
+
+fn compute_authorized_at() -> Result<TimestampMicros, ConnectError> {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
+    let micros = i64::try_from(duration.as_micros())
+        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?;
+    Ok(TimestampMicros::new(micros))
 }
 
 fn current_time() -> Result<zoen_core::TimestampMicros, HostCallError> {

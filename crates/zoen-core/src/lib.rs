@@ -23,7 +23,9 @@ pub use action_preview::{
     ACTION_PREVIEW_LOCALE, ACTION_PREVIEW_SCHEMA, ActionPreviewDocument, ActionPreviewInput,
     canonical_preview_text,
 };
-pub use budget::{BudgetCatalogError, BudgetClass, BudgetClassCatalog, BudgetClassId};
+pub use budget::{
+    BudgetCatalogError, BudgetClass, BudgetClassCatalog, BudgetClassId, BudgetClassSpec,
+};
 pub use effect::{
     DefinitelyNotSentReason, EffectAttempt, EffectAttemptResult, EffectEvidence,
     EffectEvidenceOutcome, EffectKnowledgeState, EffectReconciliation, EffectRequest,

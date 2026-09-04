@@ -10,9 +10,9 @@ use sha2::{Digest, Sha256};
 use zoen_core::{
     ActionId, ActionInput, BudgetClass, CapabilityId, CapabilityManifestDigest, ClaimId,
     CommitSequence, ComponentDigest, ComponentExecutionEvidence, ComponentInterface,
-    DefinitionReference, EntityId, ExactInteger, ExactValue, ExecutionContext, ExecutionId,
-    ExecutionRequestDigest, ExecutionResultDigest, IntentDigest, OperationId, ProposalId,
-    ResourceId, SemanticSelection, TimestampMicros,
+    DefinitionReference, EntityId, ExactInteger, ExactValue, ExecutionId, ExecutionRequestDigest,
+    ExecutionResultDigest, IntentDigest, OperationId, ProposalId, ResourceId, SemanticSelection,
+    TimestampMicros,
 };
 
 pub const COMPONENT_INTERFACE_V1: &str = "zoen:code-mode/computation@1.0.0";
@@ -241,15 +241,14 @@ pub struct PublishedComponent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ComputationRequest {
+pub struct ComputationInvocation {
     pub component_digest: ComponentDigest,
     pub execution_id: ExecutionId,
     pub input: Vec<u8>,
-    pub limits: ComputationLimits,
     pub manifest: CapabilityManifest,
 }
 
-impl ComputationRequest {
+impl ComputationInvocation {
     #[must_use]
     pub fn evidence(&self) -> ComponentExecutionEvidence {
         ComponentExecutionEvidence::new(
@@ -267,10 +266,35 @@ impl ComputationRequest {
     }
 
     #[must_use]
+    pub fn digest(&self) -> ExecutionRequestDigest {
+        invocation_digest(&self.component_digest, &self.manifest, &self.input)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputationRequest {
+    pub authority_basis_jcs: String,
+    pub invocation: ComputationInvocation,
+    pub limits: ComputationLimits,
+}
+
+impl ComputationRequest {
+    #[must_use]
+    pub fn evidence(&self) -> ComponentExecutionEvidence {
+        self.invocation.evidence()
+    }
+
+    #[must_use]
+    pub fn input_digest(&self) -> ExecutionRequestDigest {
+        self.invocation.input_digest()
+    }
+
+    #[must_use]
     pub fn request_digest(&self) -> ExecutionRequestDigest {
         let mut hasher = Sha256::new();
-        hash_field(&mut hasher, self.component_digest.as_str());
-        hash_field(&mut hasher, self.manifest.digest().as_str());
+        hash_field(&mut hasher, &self.authority_basis_jcs);
+        hash_field(&mut hasher, self.invocation.component_digest.as_str());
+        hash_field(&mut hasher, self.invocation.manifest.digest().as_str());
         hash_field(&mut hasher, self.input_digest().as_str());
         hash_field(&mut hasher, &self.limits.fuel().to_string());
         hash_field(&mut hasher, &self.limits.memory_bytes().to_string());
@@ -280,6 +304,11 @@ impl ComputationRequest {
         hash_field(&mut hasher, &self.limits.memories().to_string());
         hash_field(&mut hasher, &self.limits.deadline_millis().to_string());
         ExecutionRequestDigest::from_sha256(hasher.finalize().into())
+    }
+
+    #[must_use]
+    pub fn invocation_digest(&self) -> ExecutionRequestDigest {
+        self.invocation.digest()
     }
 }
 
@@ -528,23 +557,6 @@ impl Display for ComputationError {
 
 impl Error for ComputationError {}
 
-pub trait ComputationExecutor: Send + Sync {
-    fn publish(
-        &self,
-        context: &ExecutionContext,
-        artifact: ComponentArtifact,
-    ) -> impl std::future::Future<Output = Result<PublishedComponent, ComponentAdmissionError>> + Send;
-
-    fn execute<H>(
-        &self,
-        context: &ExecutionContext,
-        request: ComputationRequest,
-        host: H,
-    ) -> impl std::future::Future<Output = Result<ComputationExecution, ComputationError>> + Send
-    where
-        H: ComputationHost + 'static;
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ManifestView<'a> {
@@ -664,6 +676,19 @@ fn manifest_digest(
 
 fn digest_bytes(bytes: &[u8]) -> ExecutionRequestDigest {
     ExecutionRequestDigest::from_sha256(Sha256::digest(bytes).into())
+}
+
+#[must_use]
+pub fn invocation_digest(
+    component_digest: &ComponentDigest,
+    manifest: &CapabilityManifest,
+    input: &[u8],
+) -> ExecutionRequestDigest {
+    let mut hasher = Sha256::new();
+    hash_field(&mut hasher, component_digest.as_str());
+    hash_field(&mut hasher, manifest.digest().as_str());
+    hash_field(&mut hasher, digest_bytes(input).as_str());
+    ExecutionRequestDigest::from_sha256(hasher.finalize().into())
 }
 
 fn hash_field(hasher: &mut Sha256, field: &str) {

@@ -17,6 +17,8 @@ export interface BudgetClassSpec {
   instances: number;
   memories: number;
   memoryBytes: number;
+  priority: number;
+  resourceId: string;
   tableElements: number;
   tables: number;
 }
@@ -31,6 +33,8 @@ export const defaultBudgetClasses: BudgetClassSpec[] = [
     tables: 2,
     memories: 2,
     deadlineMillis: 2000,
+    priority: 100,
+    resourceId: "zoen.compute.budget.standard",
   },
   {
     id: "clinic.query.tight",
@@ -41,27 +45,8 @@ export const defaultBudgetClasses: BudgetClassSpec[] = [
     tables: 2,
     memories: 2,
     deadlineMillis: 2000,
-  },
-  {
-    id: "clinic.query.deadline",
-    // High enough that the 1ms epoch deadline trips before fuel on spin.
-    fuel: Number.MAX_SAFE_INTEGER,
-    memoryBytes: 8 * 1024 * 1024,
-    tableElements: 1024,
-    instances: 4,
-    tables: 2,
-    memories: 2,
-    deadlineMillis: 1,
-  },
-  {
-    id: "clinic.query.memory",
-    fuel: 100_000_000,
-    memoryBytes: 2 * 1024 * 1024,
-    tableElements: 1024,
-    instances: 4,
-    tables: 2,
-    memories: 2,
-    deadlineMillis: 2000,
+    priority: 10,
+    resourceId: "zoen.compute.budget.tight",
   },
 ];
 
@@ -100,16 +85,49 @@ when {
   };
 }
 
+const kernelAuthorityDigest =
+  "3dfddf9c946656d9ce19ccaacecba5db3d284417c1c3f1f9d0ee710163e42dfc";
+
+function computePolicy(world: string): AuthorizationPolicy {
+  const actionId = "zoen.world.execute";
+  const source = `permit (
+    principal,
+    action == Action::"execute",
+    resource
+)
+when {
+    context.actionId == "${actionId}" &&
+    context.tenantId == ${JSON.stringify(world)} &&
+    principal in Zoen::Tenant::${JSON.stringify(world)}
+};
+`;
+  return {
+    actionId,
+    definitionDigest: kernelAuthorityDigest,
+    digest: sha256Hex(source),
+    policyId: `policy.world.compute.${world}.r1`,
+    revision: 1,
+    source,
+  };
+}
+
 function buildPolicyCatalog(
   budgets: BudgetClassSpec[],
+  world: string,
   authorizationPolicies?: AuthorizationPolicy[],
 ): {
   bytes: string;
 } {
-  const policies =
+  const supplied =
     authorizationPolicies !== undefined && authorizationPolicies.length > 0
       ? authorizationPolicies
       : [defaultDiscoverPolicy()];
+  const policies = supplied.filter(
+    (policy) =>
+      policy.actionId !== "zoen.world.execute" ||
+      policy.definitionDigest !== kernelAuthorityDigest,
+  );
+  policies.push(computePolicy(world));
   const allPolicies = [...policies, ...releaseAuthorityPolicies()];
   const bytes = `${JSON.stringify({
     schema: "zoen.policy-catalog.v1",
@@ -120,6 +138,60 @@ function buildPolicyCatalog(
   })}
 `;
   return { bytes };
+}
+
+async function prepareBudgetCandidate(input: {
+  authorizationPolicies?: AuthorizationPolicy[];
+  budgets: BudgetClassSpec[];
+  generatedDirectory: string;
+  suffix?: string;
+  world: string;
+}): Promise<{
+  file: string;
+  policyCatalogDigest: string;
+}> {
+  await mkdir(input.generatedDirectory, { recursive: true });
+  const policy = buildPolicyCatalog(
+    input.budgets,
+    input.world,
+    input.authorizationPolicies,
+  );
+  const content = {
+    world: input.world,
+    parent: null,
+    ontology: {
+      bytes: `${JSON.stringify({
+        label: `${input.world}.budget`,
+        publicVerbs: [
+          "Discover",
+          "Query",
+          "Propose",
+          "Decide",
+          "Commit",
+          "Explain",
+          "Execute",
+        ],
+        schema: "zoen.ontology-catalog.v1",
+      })}\n`,
+    },
+    policy: { bytes: policy.bytes },
+    executors: {
+      bytes: `executor catalog for ${input.world} budget\n`,
+    },
+    components: {
+      bytes: `component catalog for ${input.world} budget\n`,
+    },
+  };
+  const suffix = input.suffix === undefined ? "" : `-${input.suffix}`;
+  const file = path.join(
+    input.generatedDirectory,
+    `release-${input.world}${suffix}.json`,
+  );
+  await writeFile(file, `${JSON.stringify(content)}\n`);
+  return {
+    file,
+    policyCatalogDigest: sha256Hex(policy.bytes),
+  };
 }
 
 /**
@@ -142,41 +214,18 @@ export async function plantBudgetRelease(input: {
   previewDigest: string;
 }> {
   const budgets = input.budgets ?? defaultBudgetClasses;
-  await mkdir(input.generatedDirectory, { recursive: true });
-  const actors = await provisionWorldReleaseActors({
-    baseUrl: input.identityBaseUrl ?? e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
-    subjectKey: `budget-release-${input.world}`,
+  const candidate = await prepareBudgetCandidate({
+    authorizationPolicies: input.authorizationPolicies,
+    budgets,
+    generatedDirectory: input.generatedDirectory,
     world: input.world,
   });
-  const policy = buildPolicyCatalog(budgets, input.authorizationPolicies);
-  const bytes = {
-    ontology: `${JSON.stringify({
-      label: `${input.world}.budget`,
-      publicVerbs: [
-        "Discover",
-        "Query",
-        "Propose",
-        "Decide",
-        "Commit",
-        "Explain",
-        "Execute",
-      ],
-      schema: "zoen.ontology-catalog.v1",
-    })}\n`,
-    policy: policy.bytes,
-    executors: `executor catalog for ${input.world} budget\n`,
-    components: `component catalog for ${input.world} budget\n`,
-  };
-  const content = {
+  const actors = await provisionWorldReleaseActors({
+    baseUrl: input.identityBaseUrl ?? e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    subjectKey: `budget-release-${input.world}-${candidate.policyCatalogDigest.slice(0, 12)}`,
     world: input.world,
-    parent: null,
-    ontology: { bytes: bytes.ontology },
-    policy: { bytes: bytes.policy },
-    executors: { bytes: bytes.executors },
-    components: { bytes: bytes.components },
-  };
-  const file = path.join(input.generatedDirectory, `release-${input.world}.json`);
-  await writeFile(file, `${JSON.stringify(content)}\n`);
+  });
+  const file = candidate.file;
 
   const constructed = runZoenCli(input.zoenPath, input.databaseUrl, [
     "world",
@@ -255,9 +304,47 @@ export async function plantBudgetRelease(input: {
     actors,
     budgetClassIds: budgets.map((entry) => entry.id),
     digest,
-    policyCatalogDigest: sha256Hex(bytes.policy),
+    policyCatalogDigest: candidate.policyCatalogDigest,
     previewDigest,
   };
+}
+
+export async function expectBudgetPublicationRejected(input: {
+  authorizationPolicies?: AuthorizationPolicy[];
+  budgets: BudgetClassSpec[];
+  databaseUrl: string;
+  expected: RegExp;
+  generatedDirectory: string;
+  identityBaseUrl?: string;
+  name: string;
+  world: string;
+  zoenPath: string;
+}): Promise<void> {
+  const candidate = await prepareBudgetCandidate({
+    authorizationPolicies: input.authorizationPolicies,
+    budgets: input.budgets,
+    generatedDirectory: input.generatedDirectory,
+    suffix: input.name,
+    world: input.world,
+  });
+  const actors = await provisionWorldReleaseActors({
+    baseUrl: input.identityBaseUrl ?? e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    subjectKey: `budget-rejection-${input.world}-${input.name}`,
+    world: input.world,
+  });
+  const published = runZoenCli(input.zoenPath, input.databaseUrl, [
+    "world",
+    "release",
+    "publish",
+    "--file",
+    candidate.file,
+    "--principal",
+    actors.builder.principal,
+    "--membership",
+    actors.builder.membership,
+  ]);
+  assert.notEqual(published.status, 0, published.stdout);
+  assert.match(`${published.stderr}\n${published.stdout}`, input.expected);
 }
 
 export function listBudgets(

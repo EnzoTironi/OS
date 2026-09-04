@@ -75,9 +75,7 @@ message ExecuteRequest {
   string component_digest = 2;
   CapabilityManifest manifest = 3;
   bytes input = 4;
-  // Release-owned BudgetClass id from the active PolicyCatalog.computeBudgets.
-  // Callers must not supply ResourceLimits; effective ceilings are server-resolved.
-  string budget_class = 5;
+  reserved 5;
 }
 
 message ResourceLimits {
@@ -88,6 +86,27 @@ message ResourceLimits {
   uint64 tables = 5;
   uint64 memories = 6;
   uint64 deadline_millis = 7;
+}
+
+message ComputeBasis {
+  string basis_digest = 1;
+  string membership_id = 2;
+  string actor_id = 3;
+  string principal_id = 4;
+  string workload_id = 5;
+  string release_digest = 6;
+  string policy_catalog_digest = 7;
+  string budget_class_id = 8;
+  string budget_resource_id = 9;
+  uint32 budget_priority = 10;
+  string action_id = 11;
+  string operation = 12;
+  int64 authorized_at_micros = 13;
+  string policy_id = 14;
+  string policy_digest = 15;
+  uint64 policy_revision = 16;
+  repeated string determining_policies = 17;
+  string explanation_jcs = 18;
 }
 
 enum ProgramActionStatus {
@@ -141,4 +160,5 @@ message ExecuteResponse {
   string denied_capability = 6;
   uint64 fuel_consumed = 7;
   string result_digest = 8;
+  ComputeBasis compute_basis = 9;
 }
