@@ -33,6 +33,7 @@ mod restate;
 mod scenario_store;
 mod semantic_claim_store;
 mod session_door;
+mod typed_artifact_store;
 mod typed_object_store;
 mod value_store;
 mod wasm_store;

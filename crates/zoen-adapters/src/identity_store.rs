@@ -803,6 +803,47 @@ impl PostgresIdentityStore {
         Ok(context)
     }
 
+    /// Lock and re-resolve the live Membership/delegation cut inside a caller transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when the Membership is inactive, no longer matches the
+    /// principal/World, or its current delegation no longer permits the operation.
+    pub(crate) async fn lock_membership_authority(
+        transaction: &mut Transaction<'_, Postgres>,
+        id: &MembershipId,
+        world_id: &WorldId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<TrustedExecutionContext, IdentityError> {
+        let row = sqlx::query(
+            "SELECT membership_id, account_id, world_id, principal_id, status, kind,
+                    invite_id, delegation_template_id,
+                    workload_id, actor_id, delegation_json, ended_at, ended_reason,
+                    clearance_json
+             FROM memberships WHERE membership_id = $1 FOR SHARE",
+        )
+        .bind(id.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(unavailable)?
+        .ok_or(IdentityError::MembershipNotFound)?;
+        let membership = row_to_membership(&row)?;
+        if membership.world_id != *world_id || membership.principal_id != *principal_id {
+            return Err(IdentityError::MembershipNotFound);
+        }
+        let context = trusted_context_from_membership(&membership)?;
+        if !context
+            .delegation()
+            .permits(action_id, resource_id, context.workload_id(), at)
+        {
+            return Err(IdentityError::IngressNotAllowed);
+        }
+        Ok(context)
+    }
+
     async fn load_membership_authority(
         &self,
         id: &MembershipId,
