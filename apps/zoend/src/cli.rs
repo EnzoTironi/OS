@@ -1170,6 +1170,18 @@ struct SourceFetch {
     operation_id: String,
 }
 
+#[derive(Clone, Copy)]
+enum Oauth2ConnectFailure {
+    SecretConflict,
+    SecretStdinUnreadable,
+    SecretStdinEmpty,
+    SecretMissing,
+    TokenRequest,
+    TokenRejected,
+    TokenResponse,
+    SourceStore,
+}
+
 /// Run an ontology command against a running zoend.
 ///
 /// # Errors
@@ -2259,7 +2271,14 @@ async fn connect_source(
                     "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin",
                 ));
             };
-            connect_oauth2(
+            if dry_run {
+                return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "oauth2" })));
+            }
+            if let Some(existing) = existing_source_public_metadata(env, &id)? {
+                return Ok(ok(&connect_receipt(&existing)));
+            }
+            let receipt = oauth2_public_metadata(&id);
+            match persist_oauth2_source(
                 env,
                 id,
                 token_url,
@@ -2267,9 +2286,12 @@ async fn connect_source(
                 client_secret,
                 client_secret_stdin,
                 base_url,
-                dry_run,
             )
             .await
+            {
+                Ok(()) => Ok(ok(&connect_receipt(&receipt))),
+                Err(failure) => Ok(fail_oauth2_connect(failure)),
+            }
         }
         ConnectCommand::Google {
             profile,
@@ -2372,7 +2394,7 @@ fn connect_rest(
     Ok(ok(&connect_receipt(&receipt)))
 }
 
-async fn connect_oauth2(
+async fn persist_oauth2_source(
     env: &RuntimeEnv,
     id: String,
     token_url: String,
@@ -2380,37 +2402,8 @@ async fn connect_oauth2(
     client_secret: Option<String>,
     client_secret_stdin: bool,
     base_url: Option<String>,
-    dry_run: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if dry_run {
-        return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "oauth2" })));
-    }
-    if let Some(existing) = existing_source_public_metadata(env, &id)? {
-        return Ok(ok(&connect_receipt(&existing)));
-    }
-    let receipt = SourcePublicMetadata {
-        id: id.clone(),
-        kind: "oauth2".to_owned(),
-        oauth_app: None,
-        profile: None,
-    };
-    let client_secret = match resolve_source_secret(
-        client_secret,
-        client_secret_stdin,
-        "ZOEN_SOURCE_CLIENT_SECRET",
-        "--client-secret",
-        "--client-secret-stdin",
-        "zoen source connect oauth2",
-    ) {
-        Ok(secret) => secret,
-        Err(message) => return Ok(fail(2, &message)),
-    };
-    let Some(client_secret) = client_secret else {
-        return Ok(fail(
-            2,
-            "zoen source connect oauth2 requires --client-secret or ZOEN_SOURCE_CLIENT_SECRET",
-        ));
-    };
+) -> Result<(), Oauth2ConnectFailure> {
+    let client_secret = resolve_oauth2_client_secret(client_secret, client_secret_stdin)?;
     let auth = fetch_oauth2_token(&token_url, &client_id, &client_secret).await?;
     let instance = SourceInstance {
         auth,
@@ -2423,8 +2416,8 @@ async fn connect_oauth2(
         profile: None,
         url: None,
     };
-    write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&receipt)))
+    write_source(env, &instance).map_err(|_| Oauth2ConnectFailure::SourceStore)?;
+    Ok(())
 }
 
 fn connect_google(
@@ -2811,7 +2804,7 @@ async fn fetch_oauth2_token(
     token_url: &str,
     client_id: &str,
     client_secret: &str,
-) -> Result<SourceAuth, Box<dyn Error + Send + Sync>> {
+) -> Result<SourceAuth, Oauth2ConnectFailure> {
     let client = reqwest::Client::new();
     let response = client
         .post(token_url)
@@ -2820,17 +2813,22 @@ async fn fetch_oauth2_token(
             "client_id={client_id}&client_secret={client_secret}&grant_type=client_credentials"
         ))
         .send()
-        .await?;
+        .await
+        .map_err(|_| Oauth2ConnectFailure::TokenRequest)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("oauth2 token {status} {text}").into());
+        return Err(Oauth2ConnectFailure::TokenRejected);
     }
-    let doc: Value = serde_json::from_str(&text)?;
+    let text = response
+        .text()
+        .await
+        .map_err(|_| Oauth2ConnectFailure::TokenResponse)?;
+    let doc: Value =
+        serde_json::from_str(&text).map_err(|_| Oauth2ConnectFailure::TokenResponse)?;
     let access_token = doc
         .get("access_token")
         .and_then(Value::as_str)
-        .ok_or("oauth2 token response missing access_token")?;
+        .ok_or(Oauth2ConnectFailure::TokenResponse)?;
     Ok(SourceAuth::Oauth2(SourceAuthOauth2 {
         access_token: access_token.to_owned(),
         token_url: Some(token_url.to_owned()),
@@ -3399,6 +3397,15 @@ fn connect_receipt(metadata: &SourcePublicMetadata) -> Value {
     })
 }
 
+fn oauth2_public_metadata(id: &str) -> SourcePublicMetadata {
+    SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "oauth2".to_owned(),
+        oauth_app: None,
+        profile: None,
+    }
+}
+
 fn dest_create_key(idempotency_key: &str, fallback: &str) -> Option<String> {
     let key = idempotency_key.trim();
     if !key.is_empty() {
@@ -3696,6 +3703,75 @@ fn resolve_source_secret(
         }
     }
     Ok(None)
+}
+
+fn resolve_oauth2_client_secret(
+    flag: Option<String>,
+    stdin_flag: bool,
+) -> Result<String, Oauth2ConnectFailure> {
+    if stdin_flag {
+        if flag.is_some() {
+            return Err(Oauth2ConnectFailure::SecretConflict);
+        }
+        let mut raw = String::new();
+        io::stdin()
+            .read_to_string(&mut raw)
+            .map_err(|_| Oauth2ConnectFailure::SecretStdinUnreadable)?;
+        let value = raw.trim_end_matches(['\r', '\n']).to_owned();
+        if value.is_empty() {
+            return Err(Oauth2ConnectFailure::SecretStdinEmpty);
+        }
+        return Ok(value);
+    }
+    if let Some(value) = flag.filter(|value| !value.is_empty()) {
+        return Ok(value);
+    }
+    if let Ok(value) = env::var("ZOEN_SOURCE_CLIENT_SECRET") {
+        let trimmed = value.trim_end_matches(['\r', '\n']);
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_owned());
+        }
+    }
+    Err(Oauth2ConnectFailure::SecretMissing)
+}
+
+fn fail_oauth2_connect(failure: Oauth2ConnectFailure) -> CommandResult {
+    match failure {
+        Oauth2ConnectFailure::SecretConflict => fail(
+            2,
+            "zoen source connect oauth2 --client-secret-stdin does not take --client-secret\n  zoen source connect oauth2 --client-secret-stdin",
+        ),
+        Oauth2ConnectFailure::SecretStdinUnreadable => fail(
+            2,
+            "zoen source connect oauth2 could not read a secret from stdin",
+        ),
+        Oauth2ConnectFailure::SecretStdinEmpty => fail(
+            2,
+            "zoen source connect oauth2 --client-secret-stdin needs a secret on stdin",
+        ),
+        Oauth2ConnectFailure::SecretMissing => fail(
+            2,
+            "zoen source connect oauth2 requires --client-secret or ZOEN_SOURCE_CLIENT_SECRET",
+        ),
+        Oauth2ConnectFailure::TokenRequest => {
+            fail_coded(1, FailCode::NotConnected, "oauth2 token request failed")
+        }
+        Oauth2ConnectFailure::TokenRejected => fail_coded(
+            1,
+            FailCode::Unauthenticated,
+            "oauth2 token request was rejected",
+        ),
+        Oauth2ConnectFailure::TokenResponse => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "oauth2 token response is invalid",
+        ),
+        Oauth2ConnectFailure::SourceStore => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "oauth2 source could not be stored",
+        ),
+    }
 }
 
 async fn login_email(

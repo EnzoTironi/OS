@@ -1032,10 +1032,58 @@ async function main(): Promise<void> {
       );
       record(
         "oauth2_env_secret_not_on_stderr",
-        !oauth2Ok.stderr.includes("from-env-secret"),
+        !oauth2Ok.stderr.includes("from-env-secret") &&
+          !oauth2Ok.stderr.includes("tok.oauth2"),
       );
     } finally {
       oauth2Token.close();
+    }
+
+    const oauth2FailureSecret = "sentinel.oauth2.failure-secret";
+    const oauth2Failure = await listenHttp(
+      401,
+      JSON.stringify({
+        error: "invalid_client",
+        error_description: `rejected ${oauth2FailureSecret}`,
+      }),
+    );
+    try {
+      const oauth2Rejected = runZoen(
+        [
+          "source",
+          "connect",
+          "oauth2",
+          "--idempotency-key",
+          "oauth2.rejected",
+          "--token-url",
+          `http://127.0.0.1:${oauth2Failure.port}/token`,
+          "--client-id",
+          "client",
+        ],
+        {
+          env: cliEnv({
+            ZOEN_SOURCE_HOME: sourceHome,
+            ZOEN_SOURCE_CLIENT_SECRET: oauth2FailureSecret,
+          }),
+        },
+      );
+      record("oauth2_rejected_exit_1", oauth2Rejected.status === 1);
+      record(
+        "oauth2_rejected_safe_diagnostic",
+        oauth2Rejected.stderr.includes('"code":"unauthenticated"') &&
+          oauth2Rejected.stderr.includes("oauth2 token request was rejected"),
+      );
+      record(
+        "oauth2_rejected_secret_not_on_stdout",
+        !oauth2Rejected.stdout.includes(oauth2FailureSecret),
+      );
+      record(
+        "oauth2_rejected_secret_not_on_stderr",
+        !oauth2Rejected.stderr.includes(oauth2FailureSecret),
+      );
+      killMutant("oauth2 rejection prints credentials or remote response body");
+    } finally {
+      oauth2Failure.close();
     }
 
     const googleDoor = runZoen(
