@@ -769,30 +769,6 @@ impl PostgresIdentityStore {
         Ok(context)
     }
 
-    /// Resolve one durable Personal-owner authority cut.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`Self::resolve_membership_authority`], or
-    /// [`IdentityError::MembershipNotFound`] when the Membership is not Personal.
-    pub async fn resolve_personal_membership_authority(
-        &self,
-        id: &MembershipId,
-        tenant_id: &TenantId,
-        principal_id: &PrincipalId,
-        action_id: &ActionId,
-        resource_id: &ResourceId,
-        at: TimestampMicros,
-    ) -> Result<TrustedExecutionContext, IdentityError> {
-        let (membership, context) = self
-            .load_membership_authority(id, tenant_id, principal_id, action_id, resource_id, at)
-            .await?;
-        if !matches!(membership.kind, MembershipKind::Personal) {
-            return Err(IdentityError::MembershipNotFound);
-        }
-        Ok(context)
-    }
-
     async fn load_membership_authority(
         &self,
         id: &MembershipId,

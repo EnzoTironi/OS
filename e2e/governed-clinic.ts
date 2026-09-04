@@ -10,7 +10,7 @@ import {
   buildDiscoverPolicyCatalog,
   createZoenRunner,
   ontologyCatalogBytes,
-  provisionPersonalReleaseOwner,
+  provisionWorldReleaseActors,
   recordAssertion,
   startReleaseIdentityServer,
   stopReleaseIdentityServer,
@@ -133,20 +133,19 @@ const identityServer = await startReleaseIdentityServer({
   portFallback: 58_492,
   zoenPath: zoenBinaryPath(repositoryRoot),
 });
-const releaseOwner = await (async () => {
+const releaseActors = await (async () => {
   try {
-    return await provisionPersonalReleaseOwner({
+    return await provisionWorldReleaseActors({
       baseUrl: identityServer.baseUrl,
-      databaseUrl,
-      subjectKey: "governed-clinic-release-owner",
+      subjectKey: "governed-clinic-release",
       world: "world.clinic",
     });
   } finally {
     await stopReleaseIdentityServer(identityServer);
   }
 })();
-assert.equal(zoen.publish(contentPath, releaseOwner).status, 0);
-zoen.approveAndActivate("world.clinic", asString(release.digest), releaseOwner);
+assert.equal(zoen.publish(contentPath, releaseActors.builder).status, 0);
+zoen.approveAndActivate("world.clinic", asString(release.digest), releaseActors.owner);
 
 const humanGrant = `${human.principal}:${human.membership}`;
 const agentGrant = `${agent.principal}:${agent.membership}`;

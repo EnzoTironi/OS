@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { e2eHttpUrl } from "../host-env.js";
-import { provisionPersonalReleaseOwner, releaseAuthorityPolicies } from "../kernel-world-support.js";
+import { provisionWorldReleaseActors, releaseAuthorityPolicies } from "../kernel-world-support.js";
 import { parseZoenJson, runZoenCli } from "../zoen-cli.js";
 
 export interface BudgetClassSpec {
@@ -137,10 +137,9 @@ export async function plantBudgetRelease(input: {
 }> {
   const budgets = input.budgets ?? defaultBudgetClasses;
   await mkdir(input.generatedDirectory, { recursive: true });
-  const owner = await provisionPersonalReleaseOwner({
+  const actors = await provisionWorldReleaseActors({
     baseUrl: input.identityBaseUrl ?? e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
-    databaseUrl: input.databaseUrl,
-    subjectKey: `budget-release-owner-${input.world}`,
+    subjectKey: `budget-release-${input.world}`,
     world: input.world,
   });
   const policy = buildPolicyCatalog(budgets, input.authorizationPolicies);
@@ -191,9 +190,9 @@ export async function plantBudgetRelease(input: {
     "--file",
     file,
     "--principal",
-    owner.principal,
+    actors.builder.principal,
     "--membership",
-    owner.membership,
+    actors.builder.membership,
   ]);
   assert.equal(published.status, 0, published.stderr || published.stdout);
 
@@ -206,9 +205,9 @@ export async function plantBudgetRelease(input: {
     "--digest",
     digest,
     "--principal",
-    owner.principal,
+    actors.owner.principal,
     "--membership",
-    owner.membership,
+    actors.owner.membership,
   ]);
   assert.equal(previewed.status, 0, previewed.stderr || previewed.stdout);
   const previewBody = parseZoenJson(previewed.stdout);
@@ -221,9 +220,9 @@ export async function plantBudgetRelease(input: {
     "--preview-digest",
     previewDigest,
     "--principal",
-    owner.principal,
+    actors.owner.principal,
     "--membership",
-    owner.membership,
+    actors.owner.membership,
     "--decision",
     "approve",
   ]);
@@ -240,9 +239,9 @@ export async function plantBudgetRelease(input: {
     "--preview-digest",
     previewDigest,
     "--principal",
-    owner.principal,
+    actors.owner.principal,
     "--membership",
-    owner.membership,
+    actors.owner.membership,
   ]);
   assert.equal(activated.status, 0, activated.stderr || activated.stdout);
 

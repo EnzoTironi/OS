@@ -14,6 +14,10 @@ import {
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  provisionWorldReleaseActors,
+  type ReleaseActor,
+} from "./kernel-world-support.js";
 import { parseZoenJson, runZoenCli, type ZoenCliResult } from "./zoen-cli.js";
 
 const scenario = "world-release";
@@ -203,17 +207,19 @@ function record(name: string, observed: boolean): void {
   assertions[name] = observed;
 }
 
+function membershipAuthorityDenied(result: ZoenResult): boolean {
+  return (
+    result.status === 1 &&
+    (result.stderr.includes("Membership") ||
+      result.stderr.includes("authorization") ||
+      result.stderr.includes("release builder") ||
+      result.stderr.includes("release owner") ||
+      result.stderr.includes("not a builder") ||
+      result.stderr.includes("not the owner"))
+  );
+}
+
 type ZoenResult = ZoenCliResult;
-
-interface ReleaseActor {
-  membership: string;
-  principal: string;
-}
-
-interface PersonalOwner extends ReleaseActor {
-  account: string;
-  world: string;
-}
 
 function runZoen(args: readonly string[]): ZoenResult {
   return runZoenCli(zoenPath, databaseUrl, args);
@@ -325,56 +331,6 @@ async function identityAdmin(
   return { body: parsed, status: response.status };
 }
 
-async function provisionPersonalOwner(subjectKey: string): Promise<PersonalOwner> {
-  const provisional = await identityAdmin("POST", "/identity/admin/provisional", {
-    provider: "telegram",
-    subjectKey,
-  });
-  assert.equal(provisional.status, 200, JSON.stringify(provisional.body));
-  const account = String(provisional.body.accountId);
-  const verified = await identityAdmin("POST", "/identity/admin/verify-binding", {
-    accountId: account,
-  });
-  assert.equal(verified.status, 200, JSON.stringify(verified.body));
-  const membership = await identityAdmin("POST", "/identity/admin/personal", {
-    accountId: account,
-  });
-  assert.equal(membership.status, 200, JSON.stringify(membership.body));
-  return {
-    account,
-    membership: String(membership.body.membershipId),
-    principal: String(membership.body.principalId),
-    world: String(membership.body.tenantId),
-  };
-}
-
-async function waitForReleaseLockWaiters(observer: PostgresClient, expected: number): Promise<void> {
-  let observed: Array<Record<string, unknown>> = [];
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const result = await observer.query<{
-      pid: number;
-      query: string;
-      state: string;
-      wait_event: string | null;
-      wait_event_type: string | null;
-    }>(`
-      SELECT pid, query, state, wait_event, wait_event_type
-      FROM pg_catalog.pg_stat_activity
-      WHERE pid <> pg_catalog.pg_backend_pid()
-        AND datname = pg_catalog.current_database()
-    `);
-    observed = result.rows;
-    const waiters = result.rows.filter(
-      (row) => row.wait_event_type === "Lock" && row.query.includes("world_release_activation_locks"),
-    );
-    if (waiters.length >= expected) {
-      return;
-    }
-    await delay(25);
-  }
-  throw new Error(`${expected} activation commands did not contend on the World row: ${JSON.stringify(observed)}`);
-}
-
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 }
@@ -387,6 +343,52 @@ async function publicationCount(): Promise<number> {
       "SELECT count(*)::text AS count FROM world_release_publications",
     );
     return Number(result.rows[0]?.count);
+  } finally {
+    await observer.end();
+  }
+}
+
+interface ReleaseAuthorizationRow {
+  action_id: string;
+  actor_id: string;
+  authorized_at_micros: string;
+  delegation_json: {
+    grants?: Array<{
+      actions?: string[];
+      resources?: string[];
+      workloads?: string[];
+    }>;
+  };
+  determining_policies: string[];
+  membership_id: string;
+  operation: string;
+  policy_digest: string;
+  policy_id: string;
+  policy_revision: string;
+  preview_digest: string | null;
+  principal_id: string;
+  release_digest: string;
+  target_digest: string;
+  workload_id: string;
+  world_id: string;
+}
+
+async function releaseAuthorizations(releaseDigest: string): Promise<ReleaseAuthorizationRow[]> {
+  const observer = new PostgresClient({ connectionString: databaseUrl });
+  await observer.connect();
+  try {
+    const result = await observer.query<ReleaseAuthorizationRow>(
+      `SELECT operation, target_digest, world_id, release_digest, preview_digest,
+              authorized_at_micros::text,
+              membership_id, principal_id, actor_id, workload_id, action_id,
+              delegation_json, policy_id, policy_revision::text, policy_digest,
+              determining_policies
+       FROM world_release_authorizations
+       WHERE release_digest = $1
+       ORDER BY operation`,
+      [releaseDigest],
+    );
+    return result.rows;
   } finally {
     await observer.end();
   }
@@ -660,18 +662,42 @@ async function main(): Promise<void> {
   await writeFile(bootPolicyPath, '{"policies":[]}\n');
   const identityServer = await startIdentityServer(bootPolicyPath);
   try {
-    const alphaOwner = await provisionPersonalOwner("release-alpha-owner");
-    const betaOwner = await provisionPersonalOwner("release-beta-owner");
-    const concurrentOwner = await provisionPersonalOwner("release-concurrent-owner");
+    const [alphaActors, betaActors, concurrentActors] = await Promise.all([
+      provisionWorldReleaseActors({
+        baseUrl: zoendUrl,
+        subjectKey: "release-alpha",
+        world: "world.alpha",
+      }),
+      provisionWorldReleaseActors({
+        baseUrl: zoendUrl,
+        subjectKey: "release-beta",
+        world: "world.beta",
+      }),
+      provisionWorldReleaseActors({
+        baseUrl: zoendUrl,
+        subjectKey: "release-concurrent",
+        world: "world.concurrent",
+      }),
+    ]);
+    const { builder: alphaBuilder, owner: alphaOwner } = alphaActors;
+    const { builder: betaBuilder, owner: betaOwner } = betaActors;
+    const { builder: concurrentBuilder, owner: concurrentOwner } = concurrentActors;
     const suffixAttacker: ReleaseActor = {
       membership: "membership.attacker.owner",
       principal: "principal.attacker.owner",
     };
     const mismatchedPrincipal: ReleaseActor = {
-      membership: alphaOwner.membership,
+      membership: alphaBuilder.membership,
       principal: "principal.attacker.owner",
     };
-    record("owner_authority_is_not_principal_suffix", !alphaOwner.principal.endsWith(".owner"));
+    record(
+      "builder_and_owner_use_distinct_invited_memberships",
+      alphaBuilder.membership !== alphaOwner.membership && alphaBuilder.principal !== alphaOwner.principal,
+    );
+    record(
+      "release_authority_is_not_principal_suffix",
+      !alphaBuilder.principal.endsWith(".builder") && !alphaOwner.principal.endsWith(".owner"),
+    );
 
     const schema = runZoen(["schema", "world.release.construct"]);
     record("schema_lists_construct", schema.status === 0);
@@ -687,7 +713,7 @@ async function main(): Promise<void> {
     record("schema_lists_authorize", authorizeSchema.status === 0);
     record("schema_omits_digest_flag", !schema.stdout.includes("--digest") && schema.stdout.includes("--file"));
     record(
-      "owner_commands_require_membership",
+      "release_commands_require_membership",
       publishSchema.stdout.includes("--membership") &&
         previewSchema.stdout.includes("--membership") &&
         decideSchema.stdout.includes("--membership") &&
@@ -745,7 +771,7 @@ async function main(): Promise<void> {
     record("caller_supplied_digest_rejected", callerId.status !== 0);
     record("caller_supplied_digest_message", callerId.stderr.includes("caller cannot supply a ReleaseDigest"));
 
-    const hexOnlyPublish = publish(alphaPath, alphaOwner);
+    const hexOnlyPublish = publish(alphaPath, alphaBuilder);
     record("hex_only_publish_rejected", hexOnlyPublish.status !== 0);
     record("hex_only_publish_message", hexOnlyPublish.stderr.includes("requires catalog bytes"));
 
@@ -757,9 +783,9 @@ async function main(): Promise<void> {
       "--file",
       alphaPath,
       "--principal",
-      alphaOwner.principal,
+      alphaBuilder.principal,
       "--membership",
-      alphaOwner.membership,
+      alphaBuilder.membership,
       "--policy-id",
       "policy.attacker",
       "--policy-digest",
@@ -785,7 +811,7 @@ async function main(): Promise<void> {
         policy: "policy catalog without cedar\n",
       }),
     );
-    const plaintextPublish = publish(plaintextPolicyPath, alphaOwner);
+    const plaintextPublish = publish(plaintextPolicyPath, alphaBuilder);
     record("missing_cedar_in_policy_catalog_fails", plaintextPublish.status !== 0);
     record("missing_cedar_in_policy_catalog_message", plaintextPublish.stderr.includes("loadable Cedar bundle"));
 
@@ -813,7 +839,7 @@ async function main(): Promise<void> {
 `,
       }),
     );
-    const invalidCedarPublish = publish(invalidCedarPath, alphaOwner);
+    const invalidCedarPublish = publish(invalidCedarPath, alphaBuilder);
     record("invalid_cedar_in_policy_catalog_fails", invalidCedarPublish.status !== 0);
     record("invalid_cedar_in_policy_catalog_message", invalidCedarPublish.stderr.includes("loadable Cedar bundle"));
 
@@ -837,10 +863,10 @@ async function main(): Promise<void> {
       }),
     );
     const publicationsBeforeDeniedPublish = await publicationCount();
-    const deniedPublish = publish(deniedPublishPath, alphaOwner);
+    const deniedPublish = publish(deniedPublishPath, alphaBuilder);
     record(
       "candidate_cedar_can_deny_publish",
-      deniedPublish.status !== 0 && deniedPublish.stderr.includes("release owner policy denied"),
+      membershipAuthorityDenied(deniedPublish),
     );
     record(
       "candidate_cedar_denied_publish_writes_nothing",
@@ -850,16 +876,16 @@ async function main(): Promise<void> {
     const publicationsBeforeForgedPublish = await publicationCount();
     const forgedPublisher = publish(liveAlphaPath, suffixAttacker);
     record("forged_owner_suffix_cannot_publish", forgedPublisher.status !== 0);
-    record("forged_owner_suffix_publish_message", forgedPublisher.stderr.includes("not an active owner Membership"));
+    record("forged_owner_suffix_publish_message", membershipAuthorityDenied(forgedPublisher));
     const mismatchedPublisher = publish(liveAlphaPath, mismatchedPrincipal);
     record(
       "mismatched_membership_principal_cannot_publish",
-      mismatchedPublisher.status !== 0 && mismatchedPublisher.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(mismatchedPublisher),
     );
-    const crossWorldPublisher = publish(liveAlphaPath, betaOwner);
+    const crossWorldPublisher = publish(liveAlphaPath, betaBuilder);
     record(
       "other_world_membership_cannot_publish_here",
-      crossWorldPublisher.status !== 0 && crossWorldPublisher.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(crossWorldPublisher),
     );
     record(
       "unauthorized_publish_attempts_write_nothing",
@@ -881,15 +907,22 @@ async function main(): Promise<void> {
           unpublishedActivate.stderr.includes("activation requires an approving decision")),
     );
 
+    const publicationsBeforeOwnerPublish = await publicationCount();
     const ownerPublish = publish(liveAlphaPath, alphaOwner);
-    assert.equal(ownerPublish.status, 0, ownerPublish.stderr);
-    const published = ownerPublish.body ?? {};
-    record("owner_publish_stores_digest", published.digest === liveConstruct.digest);
+    record("owner_cannot_publish", membershipAuthorityDenied(ownerPublish));
+    record(
+      "owner_publish_denial_writes_nothing",
+      (await publicationCount()) === publicationsBeforeOwnerPublish,
+    );
+    const builderPublish = publish(liveAlphaPath, alphaBuilder);
+    assert.equal(builderPublish.status, 0, builderPublish.stderr);
+    const published = builderPublish.body ?? {};
+    record("builder_publish_stores_digest", published.digest === liveConstruct.digest);
     record("publish_replay_is_false_first", published.replay === false);
     const publication = published.publication as Record<string, unknown>;
     record("publication_is_separate", publication.digest === liveConstruct.digest);
     record("publication_time_present", typeof publication.publishedAtMicros === "number");
-    record("publication_actor_is_membership_principal", publication.publishedBy === alphaOwner.principal);
+    record("publication_actor_is_membership_principal", publication.publishedBy === alphaBuilder.principal);
     const storedPublicationPolicy = publication.policy as Record<string, unknown>;
     const candidatePublishPolicy = authorityPolicyBinding(alphaBytes.policy, "zoen.world.release.publish");
     record(
@@ -906,9 +939,9 @@ async function main(): Promise<void> {
         boundCatalogBytes(published).components === alphaBytes.components,
     );
 
-    const ownerReplay = publish(liveAlphaPath, alphaOwner);
-    assert.equal(ownerReplay.status, 0, ownerReplay.stderr);
-    const replayed = ownerReplay.body ?? {};
+    const builderReplay = publish(liveAlphaPath, alphaBuilder);
+    assert.equal(builderReplay.status, 0, builderReplay.stderr);
+    const replayed = builderReplay.body ?? {};
     record("identical_candidate_replay", replayed.replay === true);
     record("replay_keeps_original_digest", replayed.digest === liveConstruct.digest);
     const replayPublication = replayed.publication as Record<string, unknown>;
@@ -918,10 +951,10 @@ async function main(): Promise<void> {
     );
     record("publication_metadata_does_not_change_digest", replayed.digest === published.digest);
 
-    const builderPreview = preview(alphaOwner.world, String(liveConstruct.digest), suffixAttacker);
+    const builderPreview = preview(alphaOwner.world, String(liveConstruct.digest), alphaBuilder);
     record(
       "builder_cannot_preview",
-      builderPreview.status !== 0 && builderPreview.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(builderPreview),
     );
     const ownerPreview = preview(alphaOwner.world, String(liveConstruct.digest), alphaOwner);
     assert.equal(ownerPreview.status, 0, ownerPreview.stderr);
@@ -941,10 +974,10 @@ async function main(): Promise<void> {
       replayedPreview.replay === true && replayedPreview.previewDigest === firstPreview.previewDigest,
     );
 
-    const builderDecide = decide(String(firstPreview.previewDigest), suffixAttacker, "approve");
+    const builderDecide = decide(String(firstPreview.previewDigest), alphaBuilder, "approve");
     record(
       "builder_cannot_decide",
-      builderDecide.status !== 0 && builderDecide.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(builderDecide),
     );
 
     const activateWithoutDecide = activate(
@@ -976,18 +1009,18 @@ async function main(): Promise<void> {
     const mismatchedDecideReplay = decide(String(firstPreview.previewDigest), mismatchedPrincipal, "approve");
     record(
       "mismatched_decide_principal_denied",
-      mismatchedDecideReplay.status !== 0 && mismatchedDecideReplay.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(mismatchedDecideReplay),
     );
 
     const builderActivate = activate(
       alphaOwner.world,
       String(liveConstruct.digest),
-      suffixAttacker,
+      alphaBuilder,
       String(firstPreview.previewDigest),
     );
     record(
       "builder_cannot_activate",
-      builderActivate.status !== 0 && builderActivate.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(builderActivate),
     );
 
     const firstActivate = activate(
@@ -1014,6 +1047,63 @@ async function main(): Promise<void> {
       replayedActivation.replay === true &&
         replayedActivation.activated === true &&
         replayedActivation.digest === liveConstruct.digest,
+    );
+
+    const authorityRows = await releaseAuthorizations(String(liveConstruct.digest));
+    const authorityByOperation = new Map(authorityRows.map((row) => [row.operation, row]));
+    record(
+      "release_lifecycle_persists_one_authority_cut_per_operation",
+      authorityRows.length === 4 &&
+        ["publish", "preview", "decide", "activate"].every((operation) =>
+          authorityByOperation.has(operation),
+        ),
+    );
+    record(
+      "release_authority_cuts_bind_builder_and_owner_memberships",
+      authorityByOperation.get("publish")?.membership_id === alphaBuilder.membership &&
+        authorityByOperation.get("publish")?.principal_id === alphaBuilder.principal &&
+        ["preview", "decide", "activate"].every((operation) => {
+          const row = authorityByOperation.get(operation);
+          return row?.membership_id === alphaOwner.membership && row.principal_id === alphaOwner.principal;
+        }),
+    );
+    record(
+      "release_authority_cuts_snapshot_exact_delegations",
+      authorityRows.every((row) => {
+        const terminal = row.delegation_json.grants?.at(-1);
+        return (
+          Number(row.authorized_at_micros) > 0 &&
+          row.actor_id !== "" &&
+          row.workload_id !== "" &&
+          terminal?.actions?.includes(row.action_id) === true &&
+          terminal.resources?.includes("zoen.world.release") === true &&
+          terminal.workloads?.includes(row.workload_id) === true
+        );
+      }),
+    );
+    record(
+      "release_authority_cuts_bind_candidate_policy_evidence",
+      authorityRows.every((row) => {
+        const expected = authorityPolicyBinding(alphaBytes.policy, row.action_id);
+        return (
+          row.policy_id === expected.policyId &&
+          row.policy_digest === expected.digest &&
+          Number(row.policy_revision) === expected.revision &&
+          row.determining_policies.length > 0
+        );
+      }),
+    );
+    record(
+      "release_authority_targets_bind_exact_release_and_preview",
+      authorityRows.every((row) => {
+        const isPublish = row.operation === "publish";
+        return (
+          row.world_id === alphaOwner.world &&
+          row.release_digest === liveConstruct.digest &&
+          row.preview_digest === (isPublish ? null : firstPreview.previewDigest) &&
+          row.target_digest === (isPublish ? liveConstruct.digest : firstPreview.previewDigest)
+        );
+      }),
     );
 
     const fetchedCatalogs = runZoen([
@@ -1122,7 +1212,7 @@ async function main(): Promise<void> {
 
     const betaPath = await writeContent("beta.json", contentFromBytes(betaOwner.world, betaBytes));
     const beta = construct(betaPath);
-    const betaPublish = publish(betaPath, betaOwner);
+    const betaPublish = publish(betaPath, betaBuilder);
     assert.equal(betaPublish.status, 0, betaPublish.stderr);
     record(
       "identical_catalog_bytes_converge",
@@ -1140,7 +1230,7 @@ async function main(): Promise<void> {
     const crossMembershipPreview = preview(betaOwner.world, String(beta.digest), alphaOwner);
     record(
       "other_world_membership_cannot_preview",
-      crossMembershipPreview.status !== 0 && crossMembershipPreview.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(crossMembershipPreview),
     );
     const betaPreviewForCross = preview(betaOwner.world, String(beta.digest), betaOwner);
     assert.equal(betaPreviewForCross.status, 0, betaPreviewForCross.stderr);
@@ -1181,7 +1271,7 @@ async function main(): Promise<void> {
 
     const secondPath = await writeContent("second.json", contentFromBytes(alphaOwner.world, secondBytes));
     const secondRelease = construct(secondPath);
-    const secondPublish = publish(secondPath, alphaOwner);
+    const secondPublish = publish(secondPath, alphaBuilder);
     assert.equal(secondPublish.status, 0, secondPublish.stderr);
     const secondCeremony = approveAndActivate(alphaOwner.world, String(secondRelease.digest), alphaOwner);
     assert.equal(secondCeremony.activate.status, 0, secondCeremony.activate.stderr);
@@ -1210,7 +1300,7 @@ async function main(): Promise<void> {
 
     const recoveryPath = await writeContent("recovery.json", contentFromBytes(alphaOwner.world, recoveryBytes));
     const recovery = construct(recoveryPath);
-    const recoveryPublish = publish(recoveryPath, alphaOwner);
+    const recoveryPublish = publish(recoveryPath, alphaBuilder);
     assert.equal(recoveryPublish.status, 0, recoveryPublish.stderr);
     const recoveryPreview = preview(alphaOwner.world, String(recovery.digest), alphaOwner);
     assert.equal(recoveryPreview.status, 0, recoveryPreview.stderr);
@@ -1244,7 +1334,7 @@ async function main(): Promise<void> {
     };
     const rejectPath = await writeContent("reject.json", contentFromBytes(alphaOwner.world, rejectBytes));
     const rejectRelease = construct(rejectPath);
-    const rejectPublish = publish(rejectPath, alphaOwner);
+    const rejectPublish = publish(rejectPath, alphaBuilder);
     assert.equal(rejectPublish.status, 0, rejectPublish.stderr);
     const rejectPreview = preview(alphaOwner.world, String(rejectRelease.digest), alphaOwner);
     assert.equal(rejectPreview.status, 0, rejectPreview.stderr);
@@ -1270,7 +1360,7 @@ async function main(): Promise<void> {
     };
     const stalePath = await writeContent("stale.json", contentFromBytes(alphaOwner.world, staleBytes));
     const staleRelease = construct(stalePath);
-    const stalePublish = publish(stalePath, alphaOwner);
+    const stalePublish = publish(stalePath, alphaBuilder);
     assert.equal(stalePublish.status, 0, stalePublish.stderr);
     const stalePreview = preview(alphaOwner.world, String(staleRelease.digest), alphaOwner);
     assert.equal(stalePreview.status, 0, stalePreview.stderr);
@@ -1283,7 +1373,7 @@ async function main(): Promise<void> {
     };
     const moverPath = await writeContent("mover.json", contentFromBytes(alphaOwner.world, moverBytes));
     const moverRelease = construct(moverPath);
-    const moverPublish = publish(moverPath, alphaOwner);
+    const moverPublish = publish(moverPath, alphaBuilder);
     assert.equal(moverPublish.status, 0, moverPublish.stderr);
     const moverCeremony = approveAndActivate(alphaOwner.world, String(moverRelease.digest), alphaOwner);
     assert.equal(moverCeremony.activate.status, 0, moverCeremony.activate.stderr);
@@ -1305,7 +1395,7 @@ async function main(): Promise<void> {
     };
     const mover2Path = await writeContent("mover2.json", contentFromBytes(alphaOwner.world, mover2Bytes));
     const mover2Release = construct(mover2Path);
-    assert.equal(publish(mover2Path, alphaOwner).status, 0);
+    assert.equal(publish(mover2Path, alphaBuilder).status, 0);
     const mover2Ceremony = approveAndActivate(alphaOwner.world, String(mover2Release.digest), alphaOwner);
     assert.equal(mover2Ceremony.activate.status, 0, mover2Ceremony.activate.stderr);
     const staleActivate = activate(
@@ -1357,7 +1447,7 @@ async function main(): Promise<void> {
       contentFromBytes(alphaOwner.world, deniedAuthorityBytes),
     );
     const deniedAuthorityRelease = construct(deniedAuthorityPath);
-    assert.equal(publish(deniedAuthorityPath, alphaOwner).status, 0);
+    assert.equal(publish(deniedAuthorityPath, alphaBuilder).status, 0);
     const deniedAuthorityPreview = preview(alphaOwner.world, String(deniedAuthorityRelease.digest), alphaOwner);
     assert.equal(deniedAuthorityPreview.status, 0, deniedAuthorityPreview.stderr);
     const deniedAuthorityDecision = decide(
@@ -1377,7 +1467,7 @@ async function main(): Promise<void> {
     );
     record(
       "candidate_policy_catalog_can_deny_owner_activation",
-      deniedByCandidatePolicy.status !== 0 && deniedByCandidatePolicy.stderr.includes("release owner policy denied"),
+      membershipAuthorityDenied(deniedByCandidatePolicy),
     );
     const activeAfterPolicyDeny = parseJson(
       runZoen(["world", "release", "active", "--world", alphaOwner.world]).stdout,
@@ -1413,8 +1503,8 @@ async function main(): Promise<void> {
     );
     const concurrentA = construct(concurrentAPath);
     const concurrentB = construct(concurrentBPath);
-    assert.equal(publish(concurrentAPath, concurrentOwner).status, 0);
-    assert.equal(publish(concurrentBPath, concurrentOwner).status, 0);
+    assert.equal(publish(concurrentAPath, concurrentBuilder).status, 0);
+    assert.equal(publish(concurrentBPath, concurrentBuilder).status, 0);
     const concurrentAPreview = preview(concurrentOwner.world, String(concurrentA.digest), concurrentOwner);
     const concurrentBPreview = preview(concurrentOwner.world, String(concurrentB.digest), concurrentOwner);
     assert.equal(concurrentAPreview.status, 0, concurrentAPreview.stderr);
@@ -1426,43 +1516,32 @@ async function main(): Promise<void> {
     assert.equal(decide(String((concurrentAPreview.body ?? {}).previewDigest), concurrentOwner, "approve").status, 0);
     assert.equal(decide(String((concurrentBPreview.body ?? {}).previewDigest), concurrentOwner, "approve").status, 0);
 
-    const lockObserver = new PostgresClient({ connectionString: databaseUrl });
-    await lockObserver.connect();
-    await lockObserver.query(
-      "INSERT INTO world_release_activation_locks (world_id) VALUES ($1) ON CONFLICT (world_id) DO NOTHING",
-      [concurrentOwner.world],
-    );
-    await lockObserver.query("BEGIN");
-    await lockObserver.query("SELECT world_id FROM world_release_activation_locks WHERE world_id = $1 FOR UPDATE", [
-      concurrentOwner.world,
-    ]);
-    const activityObserver = new PostgresClient({ connectionString: databaseUrl });
-    await activityObserver.connect();
-    const concurrentActivations = [
-      runZoenAsync(
-        activationArguments(
-          concurrentOwner.world,
-          String(concurrentA.digest),
-          concurrentOwner,
-          String((concurrentAPreview.body ?? {}).previewDigest),
-        ),
-      ),
-      runZoenAsync(
-        activationArguments(
-          concurrentOwner.world,
-          String(concurrentB.digest),
-          concurrentOwner,
-          String((concurrentBPreview.body ?? {}).previewDigest),
-        ),
-      ),
-    ] as const;
-    let lockReleased = false;
+    const concurrencyObserver = new PostgresClient({ connectionString: databaseUrl });
+    await concurrencyObserver.connect();
     try {
-      await waitForReleaseLockWaiters(activityObserver, 2);
-      record("concurrent_first_activations_share_world_lock", true);
-      await lockObserver.query("COMMIT");
-      lockReleased = true;
-      const results = await Promise.all(concurrentActivations);
+      const lockRowsBefore = await concurrencyObserver.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM world_release_activation_locks WHERE world_id = $1",
+        [concurrentOwner.world],
+      );
+      record("concurrent_first_activation_starts_without_world_lock_row", Number(lockRowsBefore.rows[0]?.count) === 0);
+      const results = await Promise.all([
+        runZoenAsync(
+          activationArguments(
+            concurrentOwner.world,
+            String(concurrentA.digest),
+            concurrentOwner,
+            String((concurrentAPreview.body ?? {}).previewDigest),
+          ),
+        ),
+        runZoenAsync(
+          activationArguments(
+            concurrentOwner.world,
+            String(concurrentB.digest),
+            concurrentOwner,
+            String((concurrentBPreview.body ?? {}).previewDigest),
+          ),
+        ),
+      ]);
       const candidates = [
         { digest: String(concurrentA.digest), result: results[0] },
         { digest: String(concurrentB.digest), result: results[1] },
@@ -1488,45 +1567,41 @@ async function main(): Promise<void> {
         loser: loser.digest,
         winner: winner.digest,
       };
-      const pointerRows = await activityObserver.query<{ count: string }>(
+      const lockRowsAfter = await concurrencyObserver.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM world_release_activation_locks WHERE world_id = $1",
+        [concurrentOwner.world],
+      );
+      record("concurrent_first_activation_materializes_one_world_lock_row", Number(lockRowsAfter.rows[0]?.count) === 1);
+      const pointerRows = await concurrencyObserver.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM world_active_releases WHERE world_id = $1",
         [concurrentOwner.world],
       );
       record("concurrent_first_activation_keeps_one_pointer_row", Number(pointerRows.rows[0]?.count) === 1);
-    } catch (error) {
-      if (!lockReleased) {
-        await lockObserver.query("ROLLBACK");
-        lockReleased = true;
-      }
-      const completed = await Promise.all(concurrentActivations);
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; activations=${JSON.stringify(completed)}`,
-      );
     } finally {
-      if (!lockReleased) {
-        await lockObserver.query("ROLLBACK");
-      }
-      await Promise.allSettled(concurrentActivations);
-      await lockObserver.end();
-      await activityObserver.end();
+      await concurrencyObserver.end();
     }
 
-    const revoked = await identityAdmin("POST", "/identity/admin/revoke", {
+    const revokedBuilder = await identityAdmin("POST", "/identity/admin/revoke", {
+      membershipId: alphaBuilder.membership,
+      reason: "security",
+    });
+    assert.equal(revokedBuilder.status, 204, JSON.stringify(revokedBuilder.body));
+    const publicationsBeforeRevokedReplay = await publicationCount();
+    const revokedPublishReplay = publish(liveAlphaPath, alphaBuilder);
+    record(
+      "revoked_builder_cannot_replay_publish",
+      membershipAuthorityDenied(revokedPublishReplay),
+    );
+    record("revoked_publish_replay_writes_nothing", (await publicationCount()) === publicationsBeforeRevokedReplay);
+    const revokedOwner = await identityAdmin("POST", "/identity/admin/revoke", {
       membershipId: alphaOwner.membership,
       reason: "security",
     });
-    assert.equal(revoked.status, 204, JSON.stringify(revoked.body));
-    const publicationsBeforeRevokedReplay = await publicationCount();
-    const revokedPublishReplay = publish(liveAlphaPath, alphaOwner);
-    record(
-      "revoked_owner_cannot_replay_publish",
-      revokedPublishReplay.status !== 0 && revokedPublishReplay.stderr.includes("not an active owner Membership"),
-    );
-    record("revoked_publish_replay_writes_nothing", (await publicationCount()) === publicationsBeforeRevokedReplay);
+    assert.equal(revokedOwner.status, 204, JSON.stringify(revokedOwner.body));
     const revokedReplay = preview(alphaOwner.world, String(liveConstruct.digest), alphaOwner);
     record(
       "revoked_owner_is_denied_on_replay",
-      revokedReplay.status !== 0 && revokedReplay.stderr.includes("not an active owner Membership"),
+      membershipAuthorityDenied(revokedReplay),
     );
 
     const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
@@ -1534,12 +1609,12 @@ async function main(): Promise<void> {
       concurrentFirstActivation,
       dimensions: {
         actors:
-          "a durable active Personal Membership whose generated principal has no owner suffix publishes, previews, decides, and activates through its stored delegation and candidate Cedar",
+          "a durable invited Builder Membership publishes, while a distinct invited Owner Membership previews, decides, and activates; authority comes from their disjoint stored delegations rather than principal suffixes",
         isolation:
           "another World's durable Membership cannot publish, preview, or activate here; release and catalog reads remain World-bound",
         negative:
           "forged owner suffix, mismatched and revoked Memberships, candidate-Cedar deny, caller-supplied policy evidence, mixed catalogs, absent approval, rejection, and stale/wrong preview all fail closed",
-        path: "identity admin provisions a real Personal Membership; CLI resolves it from Postgres, checks delegation, derives publication evidence from candidate PolicyCatalog Cedar, then atomically activates the four-catalog release",
+        path: "identity admin verifies two accounts and creates/accepts real World invites; CLI resolves each invited Membership from Postgres, checks role-scoped delegation, derives policy evidence from candidate Cedar, then atomically activates the four-catalog release",
         recovery:
           "decide without activate keeps prior pointer and durable decision; retry converges; two approved first candidates contend on one World lock and yield one winner plus one stale loser",
         replay:

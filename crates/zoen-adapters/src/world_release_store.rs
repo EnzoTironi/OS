@@ -1,15 +1,119 @@
+use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
-    ComponentCatalog, ComponentCatalogDigest, ExecutorCatalog, ExecutorCatalogDigest,
-    OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest, PolicyDigest,
-    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ReleaseCatalogSnapshot, ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest,
-    TimestampMicros, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseContent,
+    ActionId, ActorId, ComponentCatalog, ComponentCatalogDigest, DefinitionDigest, DefinitionId,
+    DefinitionReference, DefinitionRevisionNumber, ExecutorCatalog, ExecutorCatalogDigest,
+    MembershipId, OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest,
+    PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber,
+    PrincipalId, ReleaseCatalogSnapshot, ReleaseDecisionOutcome, ReleaseDigest,
+    ReleasePreviewDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
+    WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_DEFINITION,
+    WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST, WORLD_RELEASE_AUTHORITY_RESOURCE,
+    WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION,
+    WorkloadId, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseContent,
     WorldReleaseDecision, WorldReleaseError, WorldReleasePreview, WorldReleasePreviewContent,
     WorldReleasePublication,
 };
+use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
-use crate::clock_micros;
+use crate::{PostgresIdentityStore, clock_micros, require_loadable_policy_catalog};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseAuthorityOperation {
+    Publish,
+    Preview,
+    Decide,
+    Activate,
+}
+
+impl ReleaseAuthorityOperation {
+    fn action_id(self) -> &'static str {
+        match self {
+            Self::Publish => WORLD_RELEASE_PUBLISH_ACTION,
+            Self::Preview => WORLD_RELEASE_PREVIEW_ACTION,
+            Self::Decide => WORLD_RELEASE_DECIDE_ACTION,
+            Self::Activate => WORLD_RELEASE_ACTIVATE_ACTION,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Publish => "publish",
+            Self::Preview => "preview",
+            Self::Decide => "decide",
+            Self::Activate => "activate",
+        }
+    }
+
+    fn policy_operation(self) -> PolicyOperation {
+        match self {
+            Self::Publish => PolicyOperation::PublishRelease,
+            Self::Preview => PolicyOperation::PreviewRelease,
+            Self::Decide => PolicyOperation::DecideRelease,
+            Self::Activate => PolicyOperation::ActivateRelease,
+        }
+    }
+
+    fn denied(self) -> WorldReleaseError {
+        match self {
+            Self::Publish => WorldReleaseError::NotBuilder,
+            Self::Preview | Self::Decide | Self::Activate => WorldReleaseError::NotOwner,
+        }
+    }
+}
+
+/// Opaque proof that one durable Membership and candidate `PolicyCatalog`
+/// admitted an exact release operation at an exact authority cut.
+///
+/// Only [`PostgresWorldReleaseStore::authorize_candidate`] and
+/// [`PostgresWorldReleaseStore::authorize_published`] can construct this type;
+/// callers cannot fabricate policy evidence for a store mutation.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ReleaseAuthorization {
+    operation: ReleaseAuthorityOperation,
+    world: WorldId,
+    release_digest: ReleaseDigest,
+    preview_digest: Option<ReleasePreviewDigest>,
+    authorized_at: TimestampMicros,
+    membership_id: MembershipId,
+    principal_id: PrincipalId,
+    actor_id: ActorId,
+    workload_id: WorkloadId,
+    action_id: ActionId,
+    delegation: Value,
+    policy: PolicyEvidence,
+}
+
+impl ReleaseAuthorization {
+    fn require_operation(
+        &self,
+        operation: ReleaseAuthorityOperation,
+    ) -> Result<(), WorldReleaseError> {
+        if self.operation == operation {
+            Ok(())
+        } else {
+            Err(operation.denied())
+        }
+    }
+
+    fn require(
+        &self,
+        operation: ReleaseAuthorityOperation,
+        world: &WorldId,
+        release_digest: &ReleaseDigest,
+        preview_digest: Option<&ReleasePreviewDigest>,
+    ) -> Result<(), WorldReleaseError> {
+        self.require_operation(operation)?;
+        if &self.world == world
+            && &self.release_digest == release_digest
+            && self.preview_digest.as_ref() == preview_digest
+        {
+            Ok(())
+        } else {
+            Err(WorldReleaseError::WorldMismatch)
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct PostgresWorldReleaseStore {
@@ -20,6 +124,151 @@ impl PostgresWorldReleaseStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Admit an operation against the candidate policy bytes before Publish.
+    ///
+    /// # Errors
+    ///
+    /// Returns a release authorization error when the Membership does not cover
+    /// the exact World/action/resource cut or the candidate Cedar does not Permit.
+    pub async fn authorize_candidate(
+        &self,
+        catalogs: &WorldReleaseCatalogs,
+        release: &WorldRelease,
+        principal_id: &PrincipalId,
+        membership_id: &MembershipId,
+        at: TimestampMicros,
+    ) -> Result<ReleaseAuthorization, WorldReleaseError> {
+        if !catalogs.binds(release) {
+            return Err(WorldReleaseError::MixedCatalogs);
+        }
+        self.authorize_policy(
+            release.content().world(),
+            release.id(),
+            None,
+            catalogs.policy().bytes(),
+            principal_id,
+            membership_id,
+            ReleaseAuthorityOperation::Publish,
+            at,
+        )
+        .await
+    }
+
+    /// Admit an operation against the immutable policy bytes bound to a
+    /// published candidate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::NotFound`] or
+    /// [`WorldReleaseError::WorldMismatch`] when the release is not the named
+    /// World's candidate, or an authorization error when Membership/Cedar deny.
+    pub async fn authorize_published(
+        &self,
+        world: &WorldId,
+        digest: &ReleaseDigest,
+        principal_id: &PrincipalId,
+        membership_id: &MembershipId,
+        operation: ReleaseAuthorityOperation,
+        preview_digest: Option<&ReleasePreviewDigest>,
+        at: TimestampMicros,
+    ) -> Result<ReleaseAuthorization, WorldReleaseError> {
+        let release = self.get(digest).await?.ok_or(WorldReleaseError::NotFound)?;
+        if release.content().world() != world {
+            return Err(WorldReleaseError::WorldMismatch);
+        }
+        let catalogs = self
+            .get_catalogs(digest)
+            .await?
+            .ok_or(WorldReleaseError::MissingCatalog)?;
+        self.authorize_policy(
+            world,
+            digest,
+            preview_digest,
+            catalogs.policy().bytes(),
+            principal_id,
+            membership_id,
+            operation,
+            at,
+        )
+        .await
+    }
+
+    async fn authorize_policy(
+        &self,
+        world: &WorldId,
+        release_digest: &ReleaseDigest,
+        preview_digest: Option<&ReleasePreviewDigest>,
+        policy_catalog: &[u8],
+        principal_id: &PrincipalId,
+        membership_id: &MembershipId,
+        operation: ReleaseAuthorityOperation,
+        at: TimestampMicros,
+    ) -> Result<ReleaseAuthorization, WorldReleaseError> {
+        let action_id = ActionId::parse(operation.action_id())?;
+        let resource_id = ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE)?;
+        let tenant_id = TenantId::parse(world.as_str())?;
+        let identities = PostgresIdentityStore::new(self.pool.clone());
+        let context = identities
+            .resolve_membership_authority(
+                membership_id,
+                &tenant_id,
+                principal_id,
+                &action_id,
+                &resource_id,
+                at,
+            )
+            .await
+            .map_err(|_| operation.denied())?;
+        let evaluator = require_loadable_policy_catalog(policy_catalog)
+            .map_err(|error| WorldReleaseError::InvalidPolicyCatalog(error.to_string()))?;
+        let definition = DefinitionReference {
+            definition_id: DefinitionId::parse(WORLD_RELEASE_AUTHORITY_DEFINITION)?,
+            digest: DefinitionDigest::parse(WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST)?,
+            revision: DefinitionRevisionNumber::new(1).ok_or_else(|| {
+                WorldReleaseError::Conflict(
+                    "release authority revision must be positive".to_owned(),
+                )
+            })?,
+        };
+        let projection =
+            directory_projection(&context, &resource_id).map_err(WorldReleaseError::Conflict)?;
+        let policy = match evaluator.evaluate_request(&PolicyRequest {
+            action_id: &action_id,
+            approved: matches!(
+                operation,
+                ReleaseAuthorityOperation::Decide | ReleaseAuthorityOperation::Activate
+            ),
+            classification: None,
+            context: &context,
+            definition: &definition,
+            inputs: &[],
+            operation: operation.policy_operation(),
+            projection: Some(&projection),
+            resource_id: &resource_id,
+            written_classification: None,
+        }) {
+            PolicyEvaluation::Permit(evidence) => evidence,
+            PolicyEvaluation::Deny(_) => return Err(operation.denied()),
+            PolicyEvaluation::EvaluationError { message, .. } => {
+                return Err(WorldReleaseError::InvalidPolicyCatalog(message));
+            }
+        };
+        Ok(ReleaseAuthorization {
+            operation,
+            world: world.clone(),
+            release_digest: release_digest.clone(),
+            preview_digest: preview_digest.cloned(),
+            authorized_at: at,
+            membership_id: membership_id.clone(),
+            principal_id: context.principal_id().clone(),
+            actor_id: context.actor_id().clone(),
+            workload_id: context.workload_id().clone(),
+            action_id,
+            delegation: delegation_json(&context),
+            policy,
+        })
     }
 
     /// Store content-addressed release bytes. Identical content is idempotent.
@@ -50,16 +299,23 @@ impl PostgresWorldReleaseStore {
         &self,
         catalogs: &WorldReleaseCatalogs,
         release: &WorldRelease,
-        publication: &WorldReleasePublication,
+        authorization: ReleaseAuthorization,
     ) -> Result<PublicationPut, WorldReleaseError> {
         if !catalogs.binds(release) {
             return Err(WorldReleaseError::MixedCatalogs);
         }
-        if publication.release() != release.id() {
-            return Err(WorldReleaseError::Conflict(
-                "publication digest does not match release".to_owned(),
-            ));
-        }
+        authorization.require(
+            ReleaseAuthorityOperation::Publish,
+            release.content().world(),
+            release.id(),
+            None,
+        )?;
+        let publication = WorldReleasePublication::new(
+            release.id().clone(),
+            authorization.authorized_at,
+            authorization.principal_id.clone(),
+            authorization.policy.clone(),
+        )?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
         put_catalog_tx(
             &mut transaction,
@@ -94,23 +350,8 @@ impl PostgresWorldReleaseStore {
         )
         .await?;
         put_release_tx(&mut transaction, release).await?;
-        let stored = put_publication_tx(&mut transaction, publication).await?;
-        transaction.commit().await.map_err(store)?;
-        Ok(stored)
-    }
-
-    /// Record publication metadata for an already stored release.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WorldReleaseError::MissingPolicy`] when evidence is empty,
-    /// [`WorldReleaseError::NotFound`] when the release is absent, or a store error.
-    pub async fn put_publication(
-        &self,
-        publication: &WorldReleasePublication,
-    ) -> Result<PublicationPut, WorldReleaseError> {
-        let mut transaction = self.pool.begin().await.map_err(store)?;
-        let stored = put_publication_tx(&mut transaction, publication).await?;
+        let stored = put_publication_tx(&mut transaction, &publication).await?;
+        put_authorization_tx(&mut transaction, &authorization, release.id(), None).await?;
         transaction.commit().await.map_err(store)?;
         Ok(stored)
     }
@@ -125,9 +366,18 @@ impl PostgresWorldReleaseStore {
         &self,
         world: &WorldId,
         digest: &ReleaseDigest,
+        authorization: ReleaseAuthorization,
     ) -> Result<PreviewPut, WorldReleaseError> {
+        authorization.require(ReleaseAuthorityOperation::Preview, world, digest, None)?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
         let stored = preview_tx(&mut transaction, world, digest).await?;
+        put_authorization_tx(
+            &mut transaction,
+            &authorization,
+            digest,
+            Some(stored.preview.id()),
+        )
+        .await?;
         transaction.commit().await.map_err(store)?;
         Ok(stored)
     }
@@ -141,12 +391,35 @@ impl PostgresWorldReleaseStore {
     pub async fn decide(
         &self,
         preview_digest: &ReleasePreviewDigest,
-        decided_by: &PrincipalId,
         outcome: ReleaseDecisionOutcome,
-        at: TimestampMicros,
+        authorization: ReleaseAuthorization,
     ) -> Result<DecisionPut, WorldReleaseError> {
+        let preview = self
+            .get_preview(preview_digest)
+            .await?
+            .ok_or(WorldReleaseError::NotFound)?;
+        authorization.require(
+            ReleaseAuthorityOperation::Decide,
+            preview.content().world(),
+            preview.content().release(),
+            Some(preview_digest),
+        )?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        let stored = decide_tx(&mut transaction, preview_digest, decided_by, outcome, at).await?;
+        let stored = decide_tx(
+            &mut transaction,
+            preview_digest,
+            &authorization.principal_id,
+            outcome,
+            authorization.authorized_at,
+        )
+        .await?;
+        put_authorization_tx(
+            &mut transaction,
+            &authorization,
+            stored.decision.release(),
+            Some(preview_digest),
+        )
+        .await?;
         transaction.commit().await.map_err(store)?;
         Ok(stored)
     }
@@ -164,10 +437,30 @@ impl PostgresWorldReleaseStore {
         world: &WorldId,
         digest: &ReleaseDigest,
         preview_digest: &ReleasePreviewDigest,
-        at: TimestampMicros,
+        authorization: ReleaseAuthorization,
     ) -> Result<ActivatePut, WorldReleaseError> {
+        authorization.require(
+            ReleaseAuthorityOperation::Activate,
+            world,
+            digest,
+            Some(preview_digest),
+        )?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        let stored = activate_tx(&mut transaction, world, digest, preview_digest, at).await?;
+        let stored = activate_tx(
+            &mut transaction,
+            world,
+            digest,
+            preview_digest,
+            authorization.authorized_at,
+        )
+        .await?;
+        put_authorization_tx(
+            &mut transaction,
+            &authorization,
+            digest,
+            Some(preview_digest),
+        )
+        .await?;
         transaction.commit().await.map_err(store)?;
         Ok(stored)
     }
@@ -415,6 +708,105 @@ async fn put_publication_tx(
     })
 }
 
+async fn put_authorization_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    authorization: &ReleaseAuthorization,
+    release_digest: &ReleaseDigest,
+    preview_digest: Option<&ReleasePreviewDigest>,
+) -> Result<(), WorldReleaseError> {
+    let target_digest =
+        preview_digest.map_or_else(|| release_digest.as_str(), ReleasePreviewDigest::as_str);
+    let policy_revision = i64_from_u64(authorization.policy.revision.revision.get())?;
+    let inserted = sqlx::query(
+        "INSERT INTO world_release_authorizations (
+            operation, target_digest, world_id, release_digest, preview_digest,
+            authorized_at_micros, membership_id, principal_id, actor_id, workload_id,
+            action_id, delegation_json, policy_id, policy_revision, policy_digest,
+            determining_policies
+         ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+         )
+         ON CONFLICT (operation, target_digest, membership_id) DO NOTHING",
+    )
+    .bind(authorization.operation.as_str())
+    .bind(target_digest)
+    .bind(authorization.world.as_str())
+    .bind(release_digest.as_str())
+    .bind(preview_digest.map(ReleasePreviewDigest::as_str))
+    .bind(authorization.authorized_at.get())
+    .bind(authorization.membership_id.as_str())
+    .bind(authorization.principal_id.as_str())
+    .bind(authorization.actor_id.as_str())
+    .bind(authorization.workload_id.as_str())
+    .bind(authorization.action_id.as_str())
+    .bind(&authorization.delegation)
+    .bind(authorization.policy.revision.id.as_str())
+    .bind(policy_revision)
+    .bind(authorization.policy.revision.digest.as_str())
+    .bind(&authorization.policy.determining_policies)
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    if inserted.rows_affected() == 1 {
+        return Ok(());
+    }
+    let exact = sqlx::query_scalar::<_, bool>(
+        "SELECT true
+         FROM world_release_authorizations
+         WHERE operation = $1 AND target_digest = $2 AND membership_id = $3
+           AND world_id = $4 AND release_digest = $5
+           AND preview_digest IS NOT DISTINCT FROM $6
+           AND principal_id = $7 AND actor_id = $8 AND workload_id = $9
+           AND action_id = $10 AND delegation_json = $11
+           AND policy_id = $12 AND policy_revision = $13 AND policy_digest = $14
+           AND determining_policies = $15",
+    )
+    .bind(authorization.operation.as_str())
+    .bind(target_digest)
+    .bind(authorization.membership_id.as_str())
+    .bind(authorization.world.as_str())
+    .bind(release_digest.as_str())
+    .bind(preview_digest.map(ReleasePreviewDigest::as_str))
+    .bind(authorization.principal_id.as_str())
+    .bind(authorization.actor_id.as_str())
+    .bind(authorization.workload_id.as_str())
+    .bind(authorization.action_id.as_str())
+    .bind(&authorization.delegation)
+    .bind(authorization.policy.revision.id.as_str())
+    .bind(policy_revision)
+    .bind(authorization.policy.revision.digest.as_str())
+    .bind(&authorization.policy.determining_policies)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    if exact.is_some() {
+        Ok(())
+    } else {
+        Err(WorldReleaseError::Conflict(
+            "release authorization key is bound to different evidence".to_owned(),
+        ))
+    }
+}
+
+fn delegation_json(context: &TrustedExecutionContext) -> Value {
+    let grants: Vec<Value> = context
+        .delegation()
+        .grants()
+        .iter()
+        .map(|grant| {
+            json!({
+                "actions": grant.actions().iter().map(ActionId::as_str).collect::<Vec<_>>(),
+                "expiresAtMicros": grant.expires_at().get(),
+                "id": grant.id().as_str(),
+                "notBeforeMicros": grant.not_before().get(),
+                "resources": grant.resources().iter().map(ResourceId::as_str).collect::<Vec<_>>(),
+                "workloads": grant.workloads().iter().map(WorkloadId::as_str).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({ "grants": grants })
+}
+
 async fn preview_tx(
     transaction: &mut Transaction<'_, Postgres>,
     world: &WorldId,
@@ -637,6 +1029,29 @@ async fn activate_tx(
     preview_digest: &ReleasePreviewDigest,
     at: TimestampMicros,
 ) -> Result<ActivatePut, WorldReleaseError> {
+    lock_activation_world(transaction, world).await?;
+    let preview = load_activation_preview(transaction, world, digest, preview_digest).await?;
+    require_approved_decision(transaction, world, digest, preview_digest).await?;
+    require_published_release(transaction, world, digest).await?;
+    let previous = load_active_digest(transaction, world).await?;
+    if previous.as_ref() == Some(digest) {
+        return Ok(ActivatePut {
+            previous,
+            replay: true,
+        });
+    }
+    ensure_preview_fresh_with_active(preview.content().current_active(), previous.as_ref())?;
+    set_active_digest(transaction, world, digest, at).await?;
+    Ok(ActivatePut {
+        previous,
+        replay: false,
+    })
+}
+
+async fn lock_activation_world(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+) -> Result<(), WorldReleaseError> {
     // The active-pointer row does not exist for a World's first activation.
     // Materialize and lock a stable World row before reading either candidate.
     sqlx::query(
@@ -658,6 +1073,15 @@ async fn activate_tx(
     .fetch_one(&mut **transaction)
     .await
     .map_err(store)?;
+    Ok(())
+}
+
+async fn load_activation_preview(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+    digest: &ReleaseDigest,
+    preview_digest: &ReleasePreviewDigest,
+) -> Result<WorldReleasePreview, WorldReleaseError> {
     let preview_row = sqlx::query(
         "SELECT preview_digest, world_id, release_digest, current_active_digest,
                 candidate_ontology_digest, candidate_policy_digest,
@@ -678,6 +1102,15 @@ async fn activate_tx(
     if preview.content().world() != world || preview.content().release() != digest {
         return Err(WorldReleaseError::WorldMismatch);
     }
+    Ok(preview)
+}
+
+async fn require_approved_decision(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+    digest: &ReleaseDigest,
+    preview_digest: &ReleasePreviewDigest,
+) -> Result<(), WorldReleaseError> {
     let decision_row = sqlx::query(
         "SELECT preview_digest, release_digest, world_id, decided_at_micros,
                 decided_by, outcome
@@ -696,9 +1129,16 @@ async fn activate_tx(
         return Err(WorldReleaseError::WorldMismatch);
     }
     match decision.outcome() {
-        ReleaseDecisionOutcome::Approve => {}
-        ReleaseDecisionOutcome::Reject => return Err(WorldReleaseError::Rejected),
+        ReleaseDecisionOutcome::Approve => Ok(()),
+        ReleaseDecisionOutcome::Reject => Err(WorldReleaseError::Rejected),
     }
+}
+
+async fn require_published_release(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+    digest: &ReleaseDigest,
+) -> Result<(), WorldReleaseError> {
     let bound_world =
         sqlx::query_scalar::<_, String>("SELECT world_id FROM world_releases WHERE digest = $1")
             .bind(digest.as_str())
@@ -721,6 +1161,13 @@ async fn activate_tx(
     if published.is_none() {
         return Err(WorldReleaseError::MissingPolicy);
     }
+    Ok(())
+}
+
+async fn load_active_digest(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+) -> Result<Option<ReleaseDigest>, WorldReleaseError> {
     let previous = sqlx::query_scalar::<_, String>(
         "SELECT digest FROM world_active_releases WHERE world_id = $1 FOR UPDATE",
     )
@@ -728,15 +1175,18 @@ async fn activate_tx(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(store)?;
-    let previous = previous.map(ReleaseDigest::parse).transpose()?;
-    if previous.as_ref() == Some(digest) {
-        // Idempotent replay: already active on this digest.
-        return Ok(ActivatePut {
-            previous,
-            replay: true,
-        });
-    }
-    ensure_preview_fresh_with_active(preview.content().current_active(), previous.as_ref())?;
+    previous
+        .map(ReleaseDigest::parse)
+        .transpose()
+        .map_err(Into::into)
+}
+
+async fn set_active_digest(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+    digest: &ReleaseDigest,
+    at: TimestampMicros,
+) -> Result<(), WorldReleaseError> {
     sqlx::query(
         "INSERT INTO world_active_releases (world_id, digest, activated_at_micros)
          VALUES ($1, $2, $3)
@@ -750,10 +1200,7 @@ async fn activate_tx(
     .execute(&mut **transaction)
     .await
     .map_err(store)?;
-    Ok(ActivatePut {
-        previous,
-        replay: false,
-    })
+    Ok(())
 }
 
 async fn ensure_preview_fresh(

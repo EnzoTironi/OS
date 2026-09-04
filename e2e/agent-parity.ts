@@ -10,7 +10,7 @@ import {
   buildDiscoverPolicyCatalog,
   createZoenRunner,
   ontologyCatalogBytes,
-  provisionPersonalReleaseOwner,
+  provisionWorldReleaseActors,
   recordAssertion,
   startReleaseIdentityServer,
   stopReleaseIdentityServer,
@@ -96,18 +96,16 @@ async function main(): Promise<void> {
     portFallback: 58_491,
     zoenPath: zoenBinaryPath(repositoryRoot),
   });
-  const [alphaOwner, betaOwner] = await (async () => {
+  const [alphaActors, betaActors] = await (async () => {
     try {
-      const alpha = await provisionPersonalReleaseOwner({
+      const alpha = await provisionWorldReleaseActors({
         baseUrl: identityServer.baseUrl,
-        databaseUrl,
-        subjectKey: "agent-parity-alpha-owner",
+        subjectKey: "agent-parity-alpha",
         world: "world.alpha",
       });
-      const beta = await provisionPersonalReleaseOwner({
+      const beta = await provisionWorldReleaseActors({
         baseUrl: identityServer.baseUrl,
-        databaseUrl,
-        subjectKey: "agent-parity-beta-owner",
+        subjectKey: "agent-parity-beta",
         world: "world.beta",
       });
       return [alpha, beta] as const;
@@ -133,18 +131,18 @@ async function main(): Promise<void> {
   const betaPath = await writeContent("beta.json", contentFromBytes("world.beta", betaBytes));
   const alphaRelease = construct(alphaPath);
   const betaRelease = construct(betaPath);
-  assert.equal(publish(alphaPath, alphaOwner).status, 0);
-  assert.equal(publish(betaPath, betaOwner).status, 0);
+  assert.equal(publish(alphaPath, alphaActors.builder).status, 0);
+  assert.equal(publish(betaPath, betaActors.builder).status, 0);
   const alphaCeremony = approveAndActivate(
     "world.alpha",
     String(alphaRelease.digest),
-    alphaOwner,
+    alphaActors.owner,
   );
   assert.equal(alphaCeremony.activate.status, 0, alphaCeremony.activate.stderr);
   const betaCeremony = approveAndActivate(
     "world.beta",
     String(betaRelease.digest),
-    betaOwner,
+    betaActors.owner,
   );
   assert.equal(betaCeremony.activate.status, 0, betaCeremony.activate.stderr);
 

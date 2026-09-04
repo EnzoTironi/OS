@@ -4,7 +4,6 @@ import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:c
 import { mkdir, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
-import { Client as PostgresClient } from "pg";
 import { e2eHttpUrl, e2eIdentityAdminToken, e2eListenAddr } from "./host-env.js";
 
 export const WORLD_DEFINITION_DIGEST = "a".repeat(64);
@@ -260,8 +259,13 @@ export function createZoenRunner(zoenPath: string, databaseUrl: string) {
   };
 }
 
-export interface PersonalReleaseOwner extends ReleaseActor {
+export interface WorldReleaseMembership extends ReleaseActor {
   world: string;
+}
+
+export interface WorldReleaseActors {
+  builder: WorldReleaseMembership;
+  owner: WorldReleaseMembership;
 }
 
 export interface ReleaseIdentityServer {
@@ -330,15 +334,45 @@ export async function stopReleaseIdentityServer(server: ReleaseIdentityServer): 
   });
 }
 
-export async function provisionPersonalReleaseOwner(input: {
+export async function provisionWorldReleaseActors(input: {
   baseUrl: string;
-  databaseUrl: string;
   subjectKey: string;
   world: string;
-}): Promise<PersonalReleaseOwner> {
+}): Promise<WorldReleaseActors> {
+  const [builder, owner] = await Promise.all([
+    provisionInvitedReleaseMembership({
+      ...input,
+      actionIds: ["zoen.world.release.publish"],
+      principal: `principal.release.${input.subjectKey}.publisher`,
+      role: "builder",
+    }),
+    provisionInvitedReleaseMembership({
+      ...input,
+      actionIds: [
+        "zoen.world.release.preview",
+        "zoen.world.release.decide",
+        "zoen.world.release.activate",
+      ],
+      principal: `principal.release.${input.subjectKey}.governor`,
+      role: "owner",
+    }),
+  ]);
+  assert.notEqual(builder.membership, owner.membership);
+  assert.notEqual(builder.principal, owner.principal);
+  return { builder, owner };
+}
+
+async function provisionInvitedReleaseMembership(input: {
+  actionIds: readonly string[];
+  baseUrl: string;
+  principal: string;
+  role: "builder" | "owner";
+  subjectKey: string;
+  world: string;
+}): Promise<WorldReleaseMembership> {
   const provisional = await releaseIdentityPost(input.baseUrl, "/identity/admin/provisional", {
     provider: "telegram",
-    subjectKey: input.subjectKey,
+    subjectKey: `${input.subjectKey}-${input.role}`,
   });
   assert.equal(provisional.status, 200, JSON.stringify(provisional.body));
   const accountId = String(provisional.body.accountId);
@@ -346,38 +380,43 @@ export async function provisionPersonalReleaseOwner(input: {
     accountId,
   });
   assert.equal(verified.status, 200, JSON.stringify(verified.body));
-  const personal = await releaseIdentityPost(input.baseUrl, "/identity/admin/personal", {
-    accountId,
+  assert.equal(verified.body.status, "verified", JSON.stringify(verified.body));
+  const token = `invite.${input.subjectKey}.${input.role}`;
+  const invited = await releaseIdentityPost(input.baseUrl, "/identity/admin/invites", {
+    actionIds: [...input.actionIds],
+    actorId: `actor.release.${input.subjectKey}.${input.role}`,
+    expiresAtMicros: Date.now() * 1000 + 3_600_000_000,
+    principalId: input.principal,
+    resourceIds: ["zoen.world.release"],
+    tenantId: input.world,
+    token,
+    workloadId: `workload.world-release.${input.role}`,
   });
-  assert.equal(personal.status, 200, JSON.stringify(personal.body));
-  const membership = String(personal.body.membershipId);
-  const generatedWorld = String(personal.body.tenantId);
-  if (generatedWorld !== input.world) {
-    const database = new PostgresClient({ connectionString: input.databaseUrl });
-    await database.connect();
-    try {
-      await database.query("BEGIN");
-      const tenant = await database.query(
-        "UPDATE personal_tenants SET tenant_id = $1 WHERE account_id = $2",
-        [input.world, accountId],
-      );
-      const membershipRow = await database.query(
-        "UPDATE memberships SET tenant_id = $1 WHERE membership_id = $2",
-        [input.world, membership],
-      );
-      assert.equal(tenant.rowCount, 1);
-      assert.equal(membershipRow.rowCount, 1);
-      await database.query("COMMIT");
-    } catch (error) {
-      await database.query("ROLLBACK");
-      throw error;
-    } finally {
-      await database.end();
-    }
-  }
+  assert.equal(invited.status, 200, JSON.stringify(invited.body));
+  assert.equal(invited.body.tenantId, input.world, JSON.stringify(invited.body));
+  assert.equal(invited.body.principalId, input.principal, JSON.stringify(invited.body));
+  const accepted = await releaseIdentityPost(input.baseUrl, "/identity/admin/accept-invite", {
+    accountId,
+    token,
+  });
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.kind, "invite", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.status, "active", JSON.stringify(accepted.body));
+  assert.equal(accepted.body.tenantId, input.world, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.principalId, input.principal, JSON.stringify(accepted.body));
+  assert.deepEqual(
+    new Set(accepted.body.delegatedActionIds as string[]),
+    new Set(input.actionIds),
+    JSON.stringify(accepted.body),
+  );
+  assert.deepEqual(
+    accepted.body.delegatedResourceIds,
+    ["zoen.world.release"],
+    JSON.stringify(accepted.body),
+  );
   return {
-    membership,
-    principal: String(personal.body.principalId),
+    membership: String(accepted.body.membershipId),
+    principal: input.principal,
     world: input.world,
   };
 }
