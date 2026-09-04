@@ -9,7 +9,7 @@ use connectrpc::{
 };
 use sha2::{Digest, Sha256};
 use zoen_adapters::{
-    CedarPolicyEvaluator, PostgresAuthorityStore, WasmtimeComputationExecutor, WasmtimeConfigError,
+    PostgresAuthorityStore, ReleaseCedarEvaluator, WasmtimeComputationExecutor, WasmtimeConfigError,
 };
 use zoen_core::{
     ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence,
@@ -41,13 +41,13 @@ use crate::{
 };
 
 type DaemonActionEngine =
-    ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>;
+    ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>;
 
 pub struct ComputationServiceImpl {
     executor: WasmtimeComputationExecutor,
-    policy: Arc<CedarPolicyEvaluator>,
+    policy: Arc<ReleaseCedarEvaluator>,
     query: QueryRuntime,
-    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
     store: PostgresAuthorityStore,
 }
@@ -56,7 +56,7 @@ impl ComputationServiceImpl {
     pub fn new(
         store: PostgresAuthorityStore,
         query: QueryRuntime,
-        policy: Arc<CedarPolicyEvaluator>,
+        policy: Arc<ReleaseCedarEvaluator>,
         sessions: SessionExchange,
     ) -> Result<Self, WasmtimeConfigError> {
         let executor = WasmtimeComputationExecutor::new(store.pool())?;
@@ -170,7 +170,7 @@ struct ScopedComputationHost {
     history: HistoryEngine<PostgresAuthorityStore>,
     manifest: CapabilityManifest,
     proposals: BTreeMap<CapabilityId, AuthorizedProposal>,
-    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     query_claims: BTreeSet<ClaimId>,
 }
 
@@ -188,8 +188,8 @@ impl ScopedComputationHost {
         manifest: CapabilityManifest,
         store: PostgresAuthorityStore,
         query: QueryRuntime,
-        policy: Arc<CedarPolicyEvaluator>,
-        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+        policy: Arc<ReleaseCedarEvaluator>,
+        read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     ) -> Self {
         Self {
             action: ActionEngine::new(store.clone(), query, policy),

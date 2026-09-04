@@ -44,9 +44,58 @@ interface CatalogBytes {
   components: string;
 }
 
+const worldDefinitionDigest = "a".repeat(64);
+const worldActionId = "zoen.world.discover";
+
+function buildPolicyCatalog(input: {
+  actionId?: string;
+  definitionDigest?: string;
+  policyId?: string;
+  revision?: number;
+  source?: string;
+}): { bytes: string; evidenceDigest: string; policyDigest: string } {
+  const actionId = input.actionId ?? worldActionId;
+  const source =
+    input.source ??
+    `permit (
+    principal,
+    action == Action::"discover",
+    resource
+)
+when {
+    context.actionId == "${actionId}"
+};
+`;
+  const policyDigest = createHash("sha256").update(source).digest("hex");
+  const bytes = `${JSON.stringify({
+    schema: "zoen.policy-catalog.v1",
+    authorization: {
+      policies: [
+        {
+          actionId,
+          definitionDigest: input.definitionDigest ?? worldDefinitionDigest,
+          digest: policyDigest,
+          policyId: input.policyId ?? "policy.world.discover.r1",
+          revision: input.revision ?? 1,
+          source,
+        },
+      ],
+    },
+    membershipDelegation: [],
+    sourceAdmission: [],
+  })}
+`;
+  return {
+    bytes,
+    evidenceDigest: createHash("sha256").update(bytes).digest("hex"),
+    policyDigest,
+  };
+}
+
+const alphaPolicy = buildPolicyCatalog({});
 const alphaBytes: CatalogBytes = {
   ontology: "ontology catalog for world.alpha v1\n",
-  policy: "policy catalog for world.alpha v1\n",
+  policy: alphaPolicy.bytes,
   executors: "executor catalog for world.alpha v1\n",
   components: "component catalog for world.alpha v1\n",
 };
@@ -63,7 +112,8 @@ const recoveryBytes: CatalogBytes = {
 
 const betaBytes = alphaBytes;
 
-const policyEvidenceDigest = "b".repeat(64);
+
+const policyEvidenceDigest = alphaPolicy.evidenceDigest;
 
 const assertions: Record<string, boolean> = {};
 
@@ -249,6 +299,37 @@ function activate(
   ]);
 }
 
+function authorize(
+  world: string,
+  principal: string,
+  actionId = worldActionId,
+  definitionDigest = worldDefinitionDigest,
+): ZoenResult & { body?: Record<string, unknown> } {
+  const result = runZoen([
+    "world",
+    "release",
+    "authorize",
+    "--world",
+    world,
+    "--principal",
+    principal,
+    "--action-id",
+    actionId,
+    "--definition-digest",
+    definitionDigest,
+    "--definition-id",
+    "definition.world",
+    "--resource-id",
+    "resource.world",
+    "--operation",
+    "discover",
+  ]);
+  if (result.status === 0) {
+    return { ...result, body: parseJson(result.stdout) };
+  }
+  return result;
+}
+
 function catalogEntry(
   catalogs: Record<string, Record<string, unknown> | undefined>,
   key: string,
@@ -274,6 +355,8 @@ async function main(): Promise<void> {
 
   const schema = runZoen(["schema", "world.release.construct"]);
   record("schema_lists_construct", schema.status === 0);
+  const authorizeSchema = runZoen(["schema", "world.release.authorize"]);
+  record("schema_lists_authorize", authorizeSchema.status === 0);
   record(
     "schema_omits_digest_flag",
     !schema.stdout.includes("--digest") && schema.stdout.includes("--file"),
@@ -363,6 +446,51 @@ async function main(): Promise<void> {
   record(
     "missing_policy_message",
     missingPolicy.stderr.includes("requires policy evidence"),
+  );
+
+  const plaintextPolicyPath = await writeContent(
+    "plaintext-policy.json",
+    contentFromBytes("world.alpha", {
+      ...alphaBytes,
+      policy: "policy catalog without cedar\n",
+    }),
+  );
+  const plaintextPublish = publish(plaintextPolicyPath, "principal.builder");
+  record("missing_cedar_in_policy_catalog_fails", plaintextPublish.status !== 0);
+  record(
+    "missing_cedar_in_policy_catalog_message",
+    plaintextPublish.stderr.includes("loadable Cedar bundle"),
+  );
+
+  const invalidCedarPath = await writeContent(
+    "invalid-cedar.json",
+    contentFromBytes("world.alpha", {
+      ...alphaBytes,
+      policy: `${JSON.stringify({
+        schema: "zoen.policy-catalog.v1",
+        authorization: {
+          policies: [
+            {
+              actionId: worldActionId,
+              definitionDigest: worldDefinitionDigest,
+              digest: "0".repeat(64),
+              policyId: "policy.world.broken",
+              revision: 1,
+              source: "this is not cedar",
+            },
+          ],
+        },
+        membershipDelegation: [],
+        sourceAdmission: [],
+      })}
+`,
+    }),
+  );
+  const invalidCedarPublish = publish(invalidCedarPath, "principal.builder");
+  record("invalid_cedar_in_policy_catalog_fails", invalidCedarPublish.status !== 0);
+  record(
+    "invalid_cedar_in_policy_catalog_message",
+    invalidCedarPublish.stderr.includes("loadable Cedar bundle"),
   );
 
   const liveAlphaPath = await writeContent(
@@ -470,6 +598,56 @@ async function main(): Promise<void> {
     boundCatalogBytes(catalogBody).ontology === alphaBytes.ontology &&
       boundCatalogBytes(catalogBody).components === alphaBytes.components,
   );
+  const policyCatalogText = boundCatalogBytes(catalogBody).policy ?? "";
+  record(
+    "policy_catalog_is_cedar_bundle",
+    policyCatalogText.includes("zoen.policy-catalog.v1") &&
+      policyCatalogText.includes("authorization"),
+  );
+
+  const permitted = authorize("world.alpha", "principal.owner");
+  assert.equal(permitted.status, 0, permitted.stderr);
+  const permittedBody = permitted.body ?? {};
+  record("authorize_governed_verb_from_active_release", permittedBody.decision === "permit");
+  record(
+    "authorize_uses_active_release_authority",
+    permittedBody.authority === "active-release-policy-catalog" &&
+      permittedBody.bootManifestIgnored === true &&
+      permittedBody.digest === liveConstruct.digest,
+  );
+  record(
+    "authorize_binds_policy_catalog_digest",
+    permittedBody.policyCatalogDigest === liveExpected.catalogs.policy!,
+  );
+
+  const bootOnly = runZoen([
+    "world",
+    "release",
+    "authorize",
+    "--world",
+    "world.alpha",
+    "--principal",
+    "principal.owner",
+    "--action-id",
+    "action.not.in.catalog",
+    "--definition-digest",
+    worldDefinitionDigest,
+    "--resource-id",
+    "resource.world",
+    "--operation",
+    "discover",
+  ]);
+  record("boot_manifest_cannot_authorize_after_activation", bootOnly.status === 0);
+  if (bootOnly.status === 0) {
+    const bootBody = parseJson(bootOnly.stdout);
+    record(
+      "boot_manifest_only_action_errors_from_catalog",
+      bootBody.decision === "error" &&
+        String(bootBody.message).includes("no Cedar policy is installed"),
+    );
+  } else {
+    record("boot_manifest_only_action_errors_from_catalog", false);
+  }
 
   const mixedPath = await writeContent("mixed.json", {
     world: "world.alpha",
@@ -526,6 +704,19 @@ async function main(): Promise<void> {
     "cross_world_catalog_access_fails",
     crossCatalogs.status !== 0 &&
       crossCatalogs.stderr.includes("does not belong to this World"),
+  );
+  const crossAuthorize = authorize("world.alpha", "principal.owner");
+  // world.alpha still active on first release until second activation below
+  record(
+    "cross_world_authorize_stays_on_caller_world",
+    crossAuthorize.status === 0 &&
+      (crossAuthorize.body ?? {}).world === "world.alpha",
+  );
+  const betaAuthorizeBeforeActivate = authorize("world.beta", "principal.owner");
+  record(
+    "other_world_without_activation_cannot_authorize",
+    betaAuthorizeBeforeActivate.status !== 0 &&
+      betaAuthorizeBeforeActivate.stderr.includes("no active release"),
   );
 
   const secondPath = await writeContent(
@@ -626,10 +817,10 @@ async function main(): Promise<void> {
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
     dimensions: {
-      actors: "builder publishes catalog bytes; owner activates one WorldRelease",
-      isolation: "another World cannot activate or read this World's catalogs",
-      negative: "non-builder, missing policy, hex-only publish, mixed catalogs, unpublished activate",
-      path: "store four catalog blobs, publish policy evidence, activate one WorldRelease",
+      actors: "builder publishes Cedar PolicyCatalog bytes; owner activates; authorize uses active-release Cedar",
+      isolation: "another World cannot activate, read catalogs, or authorize for this World",
+      negative: "non-builder, missing policy evidence, hex-only, missing/invalid Cedar, boot-manifest-only after activation, mixed catalogs, unpublished activate",
+      path: "publish Cedar-bearing policy catalog, activate, digest binds four catalogs, authorize governed verb from active-release Cedar",
       recovery: "publication without activation keeps the prior pointer and candidate catalogs",
       replay: "identical catalog bytes and publish replay keep one digest and publication",
     },

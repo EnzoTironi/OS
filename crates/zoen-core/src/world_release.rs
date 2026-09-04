@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub const WORLD_RELEASE_SCHEMA: &str = "zoen.world-release.v1";
+pub const WORLD_POLICY_CATALOG_SCHEMA: &str = "zoen.policy-catalog.v1";
 
 macro_rules! catalog_digest {
     ($name:ident) => {
@@ -419,6 +420,7 @@ pub enum WorldReleaseError {
     MissingPolicy,
     MissingCatalog,
     MixedCatalogs,
+    InvalidPolicyCatalog(String),
     NotBuilder,
     NotOwner,
     CallerSuppliedDigest,
@@ -442,6 +444,10 @@ impl Display for WorldReleaseError {
             }
             Self::MixedCatalogs => formatter
                 .write_str("cannot mix catalog bytes from one candidate with digests from another"),
+            Self::InvalidPolicyCatalog(message) => write!(
+                formatter,
+                "policy catalog must contain a loadable Cedar bundle: {message}"
+            ),
             Self::NotBuilder => formatter.write_str("principal is not a builder for this World"),
             Self::NotOwner => formatter.write_str("principal is not the owner of this World"),
             Self::CallerSuppliedDigest => {

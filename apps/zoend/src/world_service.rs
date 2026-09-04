@@ -8,7 +8,7 @@ use buffa_types::google::protobuf::Timestamp;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_adapters::{PostgresAuthorityStore, ReleaseCedarEvaluator};
 use zoen_core::{
     ClaimId, CommitSequence, ComputationId, Consistency, DefinitionDigest, DefinitionId,
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
@@ -38,16 +38,16 @@ use crate::{
 
 pub struct WorldServiceImpl {
     engine: WorldEngine<PostgresAuthorityStore>,
-    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
-    scenarios: ScenarioEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
+    scenarios: ScenarioEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl WorldServiceImpl {
     pub fn new(
         engine: WorldEngine<PostgresAuthorityStore>,
-        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
-        scenarios: ScenarioEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
+        read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
+        scenarios: ScenarioEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>,
         sessions: SessionExchange,
     ) -> Self {
         Self {

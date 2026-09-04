@@ -4,7 +4,7 @@ use buffa::MessageView;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_adapters::{PostgresAuthorityStore, ReleaseCedarEvaluator};
 use zoen_core::{
     ActionProposal as CoreActionProposal, ActionProposalStructure,
     CausalActionExplanation as CoreCausalActionExplanation,
@@ -56,14 +56,14 @@ use crate::{
 
 pub struct HistoryServiceImpl {
     engine: HistoryEngine<PostgresAuthorityStore>,
-    read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl HistoryServiceImpl {
     pub fn new(
         engine: HistoryEngine<PostgresAuthorityStore>,
-        read: ReadEngine<QueryRuntime, Arc<CedarPolicyEvaluator>>,
+        read: ReadEngine<QueryRuntime, Arc<ReleaseCedarEvaluator>>,
         sessions: SessionExchange,
     ) -> Self {
         Self {

@@ -8,7 +8,7 @@ use buffa_types::google::protobuf::Timestamp;
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, ServiceRequest, ServiceResult,
 };
-use zoen_adapters::{CedarPolicyEvaluator, PostgresAuthorityStore};
+use zoen_adapters::{PostgresAuthorityStore, ReleaseCedarEvaluator};
 use zoen_core::{
     ActionApproval, ActionInput as CoreActionInput, ActionProposal, ApprovalId,
     CommitIdentityKind as CoreCommitIdentityKind, CommitReceipt,
@@ -40,13 +40,13 @@ use crate::{
 };
 
 pub struct ActionServiceImpl {
-    engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
+    engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>,
     sessions: SessionExchange,
 }
 
 impl ActionServiceImpl {
     pub fn new(
-        engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<CedarPolicyEvaluator>>,
+        engine: ActionEngine<PostgresAuthorityStore, QueryRuntime, Arc<ReleaseCedarEvaluator>>,
         sessions: SessionExchange,
     ) -> Self {
         Self { engine, sessions }
