@@ -146,6 +146,67 @@ pub struct KernelExecution {
     pub workload: WorkloadId,
 }
 
+/// Planted ObjectKey with optional grants for typed query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelMintObject {
+    pub entity_id: String,
+    pub grants: Vec<KernelTypedGrant>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelTypedGrant {
+    pub principal_id: String,
+    pub membership_id: String,
+    pub object_type: String,
+}
+
+/// Authorized typed object row (private ObjectKey + verified TypeAssignmentRef).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelTypedObject {
+    pub key_world: String,
+    pub key_entity: String,
+    pub type_id: String,
+    pub assignment_id: String,
+    pub evidence_ref: String,
+    pub valid_start_micros: i64,
+    pub valid_end_micros: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelTypedObjectPage {
+    pub world: String,
+    pub object_type: String,
+    pub valid_at_micros: i64,
+    pub objects: Vec<KernelTypedObject>,
+    pub authorized_count: u64,
+}
+
+/// FIN-01 identity candidate (never silently selected).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentityCandidate {
+    pub world: String,
+    pub entity: String,
+    pub type_id: String,
+    pub assignment_id: String,
+    pub venue: Option<String>,
+    pub currency: Option<String>,
+    pub identifier_level: String,
+    pub identifier_scheme: String,
+    pub identifier_value: String,
+    pub evidence_ref: String,
+    pub valid_start_micros: i64,
+    pub valid_end_micros: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentityResolve {
+    pub query: String,
+    pub candidates: Vec<KernelIdentityCandidate>,
+    /// Always false/empty: FIN-01 forbids silent first-match selection.
+    pub selected: Option<String>,
+    pub fin01_artifact: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KernelError {
     Conflict(String),

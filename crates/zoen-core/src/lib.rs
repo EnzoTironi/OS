@@ -14,6 +14,7 @@ mod human;
 mod identity;
 pub mod jcs;
 mod migration;
+mod object_key;
 mod pack;
 mod sha256;
 mod world_release;
@@ -71,6 +72,12 @@ pub use migration::{
     MigrationObligation, MigrationObligationSource, MigrationOrigin, MigrationPlan,
     MigrationPostcondition, MigrationProgress, MigrationRecipe, MigrationRecord, MigrationRule,
     MigrationRuleKind, MigrationStatus,
+};
+pub use object_key::{
+    EvidenceRef, GenericTypedObjectRef, IdentifierAssertion, IdentifierAssignment,
+    IdentifierAssignmentId, IdentityCandidate, IdentityResolveResult, ObjectKey, TypeAssignment,
+    TypeAssignmentAssertion, TypeAssignmentId, TypeAssignmentRef, TypedObjectError, TypedObjectRef,
+    type_assignment_assertion_digest,
 };
 pub use pack::{
     ActivatedDefinitionRef, AttributionEvent, AttributionEventId, AttributionEventKind,

@@ -93,6 +93,10 @@ impl PostgresWorldKernel {
         }
     }
 
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     /// Discover the seven public verbs on the active governed catalog.
     ///
     /// # Errors
@@ -271,6 +275,14 @@ impl PostgresWorldKernel {
             explanation_jcs,
         )
         .await?;
+        // W2-08: typed knowledge proposals materialize temporal TypeAssignment on Commit.
+        let _ = self
+            .materialize_type_assignment_from_commit(
+                &proposal.world,
+                &receipt.receipt_id,
+                &proposal.input_jcs,
+            )
+            .await?;
         Ok((receipt, surface))
     }
 
@@ -571,7 +583,10 @@ impl PostgresWorldKernel {
             .collect()
     }
 
-    async fn catalog_basis(&self, world: &WorldId) -> Result<GovernedCatalogBasis, KernelError> {
+    pub(crate) async fn catalog_basis(
+        &self,
+        world: &WorldId,
+    ) -> Result<GovernedCatalogBasis, KernelError> {
         let digest = self
             .releases
             .get_active(world)

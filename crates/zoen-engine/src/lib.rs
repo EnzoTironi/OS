@@ -71,8 +71,10 @@ pub use human::{
 };
 pub use kernel::{
     GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
-    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision,
-    KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface,
+    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelIdentityCandidate,
+    KernelIdentityResolve, KernelMintObject, KernelObjectGrant, KernelPlantObject,
+    KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface,
+    KernelTypedGrant, KernelTypedObject, KernelTypedObjectPage,
 };
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
