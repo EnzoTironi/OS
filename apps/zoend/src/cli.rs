@@ -182,12 +182,28 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         stdout_json: r#"{"format":"json","fields":["digest","publication"]}"#,
     },
     SchemaEntry {
-        command: "world.release.activate",
+        command: "world.release.preview",
         required_flags: &["--world", "--digest", "--principal"],
         examples: &[
-            "zoen world release activate --world world.alpha --digest <digest> --principal principal.owner",
+            "zoen world release preview --world world.alpha --digest <digest> --principal principal.owner",
         ],
-        stdout_json: r#"{"format":"json","fields":["activated","digest","previousDigest","world"]}"#,
+        stdout_json: r#"{"format":"json","fields":["previewDigest","digest","world","currentActive","replay"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.decide",
+        required_flags: &["--preview-digest", "--principal", "--decision"],
+        examples: &[
+            "zoen world release decide --preview-digest <digest> --principal principal.owner --decision approve",
+        ],
+        stdout_json: r#"{"format":"json","fields":["previewDigest","decision","digest","world","replay"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.activate",
+        required_flags: &["--world", "--digest", "--preview-digest", "--principal"],
+        examples: &[
+            "zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner",
+        ],
+        stdout_json: r#"{"format":"json","fields":["activated","digest","previousDigest","world","replay"]}"#,
     },
     SchemaEntry {
         command: "world.release.get",
@@ -600,15 +616,41 @@ pub enum ReleaseCommand {
         #[arg(long = "determining-policy", num_args = 0..)]
         determining_policy: Vec<String>,
     },
-    /// Atomically replace the active release pointer for one World
+    /// Derive a deterministic activation preview for a published candidate
     #[command(
-        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest> --principal principal.owner"
+        after_help = "Examples:\n  zoen world release preview --world world.alpha --digest <digest> --principal principal.owner"
+    )]
+    Preview {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        digest: String,
+        #[arg(long)]
+        principal: String,
+    },
+    /// Record an owner Decide over one activation preview
+    #[command(
+        after_help = "Examples:\n  zoen world release decide --preview-digest <digest> --principal principal.owner --decision approve"
+    )]
+    Decide {
+        #[arg(long = "preview-digest")]
+        preview_digest: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long)]
+        decision: String,
+    },
+    /// Atomically replace the active release pointer after an approving Decide
+    #[command(
+        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner"
     )]
     Activate {
         #[arg(long)]
         world: String,
         #[arg(long)]
         digest: String,
+        #[arg(long = "preview-digest")]
+        preview_digest: String,
         #[arg(long)]
         principal: String,
     },

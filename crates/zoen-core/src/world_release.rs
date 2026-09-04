@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub const WORLD_RELEASE_SCHEMA: &str = "zoen.world-release.v1";
+pub const WORLD_RELEASE_PREVIEW_SCHEMA: &str = "zoen.world-release-preview.v1";
 pub const WORLD_POLICY_CATALOG_SCHEMA: &str = "zoen.policy-catalog.v1";
 
 macro_rules! catalog_digest {
@@ -180,6 +181,12 @@ pub fn principal_may_activate(principal: &PrincipalId) -> bool {
     last_principal_label(principal) == "owner"
 }
 
+/// Only the World owner may decide a release preview.
+#[must_use]
+pub fn principal_may_decide(principal: &PrincipalId) -> bool {
+    principal_may_activate(principal)
+}
+
 /// World identity for release content. Distinct from legacy `TenantId` spelling.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorldId(String);
@@ -239,6 +246,287 @@ impl ReleaseDigest {
 impl Display for ReleaseDigest {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+/// Content-addressed activation preview identity. Lowercase 64-char SHA-256 hex.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ReleasePreviewDigest(String);
+
+impl ReleasePreviewDigest {
+    /// # Errors
+    ///
+    /// Returns [`DigestError`] when `value` is not 64 lowercase hex characters.
+    pub fn parse(value: impl Into<String>) -> Result<Self, DigestError> {
+        let value = value.into();
+        if value.len() == 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            Ok(Self(value))
+        } else {
+            Err(DigestError(value))
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn from_sha256(bytes: [u8; 32]) -> Self {
+        Self(encode_hex(&bytes))
+    }
+}
+
+impl Display for ReleasePreviewDigest {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+/// Catalog digest tuple bound into a release preview.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseCatalogSnapshot {
+    ontology: OntologyCatalogDigest,
+    policy: PolicyCatalogDigest,
+    executors: ExecutorCatalogDigest,
+    components: ComponentCatalogDigest,
+}
+
+impl ReleaseCatalogSnapshot {
+    #[must_use]
+    pub fn new(
+        ontology: OntologyCatalogDigest,
+        policy: PolicyCatalogDigest,
+        executors: ExecutorCatalogDigest,
+        components: ComponentCatalogDigest,
+    ) -> Self {
+        Self {
+            ontology,
+            policy,
+            executors,
+            components,
+        }
+    }
+
+    #[must_use]
+    pub fn ontology(&self) -> &OntologyCatalogDigest {
+        &self.ontology
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &PolicyCatalogDigest {
+        &self.policy
+    }
+
+    #[must_use]
+    pub fn executors(&self) -> &ExecutorCatalogDigest {
+        &self.executors
+    }
+
+    #[must_use]
+    pub fn components(&self) -> &ComponentCatalogDigest {
+        &self.components
+    }
+}
+
+/// Deterministic activation impact preview. Digest is derived; callers cannot supply it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleasePreviewContent {
+    world: WorldId,
+    release: ReleaseDigest,
+    current_active: Option<ReleaseDigest>,
+    candidate: ReleaseCatalogSnapshot,
+    current: Option<ReleaseCatalogSnapshot>,
+}
+
+impl WorldReleasePreviewContent {
+    /// Build preview content. Does not accept a preview digest.
+    #[must_use]
+    pub fn new(
+        world: WorldId,
+        release: ReleaseDigest,
+        current_active: Option<ReleaseDigest>,
+        candidate: ReleaseCatalogSnapshot,
+        current: Option<ReleaseCatalogSnapshot>,
+    ) -> Self {
+        Self {
+            world,
+            release,
+            current_active,
+            candidate,
+            current,
+        }
+    }
+
+    #[must_use]
+    pub fn world(&self) -> &WorldId {
+        &self.world
+    }
+
+    #[must_use]
+    pub fn release(&self) -> &ReleaseDigest {
+        &self.release
+    }
+
+    #[must_use]
+    pub fn current_active(&self) -> Option<&ReleaseDigest> {
+        self.current_active.as_ref()
+    }
+
+    #[must_use]
+    pub fn candidate(&self) -> &ReleaseCatalogSnapshot {
+        &self.candidate
+    }
+
+    #[must_use]
+    pub fn current(&self) -> Option<&ReleaseCatalogSnapshot> {
+        self.current.as_ref()
+    }
+
+    /// RFC 8785 JCS UTF-8 bytes for the domain-tagged preview digest document.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::Canonicalize`] when JCS fails.
+    pub fn canonical_jcs(&self) -> Result<String, WorldReleaseError> {
+        let document = preview_document_json(self);
+        canonicalize_json(&document).map_err(WorldReleaseError::Canonicalize)
+    }
+}
+
+/// Complete activation preview: derived digest plus private content.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleasePreview {
+    id: ReleasePreviewDigest,
+    content: WorldReleasePreviewContent,
+    canonical_jcs: String,
+}
+
+impl WorldReleasePreview {
+    /// Receive content, canonicalize, hash, and assign [`ReleasePreviewDigest`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError`] when JCS fails.
+    pub fn from_content(content: WorldReleasePreviewContent) -> Result<Self, WorldReleaseError> {
+        let canonical_jcs = content.canonical_jcs()?;
+        let id = ReleasePreviewDigest::from_sha256(sha256(canonical_jcs.as_bytes()));
+        Ok(Self {
+            id,
+            content,
+            canonical_jcs,
+        })
+    }
+
+    #[must_use]
+    pub fn id(&self) -> &ReleasePreviewDigest {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn content(&self) -> &WorldReleasePreviewContent {
+        &self.content
+    }
+
+    #[must_use]
+    pub fn canonical_jcs(&self) -> &str {
+        &self.canonical_jcs
+    }
+}
+
+/// Owner decision over one activation preview. Outside `ReleaseDigest`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseDecisionOutcome {
+    Approve,
+    Reject,
+}
+
+impl ReleaseDecisionOutcome {
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::Conflict`] when `value` is not approve/reject.
+    pub fn parse(value: &str) -> Result<Self, WorldReleaseError> {
+        match value {
+            "approve" => Ok(Self::Approve),
+            "reject" => Ok(Self::Reject),
+            other => Err(WorldReleaseError::Conflict(format!(
+                "decision must be approve or reject, got {other}"
+            ))),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Reject => "reject",
+        }
+    }
+}
+
+/// Durable Decide record for one preview. Never enters `ReleaseDigest`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleaseDecision {
+    preview: ReleasePreviewDigest,
+    release: ReleaseDigest,
+    world: WorldId,
+    decided_at: TimestampMicros,
+    decided_by: PrincipalId,
+    outcome: ReleaseDecisionOutcome,
+}
+
+impl WorldReleaseDecision {
+    #[must_use]
+    pub fn new(
+        preview: ReleasePreviewDigest,
+        release: ReleaseDigest,
+        world: WorldId,
+        decided_at: TimestampMicros,
+        decided_by: PrincipalId,
+        outcome: ReleaseDecisionOutcome,
+    ) -> Self {
+        Self {
+            preview,
+            release,
+            world,
+            decided_at,
+            decided_by,
+            outcome,
+        }
+    }
+
+    #[must_use]
+    pub fn preview(&self) -> &ReleasePreviewDigest {
+        &self.preview
+    }
+
+    #[must_use]
+    pub fn release(&self) -> &ReleaseDigest {
+        &self.release
+    }
+
+    #[must_use]
+    pub fn world(&self) -> &WorldId {
+        &self.world
+    }
+
+    #[must_use]
+    pub fn decided_at(&self) -> TimestampMicros {
+        self.decided_at
+    }
+
+    #[must_use]
+    pub fn decided_by(&self) -> &PrincipalId {
+        &self.decided_by
+    }
+
+    #[must_use]
+    pub fn outcome(&self) -> ReleaseDecisionOutcome {
+        self.outcome
     }
 }
 
@@ -426,6 +714,9 @@ pub enum WorldReleaseError {
     CallerSuppliedDigest,
     WorldMismatch,
     NotFound,
+    MissingApproval,
+    Rejected,
+    StalePreview,
     Conflict(String),
     Store(String),
 }
@@ -457,6 +748,11 @@ impl Display for WorldReleaseError {
                 formatter.write_str("release digest does not belong to this World")
             }
             Self::NotFound => formatter.write_str("world release was not found"),
+            Self::MissingApproval => {
+                formatter.write_str("activation requires an approving decision")
+            }
+            Self::Rejected => formatter.write_str("release activation was rejected"),
+            Self::StalePreview => formatter.write_str("release preview is stale"),
             Self::Conflict(message) => write!(formatter, "world release conflict: {message}"),
             Self::Store(message) => write!(formatter, "world release store error: {message}"),
         }
@@ -518,6 +814,47 @@ fn digest_document_json(content: &WorldReleaseContent) -> String {
     );
     out.push('}');
     out
+}
+
+fn preview_document_json(content: &WorldReleasePreviewContent) -> String {
+    let mut out = String::with_capacity(512);
+    out.push('{');
+    write_member(&mut out, "schema", Some(WORLD_RELEASE_PREVIEW_SCHEMA), true);
+    write_member(&mut out, "world", Some(content.world.as_str()), false);
+    write_member(&mut out, "release", Some(content.release.as_str()), false);
+    out.push(',');
+    write_json_string(&mut out, "currentActive");
+    out.push(':');
+    match &content.current_active {
+        Some(digest) => {
+            out.push('"');
+            out.push_str(digest.as_str());
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
+    out.push(',');
+    write_json_string(&mut out, "candidate");
+    out.push(':');
+    write_catalog_snapshot_json(&mut out, &content.candidate);
+    out.push(',');
+    write_json_string(&mut out, "current");
+    out.push(':');
+    match &content.current {
+        Some(snapshot) => write_catalog_snapshot_json(&mut out, snapshot),
+        None => out.push_str("null"),
+    }
+    out.push('}');
+    out
+}
+
+fn write_catalog_snapshot_json(out: &mut String, snapshot: &ReleaseCatalogSnapshot) {
+    out.push('{');
+    write_member(out, "components", Some(snapshot.components.as_str()), true);
+    write_member(out, "executors", Some(snapshot.executors.as_str()), false);
+    write_member(out, "ontology", Some(snapshot.ontology.as_str()), false);
+    write_member(out, "policy", Some(snapshot.policy.as_str()), false);
+    out.push('}');
 }
 
 fn write_member(out: &mut String, key: &str, value: Option<&str>, first: bool) {

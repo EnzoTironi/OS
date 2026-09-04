@@ -281,10 +281,55 @@ function publish(
   return result;
 }
 
+function preview(
+  world: string,
+  digest: string,
+  principal: string,
+): ZoenResult & { body?: Record<string, unknown> } {
+  const result = runZoen([
+    "world",
+    "release",
+    "preview",
+    "--world",
+    world,
+    "--digest",
+    digest,
+    "--principal",
+    principal,
+  ]);
+  if (result.status === 0) {
+    return { ...result, body: parseJson(result.stdout) };
+  }
+  return result;
+}
+
+function decide(
+  previewDigest: string,
+  principal: string,
+  decision: "approve" | "reject",
+): ZoenResult & { body?: Record<string, unknown> } {
+  const result = runZoen([
+    "world",
+    "release",
+    "decide",
+    "--preview-digest",
+    previewDigest,
+    "--principal",
+    principal,
+    "--decision",
+    decision,
+  ]);
+  if (result.status === 0) {
+    return { ...result, body: parseJson(result.stdout) };
+  }
+  return result;
+}
+
 function activate(
   world: string,
   digest: string,
   principal: string,
+  previewDigest: string,
 ): ZoenResult {
   return runZoen([
     "world",
@@ -294,9 +339,37 @@ function activate(
     world,
     "--digest",
     digest,
+    "--preview-digest",
+    previewDigest,
     "--principal",
     principal,
   ]);
+}
+
+function approveAndActivate(
+  world: string,
+  digest: string,
+  principal: string,
+): {
+  preview: Record<string, unknown>;
+  decide: Record<string, unknown>;
+  activate: ZoenResult;
+} {
+  const previewed = preview(world, digest, principal);
+  assert.equal(previewed.status, 0, previewed.stderr);
+  const previewBody = previewed.body ?? {};
+  const decided = decide(String(previewBody.previewDigest), principal, "approve");
+  assert.equal(decided.status, 0, decided.stderr);
+  return {
+    preview: previewBody,
+    decide: decided.body ?? {},
+    activate: activate(
+      world,
+      digest,
+      principal,
+      String(previewBody.previewDigest),
+    ),
+  };
 }
 
 function authorize(
@@ -355,6 +428,10 @@ async function main(): Promise<void> {
 
   const schema = runZoen(["schema", "world.release.construct"]);
   record("schema_lists_construct", schema.status === 0);
+  const previewSchema = runZoen(["schema", "world.release.preview"]);
+  record("schema_lists_preview", previewSchema.status === 0);
+  const decideSchema = runZoen(["schema", "world.release.decide"]);
+  record("schema_lists_decide", decideSchema.status === 0);
   const authorizeSchema = runZoen(["schema", "world.release.authorize"]);
   record("schema_lists_authorize", authorizeSchema.status === 0);
   record(
@@ -516,15 +593,28 @@ async function main(): Promise<void> {
     nonBuilder.stderr.includes("not a builder"),
   );
 
-  const unpublishedActivate = activate(
+  const unpublishedPreview = preview(
     "world.alpha",
     String(liveConstruct.digest),
     "principal.owner",
   );
   record(
+    "unpublished_preview_fails",
+    unpublishedPreview.status !== 0 &&
+      (unpublishedPreview.stderr.includes("requires policy evidence") ||
+        unpublishedPreview.stderr.includes("was not found")),
+  );
+  const unpublishedActivate = activate(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+    "0".repeat(64),
+  );
+  record(
     "unpublished_activate_fails",
     unpublishedActivate.status !== 0 &&
-      unpublishedActivate.stderr.includes("was not found"),
+      (unpublishedActivate.stderr.includes("was not found") ||
+        unpublishedActivate.stderr.includes("activation requires an approving decision")),
   );
 
   const ownerPublish = publish(liveAlphaPath, "principal.builder");
@@ -561,10 +651,102 @@ async function main(): Promise<void> {
     replayed.digest === published.digest,
   );
 
+  const builderPreview = preview(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.builder",
+  );
+  record(
+    "builder_cannot_preview",
+    builderPreview.status !== 0 && builderPreview.stderr.includes("not the owner"),
+  );
+  const ownerPreview = preview(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+  );
+  assert.equal(ownerPreview.status, 0, ownerPreview.stderr);
+  const firstPreview = ownerPreview.body ?? {};
+  record(
+    "owner_preview_binds_candidate",
+    firstPreview.digest === liveConstruct.digest &&
+      firstPreview.currentActive === null &&
+      firstPreview.schema === "zoen.world-release-preview.v1",
+  );
+  record("owner_preview_replay_is_false_first", firstPreview.replay === false);
+  const previewReplay = preview(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+  );
+  assert.equal(previewReplay.status, 0, previewReplay.stderr);
+  const replayedPreview = previewReplay.body ?? {};
+  record(
+    "identical_preview_replay",
+    replayedPreview.replay === true &&
+      replayedPreview.previewDigest === firstPreview.previewDigest,
+  );
+
+  const builderDecide = decide(
+    String(firstPreview.previewDigest),
+    "principal.builder",
+    "approve",
+  );
+  record(
+    "builder_cannot_decide",
+    builderDecide.status !== 0 && builderDecide.stderr.includes("not the owner"),
+  );
+
+  const activateWithoutDecide = activate(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+    String(firstPreview.previewDigest),
+  );
+  record(
+    "activate_without_approve_fails",
+    activateWithoutDecide.status !== 0 &&
+      activateWithoutDecide.stderr.includes("activation requires an approving decision"),
+  );
+
+  const ownerDecide = decide(
+    String(firstPreview.previewDigest),
+    "principal.owner",
+    "approve",
+  );
+  assert.equal(ownerDecide.status, 0, ownerDecide.stderr);
+  const firstDecision = ownerDecide.body ?? {};
+  record("owner_decide_approves", firstDecision.decision === "approve");
+  record("owner_decide_replay_is_false_first", firstDecision.replay === false);
+  const decideReplay = decide(
+    String(firstPreview.previewDigest),
+    "principal.owner",
+    "approve",
+  );
+  assert.equal(decideReplay.status, 0, decideReplay.stderr);
+  const replayedDecision = decideReplay.body ?? {};
+  record(
+    "identical_decide_replay",
+    replayedDecision.replay === true &&
+      replayedDecision.previewDigest === firstPreview.previewDigest &&
+      replayedDecision.decidedAtMicros === firstDecision.decidedAtMicros,
+  );
+  const mismatchedDecideReplay = decide(
+    String(firstPreview.previewDigest),
+    "principal.other.owner",
+    "approve",
+  );
+  record(
+    "mismatched_decide_principal_denied",
+    mismatchedDecideReplay.status !== 0 &&
+      mismatchedDecideReplay.stderr.includes("not the owner"),
+  );
+
   const builderActivate = activate(
     "world.alpha",
     String(liveConstruct.digest),
     "principal.builder",
+    String(firstPreview.previewDigest),
   );
   record(
     "builder_cannot_activate",
@@ -576,11 +758,27 @@ async function main(): Promise<void> {
     "world.alpha",
     String(liveConstruct.digest),
     "principal.owner",
+    String(firstPreview.previewDigest),
   );
   assert.equal(firstActivate.status, 0, firstActivate.stderr);
   const firstActivation = parseJson(firstActivate.stdout);
   record("first_activation_succeeds", firstActivation.activated === true);
   record("first_activation_has_no_previous", firstActivation.previousDigest === null);
+  record("first_activation_replay_is_false", firstActivation.replay === false);
+  const activateReplay = activate(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+    String(firstPreview.previewDigest),
+  );
+  assert.equal(activateReplay.status, 0, activateReplay.stderr);
+  const replayedActivation = parseJson(activateReplay.stdout);
+  record(
+    "identical_activate_replay",
+    replayedActivation.replay === true &&
+      replayedActivation.activated === true &&
+      replayedActivation.digest === liveConstruct.digest,
+  );
 
   const fetchedCatalogs = runZoen([
     "world",
@@ -685,7 +883,20 @@ async function main(): Promise<void> {
       beta.components === liveConstruct.components &&
       beta.digest !== liveConstruct.digest,
   );
-  const crossWorld = activate("world.alpha", String(beta.digest), "principal.owner");
+  const crossPreview = preview("world.alpha", String(beta.digest), "principal.owner");
+  record(
+    "other_world_cannot_preview_for_this_world",
+    crossPreview.status !== 0 &&
+      crossPreview.stderr.includes("does not belong to this World"),
+  );
+  const betaPreviewForCross = preview("world.beta", String(beta.digest), "principal.owner");
+  assert.equal(betaPreviewForCross.status, 0, betaPreviewForCross.stderr);
+  const crossWorld = activate(
+    "world.alpha",
+    String(beta.digest),
+    "principal.owner",
+    String((betaPreviewForCross.body ?? {}).previewDigest),
+  );
   record(
     "other_world_cannot_activate_for_this_world",
     crossWorld.status !== 0 &&
@@ -726,13 +937,17 @@ async function main(): Promise<void> {
   const secondRelease = construct(secondPath);
   const secondPublish = publish(secondPath, "principal.builder");
   assert.equal(secondPublish.status, 0, secondPublish.stderr);
-  const secondActivate = activate(
+  const secondCeremony = approveAndActivate(
     "world.alpha",
     String(secondRelease.digest),
     "principal.owner",
   );
-  assert.equal(secondActivate.status, 0, secondActivate.stderr);
-  const secondActivation = parseJson(secondActivate.stdout);
+  assert.equal(secondCeremony.activate.status, 0, secondCeremony.activate.stderr);
+  const secondActivation = parseJson(secondCeremony.activate.stdout);
+  record(
+    "second_preview_sees_prior_active",
+    secondCeremony.preview.currentActive === liveConstruct.digest,
+  );
   record("second_activation_replaces_pointer", secondActivation.activated === true);
   record(
     "second_activation_reports_previous",
@@ -773,11 +988,29 @@ async function main(): Promise<void> {
   const recovery = construct(recoveryPath);
   const recoveryPublish = publish(recoveryPath, "principal.builder");
   assert.equal(recoveryPublish.status, 0, recoveryPublish.stderr);
+  const recoveryPreview = preview(
+    "world.alpha",
+    String(recovery.digest),
+    "principal.owner",
+  );
+  assert.equal(recoveryPreview.status, 0, recoveryPreview.stderr);
+  const recoveryPreviewBody = recoveryPreview.body ?? {};
+  const recoveryDecide = decide(
+    String(recoveryPreviewBody.previewDigest),
+    "principal.owner",
+    "approve",
+  );
+  assert.equal(recoveryDecide.status, 0, recoveryDecide.stderr);
   const afterCrash = runZoen(["world", "release", "active", "--world", "world.alpha"]);
   const stillActive = parseJson(afterCrash.stdout);
   record(
     "crash_before_activation_preserves_pointer",
     stillActive.digest === secondRelease.digest,
+  );
+  record(
+    "crash_preserves_durable_decision",
+    (recoveryDecide.body ?? {}).decision === "approve" &&
+      (recoveryDecide.body ?? {}).previewDigest === recoveryPreviewBody.previewDigest,
   );
   const storedCandidate = runZoen([
     "world",
@@ -791,12 +1024,153 @@ async function main(): Promise<void> {
     "world.alpha",
     String(recovery.digest),
     "principal.owner",
+    String(recoveryPreviewBody.previewDigest),
   );
   assert.equal(retryActivate.status, 0, retryActivate.stderr);
   const recovered = parseJson(
     runZoen(["world", "release", "active", "--world", "world.alpha"]).stdout,
   );
   record("retry_converges_to_one_active", recovered.digest === recovery.digest);
+
+  // Reject then activate denied
+  const rejectBytes: CatalogBytes = {
+    ...alphaBytes,
+    components: "component catalog for reject path\n",
+  };
+  const rejectPath = await writeContent(
+    "reject.json",
+    contentFromBytes("world.alpha", rejectBytes),
+  );
+  const rejectRelease = construct(rejectPath);
+  const rejectPublish = publish(rejectPath, "principal.builder");
+  assert.equal(rejectPublish.status, 0, rejectPublish.stderr);
+  const rejectPreview = preview(
+    "world.alpha",
+    String(rejectRelease.digest),
+    "principal.owner",
+  );
+  assert.equal(rejectPreview.status, 0, rejectPreview.stderr);
+  const rejected = decide(
+    String((rejectPreview.body ?? {}).previewDigest),
+    "principal.owner",
+    "reject",
+  );
+  assert.equal(rejected.status, 0, rejected.stderr);
+  record("owner_can_reject_preview", (rejected.body ?? {}).decision === "reject");
+  const rejectedActivate = activate(
+    "world.alpha",
+    String(rejectRelease.digest),
+    "principal.owner",
+    String((rejectPreview.body ?? {}).previewDigest),
+  );
+  record(
+    "reject_then_activate_denied",
+    rejectedActivate.status !== 0 &&
+      rejectedActivate.stderr.includes("release activation was rejected"),
+  );
+
+  // Stale preview: capture preview while recovery is active, replace active, then decide/activate fail
+  const staleBytes: CatalogBytes = {
+    ...alphaBytes,
+    ontology: "ontology catalog for stale preview\n",
+  };
+  const stalePath = await writeContent(
+    "stale.json",
+    contentFromBytes("world.alpha", staleBytes),
+  );
+  const staleRelease = construct(stalePath);
+  const stalePublish = publish(stalePath, "principal.builder");
+  assert.equal(stalePublish.status, 0, stalePublish.stderr);
+  const stalePreview = preview(
+    "world.alpha",
+    String(staleRelease.digest),
+    "principal.owner",
+  );
+  assert.equal(stalePreview.status, 0, stalePreview.stderr);
+  const stalePreviewBody = stalePreview.body ?? {};
+  record(
+    "stale_preview_captures_current_active",
+    stalePreviewBody.currentActive === recovery.digest,
+  );
+  const moverBytes: CatalogBytes = {
+    ...alphaBytes,
+    ontology: "ontology catalog that moves active pointer\n",
+  };
+  const moverPath = await writeContent(
+    "mover.json",
+    contentFromBytes("world.alpha", moverBytes),
+  );
+  const moverRelease = construct(moverPath);
+  const moverPublish = publish(moverPath, "principal.builder");
+  assert.equal(moverPublish.status, 0, moverPublish.stderr);
+  const moverCeremony = approveAndActivate(
+    "world.alpha",
+    String(moverRelease.digest),
+    "principal.owner",
+  );
+  assert.equal(moverCeremony.activate.status, 0, moverCeremony.activate.stderr);
+  const staleDecide = decide(
+    String(stalePreviewBody.previewDigest),
+    "principal.owner",
+    "approve",
+  );
+  record(
+    "decide_on_stale_preview_fails",
+    staleDecide.status !== 0 && staleDecide.stderr.includes("release preview is stale"),
+  );
+  // Fresh preview+decide for stale release, then move active again before activate
+  const freshStalePreview = preview(
+    "world.alpha",
+    String(staleRelease.digest),
+    "principal.owner",
+  );
+  assert.equal(freshStalePreview.status, 0, freshStalePreview.stderr);
+  const freshStaleBody = freshStalePreview.body ?? {};
+  const freshStaleDecide = decide(
+    String(freshStaleBody.previewDigest),
+    "principal.owner",
+    "approve",
+  );
+  assert.equal(freshStaleDecide.status, 0, freshStaleDecide.stderr);
+  const mover2Bytes: CatalogBytes = {
+    ...alphaBytes,
+    ontology: "ontology catalog that moves active again\n",
+  };
+  const mover2Path = await writeContent(
+    "mover2.json",
+    contentFromBytes("world.alpha", mover2Bytes),
+  );
+  const mover2Release = construct(mover2Path);
+  assert.equal(publish(mover2Path, "principal.builder").status, 0);
+  const mover2Ceremony = approveAndActivate(
+    "world.alpha",
+    String(mover2Release.digest),
+    "principal.owner",
+  );
+  assert.equal(mover2Ceremony.activate.status, 0, mover2Ceremony.activate.stderr);
+  const staleActivate = activate(
+    "world.alpha",
+    String(staleRelease.digest),
+    "principal.owner",
+    String(freshStaleBody.previewDigest),
+  );
+  record(
+    "activate_on_stale_preview_fails",
+    staleActivate.status !== 0 && staleActivate.stderr.includes("release preview is stale"),
+  );
+  const wrongPreviewActivate = activate(
+    "world.alpha",
+    String(staleRelease.digest),
+    "principal.owner",
+    String(mover2Ceremony.preview.previewDigest),
+  );
+  record(
+    "wrong_preview_digest_fails",
+    wrongPreviewActivate.status !== 0 &&
+      (wrongPreviewActivate.stderr.includes("does not belong to this World") ||
+        wrongPreviewActivate.stderr.includes("release preview is stale") ||
+        wrongPreviewActivate.stderr.includes("was not found")),
+  );
 
   const unpublishedMix = expectedFromBytes("world.alpha", {
     ontology: alphaBytes.ontology,
@@ -808,6 +1182,7 @@ async function main(): Promise<void> {
     "world.alpha",
     unpublishedMix.digest,
     "principal.owner",
+    "f".repeat(64),
   );
   record(
     "unpublished_mixed_tuple_cannot_activate",
@@ -817,12 +1192,12 @@ async function main(): Promise<void> {
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
     dimensions: {
-      actors: "builder publishes Cedar PolicyCatalog bytes; owner activates; authorize uses active-release Cedar",
-      isolation: "another World cannot activate, read catalogs, or authorize for this World",
-      negative: "non-builder, missing policy evidence, hex-only, missing/invalid Cedar, boot-manifest-only after activation, mixed catalogs, unpublished activate",
-      path: "publish Cedar-bearing policy catalog, activate, digest binds four catalogs, authorize governed verb from active-release Cedar",
-      recovery: "publication without activation keeps the prior pointer and candidate catalogs",
-      replay: "identical catalog bytes and publish replay keep one digest and publication",
+      actors: "builder publishes Cedar PolicyCatalog bytes; owner previews, decides, and activates; authorize uses active-release Cedar",
+      isolation: "another World cannot preview, decide, activate, read catalogs, or authorize for this World",
+      negative: "non-builder, missing policy evidence, hex-only, missing/invalid Cedar, boot-manifest-only after activation, mixed catalogs, unpublished activate, activate without approve, reject then activate, stale/wrong preview",
+      path: "publish Cedar-bearing policy catalog, preview impact, owner decide approve, activate, digest binds four catalogs, authorize governed verb from active-release Cedar",
+      recovery: "decide without activate keeps prior pointer, candidate, and durable decision; retry converges to one active",
+      replay: "identical catalog bytes, publish, preview, decide, and activate replay keep one digest and no second rows",
     },
     fixtureDigest,
     finishedAt: new Date().toISOString(),

@@ -2,9 +2,11 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ComponentCatalog, ComponentCatalogDigest, ExecutorCatalog, ExecutorCatalogDigest,
     OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest, PolicyDigest,
-    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest,
+    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
+    ReleaseCatalogSnapshot, ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest,
     TimestampMicros, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseContent,
-    WorldReleaseError, WorldReleasePublication,
+    WorldReleaseDecision, WorldReleaseError, WorldReleasePreview, WorldReleasePreviewContent,
+    WorldReleasePublication,
 };
 
 use crate::clock_micros;
@@ -113,23 +115,106 @@ impl PostgresWorldReleaseStore {
         Ok(stored)
     }
 
-    /// Atomically replace the active pointer for `world`. Prior releases stay queryable.
+    /// Derive and store a deterministic activation preview for a published candidate.
     ///
     /// # Errors
     ///
-    /// Returns [`WorldReleaseError::WorldMismatch`] when the digest belongs to
-    /// another World, [`WorldReleaseError::MissingPolicy`] when unpublished, or
-    /// [`WorldReleaseError::NotFound`] when the release is absent.
+    /// Returns [`WorldReleaseError::WorldMismatch`], [`WorldReleaseError::MissingPolicy`]
+    /// when unpublished, [`WorldReleaseError::NotFound`], or a store error.
+    pub async fn preview(
+        &self,
+        world: &WorldId,
+        digest: &ReleaseDigest,
+    ) -> Result<PreviewPut, WorldReleaseError> {
+        let mut transaction = self.pool.begin().await.map_err(store)?;
+        let stored = preview_tx(&mut transaction, world, digest).await?;
+        transaction.commit().await.map_err(store)?;
+        Ok(stored)
+    }
+
+    /// Record an owner Decide for one preview. Identical Decide is idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::StalePreview`] when the active pointer moved,
+    /// [`WorldReleaseError::NotOwner`] on mismatched replay principal, or a store error.
+    pub async fn decide(
+        &self,
+        preview_digest: &ReleasePreviewDigest,
+        decided_by: &PrincipalId,
+        outcome: ReleaseDecisionOutcome,
+        at: TimestampMicros,
+    ) -> Result<DecisionPut, WorldReleaseError> {
+        let mut transaction = self.pool.begin().await.map_err(store)?;
+        let stored = decide_tx(&mut transaction, preview_digest, decided_by, outcome, at).await?;
+        transaction.commit().await.map_err(store)?;
+        Ok(stored)
+    }
+
+    /// Atomically replace the active pointer after an approving Decide.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::MissingApproval`], [`WorldReleaseError::Rejected`],
+    /// [`WorldReleaseError::StalePreview`], [`WorldReleaseError::WorldMismatch`],
+    /// [`WorldReleaseError::MissingPolicy`] when unpublished, or
+    /// [`WorldReleaseError::NotFound`] when the release/preview is absent.
     pub async fn activate(
         &self,
         world: &WorldId,
         digest: &ReleaseDigest,
+        preview_digest: &ReleasePreviewDigest,
         at: TimestampMicros,
-    ) -> Result<Option<ReleaseDigest>, WorldReleaseError> {
+    ) -> Result<ActivatePut, WorldReleaseError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        let previous = activate_tx(&mut transaction, world, digest, at).await?;
+        let stored = activate_tx(&mut transaction, world, digest, preview_digest, at).await?;
         transaction.commit().await.map_err(store)?;
-        Ok(previous)
+        Ok(stored)
+    }
+
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError`] when PostgreSQL is unavailable or stored
+    /// bytes cannot be reconstructed.
+    pub async fn get_preview(
+        &self,
+        preview_digest: &ReleasePreviewDigest,
+    ) -> Result<Option<WorldReleasePreview>, WorldReleaseError> {
+        let row = sqlx::query(
+            "SELECT preview_digest, world_id, release_digest, current_active_digest,
+                    candidate_ontology_digest, candidate_policy_digest,
+                    candidate_executors_digest, candidate_components_digest,
+                    current_ontology_digest, current_policy_digest,
+                    current_executors_digest, current_components_digest, canonical_jcs
+             FROM world_release_previews
+             WHERE preview_digest = $1",
+        )
+        .bind(preview_digest.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(store)?;
+        row.map(|row| row_to_preview(&row)).transpose()
+    }
+
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError`] when PostgreSQL is unavailable or the row
+    /// cannot be parsed.
+    pub async fn get_decision(
+        &self,
+        preview_digest: &ReleasePreviewDigest,
+    ) -> Result<Option<WorldReleaseDecision>, WorldReleaseError> {
+        let row = sqlx::query(
+            "SELECT preview_digest, release_digest, world_id, decided_at_micros,
+                    decided_by, outcome
+             FROM world_release_decisions
+             WHERE preview_digest = $1",
+        )
+        .bind(preview_digest.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(store)?;
+        row.map(|row| row_to_decision(&row)).transpose()
     }
 
     /// # Errors
@@ -261,6 +346,24 @@ pub struct PublicationPut {
     pub replay: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviewPut {
+    pub preview: WorldReleasePreview,
+    pub replay: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecisionPut {
+    pub decision: WorldReleaseDecision,
+    pub replay: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivatePut {
+    pub previous: Option<ReleaseDigest>,
+    pub replay: bool,
+}
+
 async fn put_publication_tx(
     transaction: &mut Transaction<'_, Postgres>,
     publication: &WorldReleasePublication,
@@ -312,12 +415,269 @@ async fn put_publication_tx(
     })
 }
 
+async fn preview_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+    digest: &ReleaseDigest,
+) -> Result<PreviewPut, WorldReleaseError> {
+    let release_row = sqlx::query(
+        "SELECT digest, world_id, parent_digest, ontology_digest, policy_digest,
+                executors_digest, components_digest, canonical_jcs
+         FROM world_releases
+         WHERE digest = $1",
+    )
+    .bind(digest.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let Some(release_row) = release_row else {
+        return Err(WorldReleaseError::NotFound);
+    };
+    let release = row_to_release(&release_row)?;
+    if release.content().world() != world {
+        return Err(WorldReleaseError::WorldMismatch);
+    }
+    let published = sqlx::query_scalar::<_, bool>(
+        "SELECT true FROM world_release_publications WHERE digest = $1",
+    )
+    .bind(digest.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    if published.is_none() {
+        return Err(WorldReleaseError::MissingPolicy);
+    }
+    let current_active = sqlx::query_scalar::<_, String>(
+        "SELECT digest FROM world_active_releases WHERE world_id = $1",
+    )
+    .bind(world.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let current_active = current_active.map(ReleaseDigest::parse).transpose()?;
+    let current = match &current_active {
+        Some(active_digest) => {
+            let active_row = sqlx::query(
+                "SELECT digest, world_id, parent_digest, ontology_digest, policy_digest,
+                        executors_digest, components_digest, canonical_jcs
+                 FROM world_releases
+                 WHERE digest = $1",
+            )
+            .bind(active_digest.as_str())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(store)?;
+            let Some(active_row) = active_row else {
+                return Err(WorldReleaseError::NotFound);
+            };
+            let active_release = row_to_release(&active_row)?;
+            Some(snapshot_from_release(&active_release))
+        }
+        None => None,
+    };
+    let preview = WorldReleasePreview::from_content(WorldReleasePreviewContent::new(
+        world.clone(),
+        digest.clone(),
+        current_active,
+        snapshot_from_release(&release),
+        current,
+    ))?;
+    put_preview_tx(transaction, &preview).await
+}
+
+async fn put_preview_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    preview: &WorldReleasePreview,
+) -> Result<PreviewPut, WorldReleaseError> {
+    let inserted = sqlx::query(
+        "INSERT INTO world_release_previews (
+            preview_digest, world_id, release_digest, current_active_digest,
+            candidate_ontology_digest, candidate_policy_digest,
+            candidate_executors_digest, candidate_components_digest,
+            current_ontology_digest, current_policy_digest,
+            current_executors_digest, current_components_digest,
+            canonical_jcs, created_at_micros
+         ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+         )
+         ON CONFLICT (preview_digest) DO NOTHING",
+    )
+    .bind(preview.id().as_str())
+    .bind(preview.content().world().as_str())
+    .bind(preview.content().release().as_str())
+    .bind(
+        preview
+            .content()
+            .current_active()
+            .map(ReleaseDigest::as_str),
+    )
+    .bind(preview.content().candidate().ontology().as_str())
+    .bind(preview.content().candidate().policy().as_str())
+    .bind(preview.content().candidate().executors().as_str())
+    .bind(preview.content().candidate().components().as_str())
+    .bind(preview.content().current().map(|s| s.ontology().as_str()))
+    .bind(preview.content().current().map(|s| s.policy().as_str()))
+    .bind(preview.content().current().map(|s| s.executors().as_str()))
+    .bind(preview.content().current().map(|s| s.components().as_str()))
+    .bind(preview.canonical_jcs())
+    .bind(clock_micros())
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    if inserted.rows_affected() == 0 {
+        let existing = sqlx::query_scalar::<_, String>(
+            "SELECT canonical_jcs FROM world_release_previews WHERE preview_digest = $1",
+        )
+        .bind(preview.id().as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(store)?;
+        return match existing {
+            Some(canonical) if canonical == preview.canonical_jcs() => Ok(PreviewPut {
+                preview: preview.clone(),
+                replay: true,
+            }),
+            Some(_) => Err(WorldReleaseError::Conflict(
+                "preview digest already bound to different content".to_owned(),
+            )),
+            None => Err(WorldReleaseError::Store(
+                "preview insert conflicted then vanished".to_owned(),
+            )),
+        };
+    }
+    Ok(PreviewPut {
+        preview: preview.clone(),
+        replay: false,
+    })
+}
+
+async fn decide_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    preview_digest: &ReleasePreviewDigest,
+    decided_by: &PrincipalId,
+    outcome: ReleaseDecisionOutcome,
+    at: TimestampMicros,
+) -> Result<DecisionPut, WorldReleaseError> {
+    let preview_row = sqlx::query(
+        "SELECT preview_digest, world_id, release_digest, current_active_digest,
+                candidate_ontology_digest, candidate_policy_digest,
+                candidate_executors_digest, candidate_components_digest,
+                current_ontology_digest, current_policy_digest,
+                current_executors_digest, current_components_digest, canonical_jcs
+         FROM world_release_previews
+         WHERE preview_digest = $1",
+    )
+    .bind(preview_digest.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let Some(preview_row) = preview_row else {
+        return Err(WorldReleaseError::NotFound);
+    };
+    let preview = row_to_preview(&preview_row)?;
+    ensure_preview_fresh(transaction, &preview).await?;
+    let decision = WorldReleaseDecision::new(
+        preview.id().clone(),
+        preview.content().release().clone(),
+        preview.content().world().clone(),
+        at,
+        decided_by.clone(),
+        outcome,
+    );
+    let inserted = sqlx::query(
+        "INSERT INTO world_release_decisions (
+            preview_digest, release_digest, world_id, decided_at_micros, decided_by, outcome
+         ) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (preview_digest) DO NOTHING",
+    )
+    .bind(decision.preview().as_str())
+    .bind(decision.release().as_str())
+    .bind(decision.world().as_str())
+    .bind(decision.decided_at().get())
+    .bind(decision.decided_by().as_str())
+    .bind(decision.outcome().as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    if inserted.rows_affected() == 0 {
+        let row = sqlx::query(
+            "SELECT preview_digest, release_digest, world_id, decided_at_micros,
+                    decided_by, outcome
+             FROM world_release_decisions
+             WHERE preview_digest = $1",
+        )
+        .bind(preview_digest.as_str())
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(store)?;
+        let existing = row_to_decision(&row)?;
+        if existing.decided_by() != decided_by {
+            return Err(WorldReleaseError::NotOwner);
+        }
+        if existing.outcome() != outcome {
+            return Err(WorldReleaseError::Conflict(
+                "preview already decided with a different outcome".to_owned(),
+            ));
+        }
+        return Ok(DecisionPut {
+            decision: existing,
+            replay: true,
+        });
+    }
+    Ok(DecisionPut {
+        decision,
+        replay: false,
+    })
+}
+
 async fn activate_tx(
     transaction: &mut Transaction<'_, Postgres>,
     world: &WorldId,
     digest: &ReleaseDigest,
+    preview_digest: &ReleasePreviewDigest,
     at: TimestampMicros,
-) -> Result<Option<ReleaseDigest>, WorldReleaseError> {
+) -> Result<ActivatePut, WorldReleaseError> {
+    let preview_row = sqlx::query(
+        "SELECT preview_digest, world_id, release_digest, current_active_digest,
+                candidate_ontology_digest, candidate_policy_digest,
+                candidate_executors_digest, candidate_components_digest,
+                current_ontology_digest, current_policy_digest,
+                current_executors_digest, current_components_digest, canonical_jcs
+         FROM world_release_previews
+         WHERE preview_digest = $1",
+    )
+    .bind(preview_digest.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let Some(preview_row) = preview_row else {
+        return Err(WorldReleaseError::NotFound);
+    };
+    let preview = row_to_preview(&preview_row)?;
+    if preview.content().world() != world || preview.content().release() != digest {
+        return Err(WorldReleaseError::WorldMismatch);
+    }
+    let decision_row = sqlx::query(
+        "SELECT preview_digest, release_digest, world_id, decided_at_micros,
+                decided_by, outcome
+         FROM world_release_decisions
+         WHERE preview_digest = $1",
+    )
+    .bind(preview_digest.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let Some(decision_row) = decision_row else {
+        return Err(WorldReleaseError::MissingApproval);
+    };
+    let decision = row_to_decision(&decision_row)?;
+    if decision.release() != digest || decision.world() != world {
+        return Err(WorldReleaseError::WorldMismatch);
+    }
+    match decision.outcome() {
+        ReleaseDecisionOutcome::Approve => {}
+        ReleaseDecisionOutcome::Reject => return Err(WorldReleaseError::Rejected),
+    }
     let bound_world =
         sqlx::query_scalar::<_, String>("SELECT world_id FROM world_releases WHERE digest = $1")
             .bind(digest.as_str())
@@ -347,6 +707,15 @@ async fn activate_tx(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(store)?;
+    let previous = previous.map(ReleaseDigest::parse).transpose()?;
+    if previous.as_ref() == Some(digest) {
+        // Idempotent replay: already active on this digest.
+        return Ok(ActivatePut {
+            previous,
+            replay: true,
+        });
+    }
+    ensure_preview_fresh_with_active(preview.content().current_active(), previous.as_ref())?;
     sqlx::query(
         "INSERT INTO world_active_releases (world_id, digest, activated_at_micros)
          VALUES ($1, $2, $3)
@@ -360,10 +729,121 @@ async fn activate_tx(
     .execute(&mut **transaction)
     .await
     .map_err(store)?;
-    previous
-        .map(ReleaseDigest::parse)
-        .transpose()
-        .map_err(Into::into)
+    Ok(ActivatePut {
+        previous,
+        replay: false,
+    })
+}
+
+async fn ensure_preview_fresh(
+    transaction: &mut Transaction<'_, Postgres>,
+    preview: &WorldReleasePreview,
+) -> Result<(), WorldReleaseError> {
+    let current = sqlx::query_scalar::<_, String>(
+        "SELECT digest FROM world_active_releases WHERE world_id = $1",
+    )
+    .bind(preview.content().world().as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(store)?;
+    let current = current.map(ReleaseDigest::parse).transpose()?;
+    ensure_preview_fresh_with_active(preview.content().current_active(), current.as_ref())
+}
+
+fn ensure_preview_fresh_with_active(
+    expected: Option<&ReleaseDigest>,
+    actual: Option<&ReleaseDigest>,
+) -> Result<(), WorldReleaseError> {
+    if expected == actual {
+        Ok(())
+    } else {
+        Err(WorldReleaseError::StalePreview)
+    }
+}
+
+fn snapshot_from_release(release: &WorldRelease) -> ReleaseCatalogSnapshot {
+    ReleaseCatalogSnapshot::new(
+        release.content().ontology().clone(),
+        release.content().policy().clone(),
+        release.content().executors().clone(),
+        release.content().components().clone(),
+    )
+}
+
+fn row_to_preview(row: &PgRow) -> Result<WorldReleasePreview, WorldReleaseError> {
+    let current_active = match row
+        .try_get::<Option<String>, _>("current_active_digest")
+        .map_err(store)?
+    {
+        Some(value) => Some(ReleaseDigest::parse(value)?),
+        None => None,
+    };
+    let current = match current_active.as_ref() {
+        Some(_) => Some(ReleaseCatalogSnapshot::new(
+            OntologyCatalogDigest::parse(
+                row.try_get::<String, _>("current_ontology_digest")
+                    .map_err(store)?,
+            )?,
+            PolicyCatalogDigest::parse(
+                row.try_get::<String, _>("current_policy_digest")
+                    .map_err(store)?,
+            )?,
+            ExecutorCatalogDigest::parse(
+                row.try_get::<String, _>("current_executors_digest")
+                    .map_err(store)?,
+            )?,
+            ComponentCatalogDigest::parse(
+                row.try_get::<String, _>("current_components_digest")
+                    .map_err(store)?,
+            )?,
+        )),
+        None => None,
+    };
+    let content = WorldReleasePreviewContent::new(
+        WorldId::parse(row.try_get::<String, _>("world_id").map_err(store)?)?,
+        ReleaseDigest::parse(row.try_get::<String, _>("release_digest").map_err(store)?)?,
+        current_active,
+        ReleaseCatalogSnapshot::new(
+            OntologyCatalogDigest::parse(
+                row.try_get::<String, _>("candidate_ontology_digest")
+                    .map_err(store)?,
+            )?,
+            PolicyCatalogDigest::parse(
+                row.try_get::<String, _>("candidate_policy_digest")
+                    .map_err(store)?,
+            )?,
+            ExecutorCatalogDigest::parse(
+                row.try_get::<String, _>("candidate_executors_digest")
+                    .map_err(store)?,
+            )?,
+            ComponentCatalogDigest::parse(
+                row.try_get::<String, _>("candidate_components_digest")
+                    .map_err(store)?,
+            )?,
+        ),
+        current,
+    );
+    let preview = WorldReleasePreview::from_content(content)?;
+    let stored = row.try_get::<String, _>("preview_digest").map_err(store)?;
+    if preview.id().as_str() != stored {
+        return Err(WorldReleaseError::Conflict(
+            "stored preview digest does not match derived content".to_owned(),
+        ));
+    }
+    Ok(preview)
+}
+
+fn row_to_decision(row: &PgRow) -> Result<WorldReleaseDecision, WorldReleaseError> {
+    Ok(WorldReleaseDecision::new(
+        ReleasePreviewDigest::parse(row.try_get::<String, _>("preview_digest").map_err(store)?)?,
+        ReleaseDigest::parse(row.try_get::<String, _>("release_digest").map_err(store)?)?,
+        WorldId::parse(row.try_get::<String, _>("world_id").map_err(store)?)?,
+        TimestampMicros::new(row.try_get::<i64, _>("decided_at_micros").map_err(store)?),
+        PrincipalId::parse(row.try_get::<String, _>("decided_by").map_err(store)?)?,
+        ReleaseDecisionOutcome::parse(
+            row.try_get::<String, _>("outcome").map_err(store)?.as_str(),
+        )?,
+    ))
 }
 
 fn row_to_release(row: &PgRow) -> Result<WorldRelease, WorldReleaseError> {
