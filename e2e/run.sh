@@ -4,9 +4,10 @@ set -euo pipefail
 # Ticket command stays `just e2e <scenario>` (check + native build + run).
 # `just verify` runs check and native build once, then each scenario runner.
 # scenario_table fields: name:realm:variant:class
-# class is live | credential.
+# class is live | credential | image.
 # dest live leaves realm empty. Credential fiscal realm still runs prepare-realm.mjs.
 # just verify runs only class=live. Credential fiscal stays optional.
+# class=image is the one-Fly Dockerfile journey; required CI builds and runs it.
 # `just verify-v1` aggregates typed artifacts into a signed zoen.verify.v1 bundle.
 # `just verify-activation` aggregates AD artifacts into a signed zoen.activation.v1 bundle.
 # `just e2e-run` executes a built workspace and does not lint.
@@ -34,6 +35,7 @@ scenario_table=(
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"
+  "one-fly-image:::image"
 )
 
 scenario=""
@@ -96,6 +98,9 @@ load_scenario_env() {
   done < "$env_file"
   if [[ -n "${ZOEN_E2E_AUTH_PORT:-}" ]]; then
     export ZOEN_AUTH_BASE_URL="http://127.0.0.1:${ZOEN_E2E_AUTH_PORT}"
+  fi
+  if [[ "$scenario" == "one-fly-image" ]]; then
+    export ZOEN_BUILD_REVISION="${ZOEN_BUILD_REVISION:-$(git rev-parse HEAD)}"
   fi
 }
 
@@ -228,7 +233,7 @@ run_build() {
 }
 
 require_built() {
-  if [[ "$scenario" != "public-surface" && ! -x target/debug/zoen ]]; then
+  if [[ "$scenario" != "public-surface" && "$scenario" != "one-fly-image" && ! -x target/debug/zoen ]]; then
     echo "missing target/debug/zoen; run \`just build\` or \`just e2e ${scenario}\`" >&2
     exit 1
   fi
@@ -603,7 +608,9 @@ run_e2e() {
   rm -rf "${ZOEN_E2E_ARTIFACTS_DIR}"
   run_check
   install_auth_dependencies
-  run_native_build "$scenario"
+  if [[ "$scenario" != "one-fly-image" ]]; then
+    run_native_build
+  fi
   run_scenario
 }
 

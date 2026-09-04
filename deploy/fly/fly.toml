@@ -38,7 +38,7 @@ kill_timeout = 45
   memory = "4096"
 
 [env]
-  ZOEN_LISTEN_ADDR = "0.0.0.0:58701"
+  ZOEN_LISTEN_ADDR = "[::]:58701"
   ZOEN_PUBLIC_ORIGIN = "https://zoen.tironi.xyz"
   ZOEN_WHATSAPP_DOOR_E164 = "+553798136141"
   ZOEN_WORLD_DEFINITION_PATH = "/etc/zoen/commercial.canonical.json"
@@ -66,6 +66,8 @@ kill_timeout = 45
   ZOEN_EFFECT_REGISTRAR_LISTEN_ADDR = "127.0.0.1:9082"
   ZOEN_EFFECT_REGISTRATION_LEASE_MAX_AGE_MS = "5000"
   ZOEN_EFFECT_REGISTRATION_STATUS_URL = "http://127.0.0.1:9082/status"
+  ZOEN_EFFECT_REGISTRATION_HEALTH_URL = "http://127.0.0.1:9082/health"
+  ZOEN_EVE_BASE_URL = "http://127.0.0.1:3000"
   ZOEN_EFFECT_WORKER_API_KEY_FILE = "/data/zoen/effect-worker.api-key"
   ZOEN_EFFECT_WORKER_CREDENTIAL_READY_FILE = "/run/zoen/effect-worker-credential.ready"
   ZOEN_EFFECT_WORKER_WORKLOAD_ID = "workload.effect-worker"

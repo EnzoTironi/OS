@@ -811,7 +811,9 @@ assert(
       (command) => checkJob.split(command).length === 2
     ) &&
     !checkJob.includes("--write") &&
-    workflow.includes("needs: [check, clippy, build, e2e, e2e-concurrent]"),
+    workflow.includes(
+      "needs: [check, clippy, build, e2e, e2e-concurrent, one-fly-image]"
+    ),
   "required CI must run both canonical program checks without writing"
 );
 assert(
