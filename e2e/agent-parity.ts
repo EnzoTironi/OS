@@ -38,10 +38,6 @@ function record(name: string, observed: boolean): void {
   assertions[name] = observed;
 }
 
-function sha256Hex(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function ontologyBytes(label: string): string {
   return `${JSON.stringify({
     label,
