@@ -226,6 +226,11 @@ function projectionEnvironment(): string {
   ]);
 }
 
+/** Exact KEY= match — substring includes("DATABASE_URL=") false-positives on ZOEN_PROJECTION_DATABASE_URL. */
+function environHasKey(environ: string, key: string): boolean {
+  return environ.split("\n").some((line) => line.startsWith(`${key}=`));
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const postgresPassword = requiredEnv("POSTGRES_PASSWORD");
@@ -471,10 +476,10 @@ async function main(): Promise<void> {
     const projectionEnv = projectionEnvironment();
     observe(
       "projectionProcessDropsAmbientDatabaseCredentials",
-      !projectionEnv.includes("DATABASE_URL=") &&
-        !projectionEnv.includes("ZOEN_APP_PASSWORD=") &&
-        !projectionEnv.includes("POSTGRES_PASSWORD=") &&
-        projectionEnv.includes("ZOEN_PROJECTION_DATABASE_URL="),
+      !environHasKey(projectionEnv, "DATABASE_URL") &&
+        !environHasKey(projectionEnv, "ZOEN_APP_PASSWORD") &&
+        !environHasKey(projectionEnv, "POSTGRES_PASSWORD") &&
+        environHasKey(projectionEnv, "ZOEN_PROJECTION_DATABASE_URL"),
     );
 
     const publicationsBeforeRestart = await publicationCount(admin, tenantA);
