@@ -15,6 +15,32 @@ const CURSOR_ACTIVE_KEY_ID_ENV: &str = "ZOEN_CURSOR_ACTIVE_KEY_ID";
 const CURSOR_KEYS_ENV: &str = "ZOEN_CURSOR_KEYS";
 const CURSOR_TTL_ENV: &str = "ZOEN_CURSOR_TTL_SECONDS";
 
+#[derive(Clone, Copy)]
+enum CursorEnvironment {
+    ActiveKeyId,
+    Keys,
+    Ttl,
+}
+
+#[derive(Clone, Copy)]
+enum CursorConfigurationFailure {
+    ActiveKeyIdEmpty,
+    ActiveKeyIdNotUnicode,
+    KeysEmpty,
+    KeysNotUnicode,
+    TtlEmpty,
+    TtlNotUnicode,
+    IncompleteKeyring,
+    InvalidKeyId,
+    InvalidKeyEntry,
+    InvalidKeyEncoding,
+    SigningKeyTooShort,
+    InvalidTtl,
+    TtlNotPositive,
+    InvalidKeyring,
+    InvalidSealer,
+}
+
 pub struct KernelCliResult {
     pub exit_code: u8,
     pub stdout: Value,
@@ -200,6 +226,10 @@ async fn query(
 }
 
 fn query_page_json(page: &KernelQueryPage) -> Value {
+    let KernelQueryPage {
+        trusted_authority_digest: authority_digest,
+        ..
+    } = page;
     json!({
         "authorizedCount": page.authorized_count,
         "budgetId": page.budget_id,
@@ -214,8 +244,7 @@ fn query_page_json(page: &KernelQueryPage) -> Value {
         "cursorClaims": {
             "authorityCut": page.authority_cut.map(zoen_core::CommitSequence::get),
             "authorizedObjectSetPlanDigest": page.authorized_plan_digest.as_str(),
-            "trustedAuthorityDigest": page
-                .trusted_authority_digest
+            "trustedAuthorityDigest": authority_digest
                 .as_ref()
                 .map(zoen_engine::TrustedAuthorityDigest::as_str),
         },
@@ -425,76 +454,135 @@ async fn kernel() -> Result<PostgresWorldKernel, Box<dyn Error + Send + Sync>> {
         .map_err(|_| "DATABASE_URL is required for kernel verb commands")?;
     let authority = PostgresAuthorityStore::connect(&database_url).await?;
     let pool = authority.pool();
+    let cursor_sealer =
+        cursor_sealer_from_env().map_err(|failure| -> Box<dyn Error + Send + Sync> {
+            cursor_configuration_message(failure).into()
+        })?;
     Ok(PostgresWorldKernel::new(
         PostgresWorldReleaseStore::new(pool.clone()),
         pool,
-        cursor_sealer_from_env()?,
+        cursor_sealer,
     ))
 }
 
-fn cursor_sealer_from_env() -> Result<Option<CursorSealer>, Box<dyn Error + Send + Sync>> {
-    let active_key_id = optional_nonempty_env(CURSOR_ACTIVE_KEY_ID_ENV)?;
-    let encoded_keys = optional_nonempty_env(CURSOR_KEYS_ENV)?;
-    let configured_ttl = optional_nonempty_env(CURSOR_TTL_ENV)?;
+fn cursor_sealer_from_env() -> Result<Option<CursorSealer>, CursorConfigurationFailure> {
+    let active_key_id = optional_cursor_environment(CursorEnvironment::ActiveKeyId)?;
+    let encoded_keys = optional_cursor_environment(CursorEnvironment::Keys)?;
+    let configured_ttl = optional_cursor_environment(CursorEnvironment::Ttl)?;
     let (active_key_id, encoded_keys) = match (active_key_id, encoded_keys, configured_ttl.as_ref())
     {
         (None, None, None) => return Ok(None),
         (Some(active_key_id), Some(encoded_keys), _) => (active_key_id, encoded_keys),
-        _ => {
-            return Err(format!(
-                "{CURSOR_ACTIVE_KEY_ID_ENV} and {CURSOR_KEYS_ENV} must be configured together; \
-                 {CURSOR_TTL_ENV} is optional only for a configured keyring"
-            )
-            .into());
-        }
+        _ => return Err(CursorConfigurationFailure::IncompleteKeyring),
     };
-    let active_key_id = CursorKeyId::parse(active_key_id)?;
+    let active_key_id =
+        CursorKeyId::parse(active_key_id).map_err(|_| CursorConfigurationFailure::InvalidKeyId)?;
     let mut keys = Vec::new();
     for encoded_key in encoded_keys.split(',') {
-        let (key_id, secret_hex) = encoded_key.split_once(':').ok_or_else(|| {
-            format!("{CURSOR_KEYS_ENV} entries must use <key-id>:<lowercase-hex-secret>")
-        })?;
-        let key_id = CursorKeyId::parse(key_id)?;
-        let secret = decode_secret_hex(secret_hex)?;
-        keys.push(CursorSigningKey::new(key_id, secret)?);
+        let (key_id, encoded_material) = encoded_key
+            .split_once(':')
+            .ok_or(CursorConfigurationFailure::InvalidKeyEntry)?;
+        let key_id =
+            CursorKeyId::parse(key_id).map_err(|_| CursorConfigurationFailure::InvalidKeyId)?;
+        keys.push(cursor_signing_key(key_id, encoded_material)?);
     }
     let ttl_seconds = match configured_ttl {
         Some(value) => value
             .parse::<u64>()
-            .map_err(|_| format!("{CURSOR_TTL_ENV} must be a positive integer"))?,
+            .map_err(|_| CursorConfigurationFailure::InvalidTtl)?,
         None => DEFAULT_CURSOR_TTL_SECONDS,
     };
-    Ok(Some(CursorSealer::new(
-        CursorKeyring::new(active_key_id, keys)?,
-        ttl_seconds,
-    )?))
+    if ttl_seconds == 0 {
+        return Err(CursorConfigurationFailure::TtlNotPositive);
+    }
+    let keyring = CursorKeyring::new(active_key_id, keys)
+        .map_err(|_| CursorConfigurationFailure::InvalidKeyring)?;
+    CursorSealer::new(keyring, ttl_seconds)
+        .map(Some)
+        .map_err(|_| CursorConfigurationFailure::InvalidSealer)
 }
 
-fn optional_nonempty_env(name: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    match std::env::var(name) {
-        Ok(value) if value.is_empty() => Err(format!("{name} must not be empty").into()),
+fn optional_cursor_environment(
+    variable: CursorEnvironment,
+) -> Result<Option<String>, CursorConfigurationFailure> {
+    match std::env::var(cursor_environment_name(variable)) {
+        Ok(value) if value.is_empty() => Err(match variable {
+            CursorEnvironment::ActiveKeyId => CursorConfigurationFailure::ActiveKeyIdEmpty,
+            CursorEnvironment::Keys => CursorConfigurationFailure::KeysEmpty,
+            CursorEnvironment::Ttl => CursorConfigurationFailure::TtlEmpty,
+        }),
         Ok(value) => Ok(Some(value)),
         Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(std::env::VarError::NotUnicode(_)) => {
-            Err(format!("{name} must contain Unicode text").into())
-        }
+        Err(std::env::VarError::NotUnicode(_)) => Err(match variable {
+            CursorEnvironment::ActiveKeyId => CursorConfigurationFailure::ActiveKeyIdNotUnicode,
+            CursorEnvironment::Keys => CursorConfigurationFailure::KeysNotUnicode,
+            CursorEnvironment::Ttl => CursorConfigurationFailure::TtlNotUnicode,
+        }),
     }
 }
 
-fn decode_secret_hex(value: &str) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-    if !value.len().is_multiple_of(2)
-        || !value
+fn cursor_environment_name(variable: CursorEnvironment) -> &'static str {
+    match variable {
+        CursorEnvironment::ActiveKeyId => CURSOR_ACTIVE_KEY_ID_ENV,
+        CursorEnvironment::Keys => CURSOR_KEYS_ENV,
+        CursorEnvironment::Ttl => CURSOR_TTL_ENV,
+    }
+}
+
+fn cursor_signing_key(
+    key_id: CursorKeyId,
+    encoded_material: &str,
+) -> Result<CursorSigningKey, CursorConfigurationFailure> {
+    if !encoded_material.len().is_multiple_of(2)
+        || !encoded_material
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
     {
-        return Err(format!("{CURSOR_KEYS_ENV} contains an invalid secret encoding").into());
+        return Err(CursorConfigurationFailure::InvalidKeyEncoding);
     }
-    (0..value.len())
+    let material = (0..encoded_material.len())
         .step_by(2)
         .map(|index| {
-            u8::from_str_radix(&value[index..index + 2], 16).map_err(|_| {
-                format!("{CURSOR_KEYS_ENV} contains an invalid secret encoding").into()
-            })
+            u8::from_str_radix(&encoded_material[index..index + 2], 16)
+                .map_err(|_| CursorConfigurationFailure::InvalidKeyEncoding)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    CursorSigningKey::new(key_id, material)
+        .map_err(|_| CursorConfigurationFailure::SigningKeyTooShort)
+}
+
+fn cursor_configuration_message(failure: CursorConfigurationFailure) -> &'static str {
+    match failure {
+        CursorConfigurationFailure::ActiveKeyIdEmpty => {
+            "ZOEN_CURSOR_ACTIVE_KEY_ID must not be empty"
+        }
+        CursorConfigurationFailure::ActiveKeyIdNotUnicode => {
+            "ZOEN_CURSOR_ACTIVE_KEY_ID must contain Unicode text"
+        }
+        CursorConfigurationFailure::KeysEmpty => "ZOEN_CURSOR_KEYS must not be empty",
+        CursorConfigurationFailure::KeysNotUnicode => "ZOEN_CURSOR_KEYS must contain Unicode text",
+        CursorConfigurationFailure::TtlEmpty => "ZOEN_CURSOR_TTL_SECONDS must not be empty",
+        CursorConfigurationFailure::TtlNotUnicode => {
+            "ZOEN_CURSOR_TTL_SECONDS must contain Unicode text"
+        }
+        CursorConfigurationFailure::IncompleteKeyring => {
+            "ZOEN_CURSOR_ACTIVE_KEY_ID and ZOEN_CURSOR_KEYS must be configured together; ZOEN_CURSOR_TTL_SECONDS is optional only for a configured keyring"
+        }
+        CursorConfigurationFailure::InvalidKeyId => "cursor key id is invalid",
+        CursorConfigurationFailure::InvalidKeyEntry => {
+            "ZOEN_CURSOR_KEYS entries must use <key-id>:<lowercase-hex-secret>"
+        }
+        CursorConfigurationFailure::InvalidKeyEncoding => {
+            "ZOEN_CURSOR_KEYS contains an invalid secret encoding"
+        }
+        CursorConfigurationFailure::SigningKeyTooShort => {
+            "cursor signing keys must contain at least 32 bytes"
+        }
+        CursorConfigurationFailure::InvalidTtl => {
+            "ZOEN_CURSOR_TTL_SECONDS must be a positive integer"
+        }
+        CursorConfigurationFailure::TtlNotPositive => "cursor ttl must be positive",
+        CursorConfigurationFailure::InvalidKeyring => "cursor keyring is invalid",
+        CursorConfigurationFailure::InvalidSealer => "cursor sealer is invalid",
+    }
 }
