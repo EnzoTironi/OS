@@ -634,8 +634,6 @@ pub(crate) enum KernelCommand {
         cursor: Option<String>,
         #[arg(long)]
         limit: Option<u32>,
-        #[arg(long = "budget-class")]
-        budget_class: Option<String>,
     },
     /// Propose a catalog-bound operation
     Propose {
@@ -1131,6 +1129,18 @@ struct Introduced {
     query: Option<String>,
 }
 
+/// Output-safe source identity. Authentication material never enters this type.
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourcePublicMetadata {
+    id: String,
+    kind: String,
+    #[serde(default, rename = "oauthApp")]
+    integration: Option<String>,
+    #[serde(default)]
+    profile: Option<String>,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SourceInstance {
@@ -1158,6 +1168,61 @@ struct SourceFetch {
     durable_event_id: String,
     resource_id: String,
     operation_id: String,
+}
+
+#[derive(Clone, Copy)]
+enum Oauth2ConnectFailure {
+    SecretConflict,
+    SecretStdinUnreadable,
+    SecretStdinEmpty,
+    SecretMissing,
+    TokenRequest,
+    TokenRejected,
+    TokenResponse,
+    SourceStore,
+}
+
+enum SourceConnectOutcome {
+    DryRun(SourcePublicMetadata),
+    Connected(SourcePublicMetadata),
+    Failed(SourceConnectFailure),
+}
+
+#[derive(Clone, Copy)]
+enum SourceConnectFailure {
+    RestIdentityMissing,
+    Oauth2IdentityMissing,
+    GoogleIdentityMissing,
+    McpIdentityMissing,
+    RestApiKeyMissing,
+    GoogleDoorToken,
+    GoogleSecretConflict,
+    GoogleSecretStdinUnreadable,
+    GoogleSecretStdinEmpty,
+    SourceStateInvalid,
+    SourceStore,
+    Oauth2SecretConflict,
+    Oauth2SecretStdinUnreadable,
+    Oauth2SecretStdinEmpty,
+    Oauth2SecretMissing,
+    Oauth2TokenRequest,
+    Oauth2TokenRejected,
+    Oauth2TokenResponse,
+    Oauth2SourceStore,
+}
+
+#[derive(Clone, Copy)]
+enum SourceFetchFailure {
+    BaseMissing,
+    McpUrlMissing,
+    GoogleFolderMissing,
+    InvalidConfiguration,
+    InvalidAuthentication,
+    Request,
+    Rejected,
+    InvalidResponse,
+    ResourceNotFound,
+    ResourceEmpty,
 }
 
 /// Run an ontology command against a running zoend.
@@ -1204,6 +1269,11 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
         }
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
+        Command::Source {
+            command: SourceCommand::Connect { command },
+        } => Ok(source_connect_result(
+            connect_source(&parse_env()?, command).await,
+        )),
         Command::Source { command } => run_source(&parse_env()?, command).await,
         Command::Action { command } => run_action(&parse_env()?, command).await,
         Command::History { command } => run_history(&parse_env()?, command).await,
@@ -1302,7 +1372,9 @@ async fn run_source(
     command: SourceCommand,
 ) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
     match command {
-        SourceCommand::Connect { command } => connect_source(env, command).await,
+        SourceCommand::Connect { .. } => {
+            unreachable!("source connect is dispatched through its typed outcome boundary")
+        }
         SourceCommand::Introduce {
             id,
             folder,
@@ -1580,7 +1652,6 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             object_type,
             cursor,
             limit,
-            budget_class,
         } => K::Query {
             world,
             principal,
@@ -1588,7 +1659,6 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             object_type,
             cursor,
             limit,
-            budget_class,
         },
         KernelCommand::Propose {
             world,
@@ -2214,10 +2284,7 @@ async fn commit_action(
     })))
 }
 
-async fn connect_source(
-    env: &RuntimeEnv,
-    command: ConnectCommand,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+async fn connect_source(env: &RuntimeEnv, command: ConnectCommand) -> SourceConnectOutcome {
     match command {
         ConnectCommand::Rest {
             id,
@@ -2228,10 +2295,7 @@ async fn connect_source(
             dry_run,
         } => {
             let Some(id) = dest_create_key(&idempotency_key, &id) else {
-                return Ok(fail(
-                    2,
-                    "zoen source connect rest requires --idempotency-key or --id\n  zoen source connect rest --idempotency-key rest --base https://api.example.com",
-                ));
+                return SourceConnectOutcome::Failed(SourceConnectFailure::RestIdentityMissing);
             };
             connect_rest(env, &id, base_url, auth.as_deref(), api_key, dry_run)
         }
@@ -2246,12 +2310,18 @@ async fn connect_source(
             dry_run,
         } => {
             let Some(id) = dest_create_key(&idempotency_key, &id) else {
-                return Ok(fail(
-                    2,
-                    "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin",
-                ));
+                return SourceConnectOutcome::Failed(SourceConnectFailure::Oauth2IdentityMissing);
             };
-            connect_oauth2(
+            let receipt = token_source_metadata(&id);
+            if dry_run {
+                return SourceConnectOutcome::DryRun(receipt);
+            }
+            match existing_source_public_metadata(env, &id) {
+                Ok(Some(existing)) => return SourceConnectOutcome::Connected(existing),
+                Ok(None) => {}
+                Err(failure) => return SourceConnectOutcome::Failed(failure),
+            }
+            match persist_oauth2_source(
                 env,
                 id,
                 token_url,
@@ -2259,9 +2329,12 @@ async fn connect_source(
                 client_secret,
                 client_secret_stdin,
                 base_url,
-                dry_run,
             )
             .await
+            {
+                Ok(()) => SourceConnectOutcome::Connected(receipt),
+                Err(failure) => SourceConnectOutcome::Failed(map_token_source_failure(failure)),
+            }
         }
         ConnectCommand::Google {
             profile,
@@ -2275,10 +2348,7 @@ async fn connect_source(
         } => {
             let fallback = if id.is_empty() { profile.clone() } else { id };
             let Some(id) = dest_create_key(&idempotency_key, &fallback) else {
-                return Ok(fail(
-                    2,
-                    "zoen source connect google requires --idempotency-key, --id, or --profile\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com",
-                ));
+                return SourceConnectOutcome::Failed(SourceConnectFailure::GoogleIdentityMissing);
             };
             connect_google(
                 env,
@@ -2298,10 +2368,7 @@ async fn connect_source(
             dry_run,
         } => {
             let Some(id) = dest_create_key(&idempotency_key, &id) else {
-                return Ok(fail(
-                    2,
-                    "zoen source connect mcp requires --idempotency-key or --id\n  zoen source connect mcp --idempotency-key mcp --url https://mcp.example.com",
-                ));
+                return SourceConnectOutcome::Failed(SourceConnectFailure::McpIdentityMissing);
             };
             connect_mcp(env, url, &id, dry_run)
         }
@@ -2315,12 +2382,20 @@ fn connect_rest(
     auth: Option<&str>,
     api_key: Option<String>,
     dry_run: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+) -> SourceConnectOutcome {
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "rest".to_owned(),
+        integration: None,
+        profile: None,
+    };
     if dry_run {
-        return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "rest" })));
+        return SourceConnectOutcome::DryRun(receipt);
     }
-    if let Some(existing) = existing_source(env, id)? {
-        return Ok(ok(&connect_receipt(&existing)));
+    match existing_source_public_metadata(env, id) {
+        Ok(Some(existing)) => return SourceConnectOutcome::Connected(existing),
+        Ok(None) => {}
+        Err(failure) => return SourceConnectOutcome::Failed(failure),
     }
     let source_auth = if auth == Some("apikey") {
         let value = api_key
@@ -2331,10 +2406,7 @@ fn connect_rest(
             })
             .filter(|value| !value.is_empty());
         let Some(value) = value else {
-            return Ok(fail(
-                2,
-                "zoen source connect rest --auth apikey requires --api-key or ZOEN_SOURCE_API_KEY",
-            ));
+            return SourceConnectOutcome::Failed(SourceConnectFailure::RestApiKeyMissing);
         };
         SourceAuth::ApiKey(SourceAuthApiKey {
             header: "Authorization".to_owned(),
@@ -2354,11 +2426,13 @@ fn connect_rest(
         profile: None,
         url: None,
     };
-    write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    if write_source(env, &instance).is_err() {
+        return SourceConnectOutcome::Failed(SourceConnectFailure::SourceStore);
+    }
+    SourceConnectOutcome::Connected(receipt)
 }
 
-async fn connect_oauth2(
+async fn persist_oauth2_source(
     env: &RuntimeEnv,
     id: String,
     token_url: String,
@@ -2366,31 +2440,8 @@ async fn connect_oauth2(
     client_secret: Option<String>,
     client_secret_stdin: bool,
     base_url: Option<String>,
-    dry_run: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
-    if dry_run {
-        return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "oauth2" })));
-    }
-    if let Some(existing) = existing_source(env, &id)? {
-        return Ok(ok(&connect_receipt(&existing)));
-    }
-    let client_secret = match resolve_source_secret(
-        client_secret,
-        client_secret_stdin,
-        "ZOEN_SOURCE_CLIENT_SECRET",
-        "--client-secret",
-        "--client-secret-stdin",
-        "zoen source connect oauth2",
-    ) {
-        Ok(secret) => secret,
-        Err(message) => return Ok(fail(2, &message)),
-    };
-    let Some(client_secret) = client_secret else {
-        return Ok(fail(
-            2,
-            "zoen source connect oauth2 requires --client-secret or ZOEN_SOURCE_CLIENT_SECRET",
-        ));
-    };
+) -> Result<(), Oauth2ConnectFailure> {
+    let client_secret = resolve_oauth2_client_secret(client_secret, client_secret_stdin)?;
     let auth = fetch_oauth2_token(&token_url, &client_id, &client_secret).await?;
     let instance = SourceInstance {
         auth,
@@ -2403,8 +2454,8 @@ async fn connect_oauth2(
         profile: None,
         url: None,
     };
-    write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    write_source(env, &instance).map_err(|_| Oauth2ConnectFailure::SourceStore)?;
+    Ok(())
 }
 
 fn connect_google(
@@ -2416,26 +2467,27 @@ fn connect_google(
     token: Option<String>,
     token_stdin: bool,
     dry_run: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+) -> SourceConnectOutcome {
     if use_door {
-        return Ok(fail(2, "door tokens are not ingest authority"));
+        return SourceConnectOutcome::Failed(SourceConnectFailure::GoogleDoorToken);
     }
-    let token = match resolve_source_secret(
-        token,
-        token_stdin,
-        "ZOEN_SOURCE_TOKEN",
-        "--token",
-        "--token-stdin",
-        "zoen source connect google",
-    ) {
+    let token = match resolve_google_source_token(token, token_stdin) {
         Ok(token) => token,
-        Err(message) => return Ok(fail(2, &message)),
+        Err(failure) => return SourceConnectOutcome::Failed(failure),
+    };
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "google".to_owned(),
+        integration: Some("zoen".to_owned()),
+        profile: Some(profile.to_owned()),
     };
     if dry_run {
-        return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "google" })));
+        return SourceConnectOutcome::DryRun(receipt);
     }
-    if let Some(existing) = existing_source(env, id)? {
-        return Ok(ok(&connect_receipt(&existing)));
+    match existing_source_public_metadata(env, id) {
+        Ok(Some(existing)) => return SourceConnectOutcome::Connected(existing),
+        Ok(None) => {}
+        Err(failure) => return SourceConnectOutcome::Failed(failure),
     }
     let auth = match token {
         Some(value) => SourceAuth::ApiKey(SourceAuthApiKey {
@@ -2455,21 +2507,26 @@ fn connect_google(
         profile: Some(profile.to_owned()),
         url: None,
     };
-    write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    if write_source(env, &instance).is_err() {
+        return SourceConnectOutcome::Failed(SourceConnectFailure::SourceStore);
+    }
+    SourceConnectOutcome::Connected(receipt)
 }
 
-fn connect_mcp(
-    env: &RuntimeEnv,
-    url: String,
-    id: &str,
-    dry_run: bool,
-) -> Result<CommandResult, Box<dyn Error + Send + Sync>> {
+fn connect_mcp(env: &RuntimeEnv, url: String, id: &str, dry_run: bool) -> SourceConnectOutcome {
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "mcp".to_owned(),
+        integration: None,
+        profile: None,
+    };
     if dry_run {
-        return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "mcp" })));
+        return SourceConnectOutcome::DryRun(receipt);
     }
-    if let Some(existing) = existing_source(env, id)? {
-        return Ok(ok(&connect_receipt(&existing)));
+    match existing_source_public_metadata(env, id) {
+        Ok(Some(existing)) => return SourceConnectOutcome::Connected(existing),
+        Ok(None) => {}
+        Err(failure) => return SourceConnectOutcome::Failed(failure),
     }
     let instance = SourceInstance {
         auth: SourceAuth::None,
@@ -2482,8 +2539,10 @@ fn connect_mcp(
         profile: None,
         url: Some(url),
     };
-    write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    if write_source(env, &instance).is_err() {
+        return SourceConnectOutcome::Failed(SourceConnectFailure::SourceStore);
+    }
+    SourceConnectOutcome::Connected(receipt)
 }
 
 fn introduce_source(
@@ -2559,7 +2618,10 @@ async fn sync_source(
     if env.isolate && !dry_run {
         return Ok(fail(1, "isolate cannot commit"));
     }
-    let fetched = fetch_source(&instance).await?;
+    let fetched = match fetch_source(&instance).await {
+        Ok(fetched) => fetched,
+        Err(failure) => return Ok(fail_source_fetch(failure)),
+    };
     let cas = put_cas(env, &fetched.bytes)?;
     if dry_run {
         return Ok(ok(&json!({
@@ -2606,48 +2668,48 @@ async fn sync_source(
     })))
 }
 
-async fn fetch_source(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_source(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     match instance.kind.as_str() {
         "mcp" => fetch_mcp(instance).await,
         "google" => fetch_drive(instance).await,
-        _ => fetch_rest(instance).await,
+        "oauth2" | "rest" => fetch_rest(instance).await,
+        _ => Err(SourceFetchFailure::InvalidConfiguration),
     }
 }
 
-async fn fetch_rest(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_rest(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     let base = instance
         .base_url
         .as_deref()
-        .ok_or_else(|| format!("source {} has no --base", instance.id))?;
+        .ok_or(SourceFetchFailure::BaseMissing)?;
     let path = instance
         .introduced
         .as_ref()
         .and_then(|introduced| introduced.path.as_deref())
         .unwrap_or("/");
-    let mut url = reqwest::Url::parse(base)?;
-    url = url.join(path.trim_start_matches('/'))?;
+    let mut url = reqwest::Url::parse(base)
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?
+        .join(path.trim_start_matches('/'))
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     if let Some(cursor) = &instance.cursor {
         url.query_pairs_mut().append_pair("cursor", cursor);
     }
     let client = reqwest::Client::new();
     let response = client
-        .get(url.clone())
+        .get(url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let bytes = response.bytes().await?.to_vec();
     if !status.is_success() {
-        return Err(format!(
-            "source GET {url} {status} {}",
-            String::from_utf8_lossy(&bytes)
-        )
-        .into());
+        return Err(SourceFetchFailure::Rejected);
     }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?
+        .to_vec();
     let parsed = parse_json(&bytes);
     let hash = hash8(&bytes);
     Ok(SourceFetch {
@@ -2660,45 +2722,55 @@ async fn fetch_rest(
     })
 }
 
-async fn fetch_drive(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
-    let base = instance.base_url.as_deref().ok_or(
-        "google profile sync needs --base stand-in or planted OAuth; door tokens are not ingest authority",
-    )?;
+async fn fetch_drive(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
+    let base = instance
+        .base_url
+        .as_deref()
+        .ok_or(SourceFetchFailure::BaseMissing)?;
     let folder = instance
         .introduced
         .as_ref()
         .and_then(|introduced| introduced.folder.as_deref())
-        .ok_or("introduce a folder, not the account")?;
-    let base_url = reqwest::Url::parse(base)?;
-    let mut folder_url = base_url.join("drive/v3/files")?;
+        .ok_or(SourceFetchFailure::GoogleFolderMissing)?;
+    let base_url =
+        reqwest::Url::parse(base).map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
+    let mut folder_url = base_url
+        .join("drive/v3/files")
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     folder_url.query_pairs_mut().append_pair(
         "q",
         &format!("name='{folder}' and mimeType='application/vnd.google-apps.folder'"),
     );
     let folder_list = fetch_json(folder_url, instance).await?;
-    let folder_id =
-        first_file_id(&folder_list).ok_or_else(|| format!("folder {folder} not found"))?;
-    let mut children_url = base_url.join("drive/v3/files")?;
+    let folder_id = first_file_id(&folder_list).ok_or(SourceFetchFailure::ResourceNotFound)?;
+    let mut children_url = base_url
+        .join("drive/v3/files")
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     children_url
         .query_pairs_mut()
         .append_pair("q", &format!("'{folder_id}' in parents"));
     let children = fetch_json(children_url, instance).await?;
-    let file = first_file(&children).ok_or_else(|| format!("folder {folder} has no files"))?;
-    let mut media_url = base_url.join(&format!("drive/v3/files/{}", file.id))?;
+    let file = first_file(&children).ok_or(SourceFetchFailure::ResourceEmpty)?;
+    let mut media_url = base_url
+        .join(&format!("drive/v3/files/{}", file.id))
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     media_url.query_pairs_mut().append_pair("alt", "media");
     let client = reqwest::Client::new();
     let response = client
-        .get(media_url.clone())
+        .get(media_url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let bytes = response.bytes().await?.to_vec();
     if !status.is_success() {
-        return Err(format!("drive media {media_url} {status}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?
+        .to_vec();
     let inner = unzip_first(&bytes).unwrap_or(bytes.clone());
     Ok(SourceFetch {
         cursor: file.modified_time,
@@ -2710,11 +2782,11 @@ async fn fetch_drive(
     })
 }
 
-async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     let url = instance
         .url
         .as_deref()
-        .ok_or_else(|| format!("source {} has no --url", instance.id))?;
+        .ok_or(SourceFetchFailure::McpUrlMissing)?;
     mcp_call(
         url,
         instance,
@@ -2736,7 +2808,7 @@ async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, Box<dyn Err
         }),
     )
     .await?;
-    let bytes = serde_json::to_vec(&listed)?;
+    let bytes = serde_json::to_vec(&listed).map_err(|_| SourceFetchFailure::InvalidResponse)?;
     let hash = hash8(&bytes);
     Ok(SourceFetch {
         cursor: cursor_from_unknown(&listed),
@@ -2753,7 +2825,7 @@ async fn mcp_call(
     instance: &SourceInstance,
     method: &str,
     params: Value,
-) -> Result<Value, Box<dyn Error + Send + Sync>> {
+) -> Result<Value, SourceFetchFailure> {
     let mut headers = auth_headers(instance)?;
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     let client = reqwest::Client::new();
@@ -2762,15 +2834,20 @@ async fn mcp_call(
         .headers(headers)
         .json(&json!({ "id": 1, "jsonrpc": "2.0", "method": method, "params": params }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("mcp {method} {status} {text}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    if let Some(error) = doc.get("error") {
-        return Err(format!("mcp {method} {error}").into());
+    let text = response
+        .text()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    let doc: Value =
+        serde_json::from_str(&text).map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    if doc.get("error").is_some() {
+        return Err(SourceFetchFailure::Rejected);
     }
     Ok(doc.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -2779,7 +2856,7 @@ async fn fetch_oauth2_token(
     token_url: &str,
     client_id: &str,
     client_secret: &str,
-) -> Result<SourceAuth, Box<dyn Error + Send + Sync>> {
+) -> Result<SourceAuth, Oauth2ConnectFailure> {
     let client = reqwest::Client::new();
     let response = client
         .post(token_url)
@@ -2788,36 +2865,44 @@ async fn fetch_oauth2_token(
             "client_id={client_id}&client_secret={client_secret}&grant_type=client_credentials"
         ))
         .send()
-        .await?;
+        .await
+        .map_err(|_| Oauth2ConnectFailure::TokenRequest)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("oauth2 token {status} {text}").into());
+        return Err(Oauth2ConnectFailure::TokenRejected);
     }
-    let doc: Value = serde_json::from_str(&text)?;
+    let text = response
+        .text()
+        .await
+        .map_err(|_| Oauth2ConnectFailure::TokenResponse)?;
+    let doc: Value =
+        serde_json::from_str(&text).map_err(|_| Oauth2ConnectFailure::TokenResponse)?;
     let access_token = doc
         .get("access_token")
         .and_then(Value::as_str)
-        .ok_or("oauth2 token response missing access_token")?;
+        .ok_or(Oauth2ConnectFailure::TokenResponse)?;
     Ok(SourceAuth::Oauth2(SourceAuthOauth2 {
         access_token: access_token.to_owned(),
         token_url: Some(token_url.to_owned()),
     }))
 }
 
-fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, Box<dyn Error + Send + Sync>> {
+fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, SourceFetchFailure> {
     let mut headers = HeaderMap::new();
     match &instance.auth {
         SourceAuth::ApiKey(auth) => {
             headers.insert(
-                HeaderName::from_bytes(auth.header.as_bytes())?,
-                HeaderValue::from_str(&auth.value)?,
+                HeaderName::from_bytes(auth.header.as_bytes())
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
+                HeaderValue::from_str(&auth.value)
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
             );
         }
         SourceAuth::Oauth2(auth) => {
             headers.insert(
                 AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", auth.access_token))?,
+                HeaderValue::from_str(&format!("Bearer {}", auth.access_token))
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
             );
         }
         SourceAuth::None => {}
@@ -2828,19 +2913,23 @@ fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, Box<dyn Error + 
 async fn fetch_json(
     url: reqwest::Url,
     instance: &SourceInstance,
-) -> Result<Value, Box<dyn Error + Send + Sync>> {
+) -> Result<Value, SourceFetchFailure> {
     let client = reqwest::Client::new();
     let response = client
-        .get(url.clone())
+        .get(url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("GET {url} {status} {text}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
-    Ok(serde_json::from_str(&text)?)
+    let text = response
+        .text()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    serde_json::from_str(&text).map_err(|_| SourceFetchFailure::InvalidResponse)
 }
 
 struct DriveFile {
@@ -3341,14 +3430,69 @@ fn existing_source(
     }
 }
 
-fn connect_receipt(instance: &SourceInstance) -> Value {
+fn existing_source_public_metadata(
+    env: &RuntimeEnv,
+    id: &str,
+) -> Result<Option<SourcePublicMetadata>, SourceConnectFailure> {
+    match fs::read_to_string(source_path(env, id)) {
+        Ok(raw) => {
+            // Preserve full stored-instance validation, then independently decode the
+            // output-safe projection so no credential-bearing value reaches a receipt.
+            let _: SourceInstance =
+                serde_json::from_str(&raw).map_err(|_| SourceConnectFailure::SourceStateInvalid)?;
+            let metadata =
+                serde_json::from_str(&raw).map_err(|_| SourceConnectFailure::SourceStateInvalid)?;
+            Ok(Some(metadata))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(SourceConnectFailure::SourceStateInvalid),
+    }
+}
+
+fn connect_receipt(metadata: &SourcePublicMetadata) -> Value {
     json!({
-        "connected": instance.id,
+        "connected": metadata.id,
         "doorTokenStored": false,
-        "kind": instance.kind,
-        "oauthApp": instance.oauth_app,
-        "profile": instance.profile,
+        "kind": metadata.kind,
+        "oauthApp": metadata.integration,
+        "profile": metadata.profile,
     })
+}
+
+fn token_source_metadata(id: &str) -> SourcePublicMetadata {
+    SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "oauth2".to_owned(),
+        integration: None,
+        profile: None,
+    }
+}
+
+fn source_connect_result(outcome: SourceConnectOutcome) -> CommandResult {
+    match outcome {
+        SourceConnectOutcome::DryRun(metadata) => ok(&json!({
+            "dryRun": true,
+            "id": metadata.id,
+            "kind": metadata.kind,
+        })),
+        SourceConnectOutcome::Connected(metadata) => ok(&connect_receipt(&metadata)),
+        SourceConnectOutcome::Failed(failure) => fail_source_connect(failure),
+    }
+}
+
+fn map_token_source_failure(failure: Oauth2ConnectFailure) -> SourceConnectFailure {
+    match failure {
+        Oauth2ConnectFailure::SecretConflict => SourceConnectFailure::Oauth2SecretConflict,
+        Oauth2ConnectFailure::SecretStdinUnreadable => {
+            SourceConnectFailure::Oauth2SecretStdinUnreadable
+        }
+        Oauth2ConnectFailure::SecretStdinEmpty => SourceConnectFailure::Oauth2SecretStdinEmpty,
+        Oauth2ConnectFailure::SecretMissing => SourceConnectFailure::Oauth2SecretMissing,
+        Oauth2ConnectFailure::TokenRequest => SourceConnectFailure::Oauth2TokenRequest,
+        Oauth2ConnectFailure::TokenRejected => SourceConnectFailure::Oauth2TokenRejected,
+        Oauth2ConnectFailure::TokenResponse => SourceConnectFailure::Oauth2TokenResponse,
+        Oauth2ConnectFailure::SourceStore => SourceConnectFailure::Oauth2SourceStore,
+    }
 }
 
 fn dest_create_key(idempotency_key: &str, fallback: &str) -> Option<String> {
@@ -3612,42 +3756,208 @@ fn resolve_login_password(
     Ok(None)
 }
 
-fn resolve_source_secret(
+fn resolve_google_source_token(
     flag: Option<String>,
     stdin_flag: bool,
-    env_name: &str,
-    argv_flag: &str,
-    stdin_flag_name: &str,
-    command: &str,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SourceConnectFailure> {
     if stdin_flag {
         if flag.is_some() {
-            return Err(format!(
-                "{command} {stdin_flag_name} does not take {argv_flag}\n  {command} {stdin_flag_name}"
-            ));
+            return Err(SourceConnectFailure::GoogleSecretConflict);
         }
         let mut raw = String::new();
         io::stdin()
             .read_to_string(&mut raw)
-            .map_err(|error| error.to_string())?;
+            .map_err(|_| SourceConnectFailure::GoogleSecretStdinUnreadable)?;
         let value = raw.trim_end_matches(['\r', '\n']).to_owned();
         if value.is_empty() {
-            return Err(format!(
-                "{command} {stdin_flag_name} needs a secret on stdin"
-            ));
+            return Err(SourceConnectFailure::GoogleSecretStdinEmpty);
         }
         return Ok(Some(value));
     }
     if let Some(value) = flag.filter(|value| !value.is_empty()) {
         return Ok(Some(value));
     }
-    if let Ok(value) = env::var(env_name) {
+    if let Ok(value) = env::var("ZOEN_SOURCE_TOKEN") {
         let trimmed = value.trim_end_matches(['\r', '\n']);
         if !trimmed.is_empty() {
             return Ok(Some(trimmed.to_owned()));
         }
     }
     Ok(None)
+}
+
+fn resolve_oauth2_client_secret(
+    flag: Option<String>,
+    stdin_flag: bool,
+) -> Result<String, Oauth2ConnectFailure> {
+    if stdin_flag {
+        if flag.is_some() {
+            return Err(Oauth2ConnectFailure::SecretConflict);
+        }
+        let mut raw = String::new();
+        io::stdin()
+            .read_to_string(&mut raw)
+            .map_err(|_| Oauth2ConnectFailure::SecretStdinUnreadable)?;
+        let value = raw.trim_end_matches(['\r', '\n']).to_owned();
+        if value.is_empty() {
+            return Err(Oauth2ConnectFailure::SecretStdinEmpty);
+        }
+        return Ok(value);
+    }
+    if let Some(value) = flag.filter(|value| !value.is_empty()) {
+        return Ok(value);
+    }
+    if let Ok(value) = env::var("ZOEN_SOURCE_CLIENT_SECRET") {
+        let trimmed = value.trim_end_matches(['\r', '\n']);
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_owned());
+        }
+    }
+    Err(Oauth2ConnectFailure::SecretMissing)
+}
+
+fn fail_token_source_connect(failure: Oauth2ConnectFailure) -> CommandResult {
+    match failure {
+        Oauth2ConnectFailure::SecretConflict => fail(
+            2,
+            "zoen source connect oauth2 --client-secret-stdin does not take --client-secret\n  zoen source connect oauth2 --client-secret-stdin",
+        ),
+        Oauth2ConnectFailure::SecretStdinUnreadable => fail(
+            2,
+            "zoen source connect oauth2 could not read a secret from stdin",
+        ),
+        Oauth2ConnectFailure::SecretStdinEmpty => fail(
+            2,
+            "zoen source connect oauth2 --client-secret-stdin needs a secret on stdin",
+        ),
+        Oauth2ConnectFailure::SecretMissing => fail(
+            2,
+            "zoen source connect oauth2 requires --client-secret or ZOEN_SOURCE_CLIENT_SECRET",
+        ),
+        Oauth2ConnectFailure::TokenRequest => {
+            fail_coded(1, FailCode::NotConnected, "oauth2 token request failed")
+        }
+        Oauth2ConnectFailure::TokenRejected => fail_coded(
+            1,
+            FailCode::Unauthenticated,
+            "oauth2 token request was rejected",
+        ),
+        Oauth2ConnectFailure::TokenResponse => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "oauth2 token response is invalid",
+        ),
+        Oauth2ConnectFailure::SourceStore => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "oauth2 source could not be stored",
+        ),
+    }
+}
+
+fn fail_source_connect(failure: SourceConnectFailure) -> CommandResult {
+    match failure {
+        SourceConnectFailure::RestIdentityMissing => fail(
+            2,
+            "zoen source connect rest requires --idempotency-key or --id\n  zoen source connect rest --idempotency-key rest --base https://api.example.com",
+        ),
+        SourceConnectFailure::Oauth2IdentityMissing => fail(
+            2,
+            "zoen source connect oauth2 requires --idempotency-key or --id\n  zoen source connect oauth2 --idempotency-key oauth2 --token-url https://auth.example.com/token --client-id client --client-secret-stdin",
+        ),
+        SourceConnectFailure::GoogleIdentityMissing => fail(
+            2,
+            "zoen source connect google requires --idempotency-key, --id, or --profile\n  zoen source connect google --idempotency-key work --profile work --base https://www.googleapis.com",
+        ),
+        SourceConnectFailure::McpIdentityMissing => fail(
+            2,
+            "zoen source connect mcp requires --idempotency-key or --id\n  zoen source connect mcp --idempotency-key mcp --url https://mcp.example.com",
+        ),
+        SourceConnectFailure::RestApiKeyMissing => fail(
+            2,
+            "zoen source connect rest --auth apikey requires --api-key or ZOEN_SOURCE_API_KEY",
+        ),
+        SourceConnectFailure::GoogleDoorToken => fail(2, "door tokens are not ingest authority"),
+        SourceConnectFailure::GoogleSecretConflict => fail(
+            2,
+            "zoen source connect google --token-stdin does not take --token\n  zoen source connect google --token-stdin",
+        ),
+        SourceConnectFailure::GoogleSecretStdinUnreadable => fail(
+            2,
+            "zoen source connect google could not read a secret from stdin",
+        ),
+        SourceConnectFailure::GoogleSecretStdinEmpty => fail(
+            2,
+            "zoen source connect google --token-stdin needs a secret on stdin",
+        ),
+        SourceConnectFailure::SourceStateInvalid => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "stored source connection is invalid",
+        ),
+        SourceConnectFailure::SourceStore => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "source connection could not be stored",
+        ),
+        SourceConnectFailure::Oauth2SecretConflict => {
+            fail_token_source_connect(Oauth2ConnectFailure::SecretConflict)
+        }
+        SourceConnectFailure::Oauth2SecretStdinUnreadable => {
+            fail_token_source_connect(Oauth2ConnectFailure::SecretStdinUnreadable)
+        }
+        SourceConnectFailure::Oauth2SecretStdinEmpty => {
+            fail_token_source_connect(Oauth2ConnectFailure::SecretStdinEmpty)
+        }
+        SourceConnectFailure::Oauth2SecretMissing => {
+            fail_token_source_connect(Oauth2ConnectFailure::SecretMissing)
+        }
+        SourceConnectFailure::Oauth2TokenRequest => {
+            fail_token_source_connect(Oauth2ConnectFailure::TokenRequest)
+        }
+        SourceConnectFailure::Oauth2TokenRejected => {
+            fail_token_source_connect(Oauth2ConnectFailure::TokenRejected)
+        }
+        SourceConnectFailure::Oauth2TokenResponse => {
+            fail_token_source_connect(Oauth2ConnectFailure::TokenResponse)
+        }
+        SourceConnectFailure::Oauth2SourceStore => {
+            fail_token_source_connect(Oauth2ConnectFailure::SourceStore)
+        }
+    }
+}
+
+fn fail_source_fetch(failure: SourceFetchFailure) -> CommandResult {
+    match failure {
+        SourceFetchFailure::BaseMissing => {
+            fail(2, "source sync requires a configured base endpoint")
+        }
+        SourceFetchFailure::McpUrlMissing => {
+            fail(2, "source sync requires a configured MCP endpoint")
+        }
+        SourceFetchFailure::GoogleFolderMissing => fail(2, "introduce a folder, not the account"),
+        SourceFetchFailure::InvalidConfiguration => fail(2, "source sync configuration is invalid"),
+        SourceFetchFailure::InvalidAuthentication => fail_coded(
+            1,
+            FailCode::Unauthenticated,
+            "source authentication is invalid",
+        ),
+        SourceFetchFailure::Request => fail_coded(1, FailCode::NotConnected, "source fetch failed"),
+        SourceFetchFailure::Rejected => {
+            fail_coded(1, FailCode::NotConnected, "source fetch was rejected")
+        }
+        SourceFetchFailure::InvalidResponse => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "source returned an invalid response",
+        ),
+        SourceFetchFailure::ResourceNotFound => {
+            fail_coded(1, FailCode::NotConnected, "source resource was not found")
+        }
+        SourceFetchFailure::ResourceEmpty => {
+            fail_coded(1, FailCode::NotConnected, "source resource is empty")
+        }
+    }
 }
 
 async fn login_email(

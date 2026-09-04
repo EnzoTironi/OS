@@ -45,6 +45,12 @@ type Run = {
   stdout: string;
 };
 
+type CapturedHttpRequest = {
+  authorization: string;
+  body: string;
+  path: string;
+};
+
 function runZoen(
   args: readonly string[],
   options?: {
@@ -64,6 +70,47 @@ function runZoen(
     stderr: result.stderr ?? "",
     stdout: result.stdout ?? "",
   };
+}
+
+function runSourceSyncLifecycle(
+  assertionPrefix: string,
+  sourceHome: string,
+  id: string,
+  connectArgs: readonly string[],
+  introduceArgs: readonly string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+): Run {
+  const env = cliEnv({ ZOEN_SOURCE_HOME: sourceHome, ...extraEnv });
+  const connected = runZoen(["source", "connect", ...connectArgs], { env });
+  record(`${assertionPrefix}_connect_ok`, connected.status === 0);
+  const introduced = runZoen(["source", "introduce", id, ...introduceArgs], { env });
+  record(`${assertionPrefix}_introduce_ok`, introduced.status === 0);
+  return runZoen(["source", "sync", id, "--dry-run"], {
+    env,
+    timeoutMs: 5_000,
+  });
+}
+
+function recordSealedFetchFailure(
+  assertionPrefix: string,
+  result: Run,
+  safeMessage: string,
+  sentinels: readonly string[],
+): void {
+  record(`${assertionPrefix}_exit_1`, result.status === 1);
+  record(
+    `${assertionPrefix}_safe_diagnostic`,
+    result.stderr ===
+      `${JSON.stringify({ code: "not_connected", message: safeMessage })}\n`,
+  );
+  record(
+    `${assertionPrefix}_sentinels_not_on_stdout`,
+    sentinels.every((sentinel) => !result.stdout.includes(sentinel)),
+  );
+  record(
+    `${assertionPrefix}_sentinels_not_on_stderr`,
+    sentinels.every((sentinel) => !result.stderr.includes(sentinel)),
+  );
 }
 
 function cliEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -100,6 +147,28 @@ function listenHang(): Promise<{ close: () => void; port: number }> {
   });
 }
 
+function reserveClosedPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("closed-port listener has no port"));
+        return;
+      }
+      server.close((error) => {
+        if (error === undefined) {
+          resolve(address.port);
+        } else {
+          reject(error);
+        }
+      });
+    });
+  });
+}
+
 function listenHttp(
   status: number,
   body: string,
@@ -130,7 +199,11 @@ function listenHttpCapture(
           raw += chunk;
         });
         request.on("end", () => {
-          requests.push({ body: raw, path: request.url ?? "" });
+          requests.push({
+            authorization: request.headers.authorization ?? "",
+            body: raw,
+            path: request.url ?? "",
+          });
           fs.writeFileSync(requestsPath, JSON.stringify(requests));
           response.writeHead(status, { "content-type": "application/json" });
           response.end(body);
@@ -1032,10 +1105,58 @@ async function main(): Promise<void> {
       );
       record(
         "oauth2_env_secret_not_on_stderr",
-        !oauth2Ok.stderr.includes("from-env-secret"),
+        !oauth2Ok.stderr.includes("from-env-secret") &&
+          !oauth2Ok.stderr.includes("tok.oauth2"),
       );
     } finally {
       oauth2Token.close();
+    }
+
+    const oauth2FailureSecret = "sentinel.oauth2.failure-secret";
+    const oauth2Failure = await listenHttp(
+      401,
+      JSON.stringify({
+        error: "invalid_client",
+        error_description: `rejected ${oauth2FailureSecret}`,
+      }),
+    );
+    try {
+      const oauth2Rejected = runZoen(
+        [
+          "source",
+          "connect",
+          "oauth2",
+          "--idempotency-key",
+          "oauth2.rejected",
+          "--token-url",
+          `http://127.0.0.1:${oauth2Failure.port}/token`,
+          "--client-id",
+          "client",
+        ],
+        {
+          env: cliEnv({
+            ZOEN_SOURCE_HOME: sourceHome,
+            ZOEN_SOURCE_CLIENT_SECRET: oauth2FailureSecret,
+          }),
+        },
+      );
+      record("oauth2_rejected_exit_1", oauth2Rejected.status === 1);
+      record(
+        "oauth2_rejected_safe_diagnostic",
+        oauth2Rejected.stderr.includes('"code":"unauthenticated"') &&
+          oauth2Rejected.stderr.includes("oauth2 token request was rejected"),
+      );
+      record(
+        "oauth2_rejected_secret_not_on_stdout",
+        !oauth2Rejected.stdout.includes(oauth2FailureSecret),
+      );
+      record(
+        "oauth2_rejected_secret_not_on_stderr",
+        !oauth2Rejected.stderr.includes(oauth2FailureSecret),
+      );
+      killMutant("oauth2 rejection prints credentials or remote response body");
+    } finally {
+      oauth2Failure.close();
     }
 
     const googleDoor = runZoen(
@@ -1094,6 +1215,312 @@ async function main(): Promise<void> {
         googleDoc.auth?.value === "Bearer ya29.from-env",
     );
     killMutant("google token stays on argv or prints on stdout");
+
+    const restFetchSecret = "sentinel.rest.fetch-api-key";
+    const restFetchUrl = "sentinel-rest-fetch-url";
+    const restFetchBody = "sentinel.rest.fetch-response";
+    const restRejected = await listenHttpCapture(
+      401,
+      JSON.stringify({ echo: restFetchSecret, error: restFetchBody }),
+    );
+    try {
+      const result = runSourceSyncLifecycle(
+        "rest_fetch_rejected",
+        sourceHome,
+        "rest.sealed",
+        [
+          "rest",
+          "--id",
+          "rest.sealed",
+          "--base",
+          `http://127.0.0.1:${restRejected.port}/${restFetchUrl}/`,
+          "--auth",
+          "apikey",
+        ],
+        ["--path", "/items"],
+        { ZOEN_SOURCE_API_KEY: restFetchSecret },
+      );
+      recordSealedFetchFailure(
+        "rest_fetch_rejected",
+        result,
+        "source fetch was rejected",
+        [restFetchSecret, restFetchUrl, restFetchBody],
+      );
+      const requests = JSON.parse(
+        readFileSync(restRejected.requestsPath, "utf8"),
+      ) as CapturedHttpRequest[];
+      const request = requests.at(-1);
+      record(
+        "rest_fetch_rejected_sent_secret_on_wire",
+        request?.authorization === `Bearer ${restFetchSecret}`,
+      );
+      record(
+        "rest_fetch_rejected_sent_url_on_wire",
+        request?.path.includes(restFetchUrl) === true,
+      );
+      killMutant("REST fetch rejection exposes credential, URL, or response body");
+    } finally {
+      restRejected.close();
+    }
+
+    const oauthSyncClientSecret = "sentinel.oauth2.sync-client-secret";
+    const oauthSyncToken = "sentinel.oauth2.sync-access-token";
+    const oauthSyncUrl = "sentinel-oauth2-sync-url";
+    const oauthSyncBody = "sentinel.oauth2.sync-response";
+    const oauthSyncTokenDoor = await listenHttp(
+      200,
+      JSON.stringify({ access_token: oauthSyncToken, token_type: "Bearer" }),
+    );
+    const oauthSyncRejected = await listenHttpCapture(
+      403,
+      JSON.stringify({ echo: oauthSyncToken, error: oauthSyncBody }),
+    );
+    try {
+      const result = runSourceSyncLifecycle(
+        "oauth2_fetch_rejected",
+        sourceHome,
+        "oauth2.sealed",
+        [
+          "oauth2",
+          "--id",
+          "oauth2.sealed",
+          "--token-url",
+          `http://127.0.0.1:${oauthSyncTokenDoor.port}/token`,
+          "--client-id",
+          "client",
+          "--base",
+          `http://127.0.0.1:${oauthSyncRejected.port}/${oauthSyncUrl}/`,
+        ],
+        ["--path", "/objects"],
+        { ZOEN_SOURCE_CLIENT_SECRET: oauthSyncClientSecret },
+      );
+      recordSealedFetchFailure(
+        "oauth2_fetch_rejected",
+        result,
+        "source fetch was rejected",
+        [oauthSyncClientSecret, oauthSyncToken, oauthSyncUrl, oauthSyncBody],
+      );
+      const requests = JSON.parse(
+        readFileSync(oauthSyncRejected.requestsPath, "utf8"),
+      ) as CapturedHttpRequest[];
+      const request = requests.at(-1);
+      record(
+        "oauth2_fetch_rejected_sent_token_on_wire",
+        request?.authorization === `Bearer ${oauthSyncToken}`,
+      );
+      record(
+        "oauth2_fetch_rejected_sent_url_on_wire",
+        request?.path.includes(oauthSyncUrl) === true,
+      );
+      killMutant("OAuth2 sync exposes client secret, access token, URL, or response body");
+    } finally {
+      oauthSyncTokenDoor.close();
+      oauthSyncRejected.close();
+    }
+
+    const googleFetchToken = "sentinel.google.fetch-token";
+    const googleFetchUrl = "sentinel-google-fetch-url";
+    const googleFetchBody = "sentinel.google.fetch-response";
+    const googleRejected = await listenHttpCapture(
+      401,
+      JSON.stringify({ echo: googleFetchToken, error: googleFetchBody }),
+    );
+    try {
+      const result = runSourceSyncLifecycle(
+        "google_fetch_rejected",
+        sourceHome,
+        "google.sealed",
+        [
+          "google",
+          "--id",
+          "google.sealed",
+          "--profile",
+          "sealed",
+          "--base",
+          `http://127.0.0.1:${googleRejected.port}/${googleFetchUrl}/`,
+        ],
+        ["--folder", "Sealed Folder"],
+        { ZOEN_SOURCE_TOKEN: googleFetchToken },
+      );
+      recordSealedFetchFailure(
+        "google_fetch_rejected",
+        result,
+        "source fetch was rejected",
+        [googleFetchToken, googleFetchUrl, googleFetchBody],
+      );
+      const requests = JSON.parse(
+        readFileSync(googleRejected.requestsPath, "utf8"),
+      ) as CapturedHttpRequest[];
+      const request = requests.at(-1);
+      record(
+        "google_fetch_rejected_sent_token_on_wire",
+        request?.authorization === `Bearer ${googleFetchToken}`,
+      );
+      record(
+        "google_fetch_rejected_sent_url_on_wire",
+        request?.path.includes(googleFetchUrl) === true,
+      );
+      killMutant("Google fetch rejection exposes token, URL, or response body");
+    } finally {
+      googleRejected.close();
+    }
+
+    const mcpFetchUrl = "sentinel-mcp-fetch-url";
+    const mcpFetchBody = "sentinel.mcp.fetch-response";
+    const mcpRejected = await listenHttpCapture(
+      500,
+      JSON.stringify({ error: mcpFetchBody }),
+    );
+    try {
+      const result = runSourceSyncLifecycle(
+        "mcp_fetch_rejected",
+        sourceHome,
+        "mcp.sealed",
+        [
+          "mcp",
+          "--id",
+          "mcp.sealed",
+          "--url",
+          `http://127.0.0.1:${mcpRejected.port}/${mcpFetchUrl}`,
+        ],
+        ["--path", "list"],
+      );
+      recordSealedFetchFailure(
+        "mcp_fetch_rejected",
+        result,
+        "source fetch was rejected",
+        [mcpFetchUrl, mcpFetchBody],
+      );
+      const requests = JSON.parse(
+        readFileSync(mcpRejected.requestsPath, "utf8"),
+      ) as CapturedHttpRequest[];
+      record(
+        "mcp_fetch_rejected_sent_url_on_wire",
+        requests.at(-1)?.path.includes(mcpFetchUrl) === true,
+      );
+      killMutant("MCP HTTP rejection exposes URL or response body");
+    } finally {
+      mcpRejected.close();
+    }
+
+    const mcpRpcUrl = "sentinel-mcp-rpc-url";
+    const mcpRpcBody = "sentinel.mcp.rpc-error";
+    const mcpRpcRejected = await listenHttpCapture(
+      200,
+      JSON.stringify({
+        error: { code: -32_000, message: mcpRpcBody },
+        id: 1,
+        jsonrpc: "2.0",
+      }),
+    );
+    try {
+      const result = runSourceSyncLifecycle(
+        "mcp_rpc_rejected",
+        sourceHome,
+        "mcp.rpc.sealed",
+        [
+          "mcp",
+          "--id",
+          "mcp.rpc.sealed",
+          "--url",
+          `http://127.0.0.1:${mcpRpcRejected.port}/${mcpRpcUrl}`,
+        ],
+        ["--path", "list"],
+      );
+      recordSealedFetchFailure(
+        "mcp_rpc_rejected",
+        result,
+        "source fetch was rejected",
+        [mcpRpcUrl, mcpRpcBody],
+      );
+      const requests = JSON.parse(
+        readFileSync(mcpRpcRejected.requestsPath, "utf8"),
+      ) as CapturedHttpRequest[];
+      record(
+        "mcp_rpc_rejected_sent_url_on_wire",
+        requests.at(-1)?.path.includes(mcpRpcUrl) === true,
+      );
+      killMutant("MCP protocol rejection exposes URL or remote error payload");
+    } finally {
+      mcpRpcRejected.close();
+    }
+
+    const restTransportPort = await reserveClosedPort();
+    const restTransportSecret = "sentinel.rest.transport-api-key";
+    const restTransportUrl = "sentinel-rest-transport-url";
+    const restTransport = runSourceSyncLifecycle(
+      "rest_fetch_transport",
+      sourceHome,
+      "rest.transport",
+      [
+        "rest",
+        "--id",
+        "rest.transport",
+        "--base",
+        `http://127.0.0.1:${restTransportPort}/${restTransportUrl}/`,
+        "--auth",
+        "apikey",
+      ],
+      ["--path", "/items"],
+      { ZOEN_SOURCE_API_KEY: restTransportSecret },
+    );
+    recordSealedFetchFailure(
+      "rest_fetch_transport",
+      restTransport,
+      "source fetch failed",
+      [restTransportSecret, restTransportUrl],
+    );
+    killMutant("REST transport error exposes credential or URL");
+
+    const googleTransportPort = await reserveClosedPort();
+    const googleTransportToken = "sentinel.google.transport-token";
+    const googleTransportUrl = "sentinel-google-transport-url";
+    const googleTransport = runSourceSyncLifecycle(
+      "google_fetch_transport",
+      sourceHome,
+      "google.transport",
+      [
+        "google",
+        "--id",
+        "google.transport",
+        "--profile",
+        "transport",
+        "--base",
+        `http://127.0.0.1:${googleTransportPort}/${googleTransportUrl}/`,
+      ],
+      ["--folder", "Transport Folder"],
+      { ZOEN_SOURCE_TOKEN: googleTransportToken },
+    );
+    recordSealedFetchFailure(
+      "google_fetch_transport",
+      googleTransport,
+      "source fetch failed",
+      [googleTransportToken, googleTransportUrl],
+    );
+    killMutant("Google transport error exposes token or URL");
+
+    const mcpTransportPort = await reserveClosedPort();
+    const mcpTransportUrl = "sentinel-mcp-transport-url";
+    const mcpTransport = runSourceSyncLifecycle(
+      "mcp_fetch_transport",
+      sourceHome,
+      "mcp.transport",
+      [
+        "mcp",
+        "--id",
+        "mcp.transport",
+        "--url",
+        `http://127.0.0.1:${mcpTransportPort}/${mcpTransportUrl}`,
+      ],
+      ["--path", "list"],
+    );
+    recordSealedFetchFailure(
+      "mcp_fetch_transport",
+      mcpTransport,
+      "source fetch failed",
+      [mcpTransportUrl],
+    );
+    killMutant("MCP transport error exposes URL");
 
     const fetchable = await listenHttp(200, JSON.stringify({ quantity: "1" }));
     try {

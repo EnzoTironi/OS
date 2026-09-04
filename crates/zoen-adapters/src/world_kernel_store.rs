@@ -1,25 +1,28 @@
 //! Postgres-backed seven public verbs on the active `WorldRelease` catalog.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
-    ActionId, ActorId, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence, PrincipalId,
-    PublicVerb, ReleaseDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
+    ActionId, ActorId, BudgetClassId, CommitSequence, DefinitionDigest, DefinitionId,
+    DefinitionReference, DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence,
+    PrincipalId, PublicVerb, ReleaseDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
     WORLD_KERNEL_AUTHORITY_DEFINITION, WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST,
     WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId, encode_hex,
 };
 use zoen_engine::{
-    DEFAULT_QUERY_BUDGET, GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision,
-    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
-    KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface,
-    PolicyOperation, PolicyRequest, SealedCursorBasis, bind_sealed_cursor, directory_projection,
-    effective_page_limit, resolve_budget_id, seal_next,
+    AuthorizedObjectSetPlanDigest, CursorSealer, CursorSortOrder, GovernedCatalogBasis,
+    KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult,
+    KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal,
+    KernelQueryPage, KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest,
+    SealedCursorBasis, TrustedAuthorityDigest, directory_projection, effective_page_limit,
 };
 
 use crate::{
-    PostgresIdentityStore, PostgresWorldReleaseStore, clock_micros,
-    ontology_catalog::require_loadable_ontology_catalog,
+    PostgresIdentityStore, PostgresWorldReleaseStore, cedar::budget_classes_from_policy_catalog,
+    clock_micros, ontology_catalog::require_loadable_ontology_catalog,
     release_cedar::require_loadable_policy_catalog, typed_object_store::PreparedTypeAssignment,
 };
 
@@ -33,6 +36,7 @@ struct PendingKernelReceipt<'a> {
 #[derive(Clone)]
 pub struct PostgresWorldKernel {
     identity: PostgresIdentityStore,
+    cursor_sealer: Option<CursorSealer>,
     releases: PostgresWorldReleaseStore,
     pool: PgPool,
 }
@@ -74,7 +78,7 @@ impl KernelAuthorization {
         release_digest: &ReleaseDigest,
         principal: &PrincipalId,
         membership: &MembershipId,
-    ) -> Result<(), KernelError> {
+    ) -> Result<TrustedAuthorityDigest, KernelError> {
         self.validate_seal()?;
         if self.verb != verb || self.world != *world || self.release_digest != *release_digest {
             return Err(KernelError::Conflict(
@@ -86,15 +90,35 @@ impl KernelAuthorization {
                 "read authority does not match the caller".to_owned(),
             ));
         }
-        Ok(())
+        let authority = serde_json::json!({
+            "action": self.action.as_str(),
+            "actor": self.context.actor_id().as_str(),
+            "clearance": self.context.clearance().to_token_strings(),
+            "delegation": self.delegation_jcs,
+            "membership": self.membership.as_str(),
+            "principal": self.principal.as_str(),
+            "schema": "zoen.membership-authority.v1",
+            "world": self.context.world_id().as_str(),
+            "workload": self.context.workload_id().as_str(),
+        });
+        let canonical =
+            serde_jcs::to_vec(&authority).map_err(|error| KernelError::Store(error.to_string()))?;
+        Ok(TrustedAuthorityDigest::from_sha256(
+            Sha256::digest(canonical).into(),
+        ))
     }
 }
 
 impl PostgresWorldKernel {
     #[must_use]
-    pub fn new(releases: PostgresWorldReleaseStore, pool: PgPool) -> Self {
+    pub fn new(
+        releases: PostgresWorldReleaseStore,
+        pool: PgPool,
+        cursor_sealer: Option<CursorSealer>,
+    ) -> Self {
         Self {
             identity: PostgresIdentityStore::new(pool.clone()),
+            cursor_sealer,
             releases,
             pool,
         }
@@ -395,8 +419,8 @@ impl PostgresWorldKernel {
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when policy denies, the cursor is invalid, the budget
-    /// is raised by the caller, or the store fails.
+    /// Returns [`KernelError`] when policy denies, the cursor is invalid, the active release
+    /// omits the server-selected budget, or the store fails.
     pub async fn query_objects(
         &self,
         world: &WorldId,
@@ -405,40 +429,41 @@ impl PostgresWorldKernel {
         object_type: &str,
         page_token: &str,
         requested_limit: u32,
-        requested_budget: Option<&str>,
         surface: KernelSurface,
     ) -> Result<KernelQueryPage, KernelError> {
         let basis = self.catalog_basis(world).await?;
         let authority = self
             .authorize_verb(world, principal, membership, &basis, PublicVerb::Query)
             .await?;
-        authority.bind_read(
+        let trusted_authority_digest = authority.bind_read(
             PublicVerb::Query,
             world,
             &basis.release_digest,
             principal,
             membership,
         )?;
-        let budget_id = resolve_budget_id(requested_budget)
-            .map_err(|error| KernelError::Denied(error.to_string()))?
-            .to_owned();
-        let page_limit = effective_page_limit(requested_limit)
-            .map_err(|error| KernelError::Denied(error.to_string()))?;
-        let seal_basis = SealedCursorBasis {
-            authority_principal: principal.as_str().to_owned(),
-            membership: membership.as_str().to_owned(),
-            world: world.as_str().to_owned(),
-            object_type: object_type.to_owned(),
-            release_digest: basis.release_digest.as_str().to_owned(),
-            policy_digest: basis.policy.as_str().to_owned(),
-            budget_id: budget_id.clone(),
-            page_limit,
-        };
+        let cursor_sealer = self.cursor_sealer.as_ref().ok_or_else(|| {
+            KernelError::Denied("server cursor keyring is not configured".to_owned())
+        })?;
+        let seal_basis = self
+            .sealed_query_basis(
+                &basis,
+                world,
+                principal,
+                membership,
+                object_type,
+                requested_limit,
+                trusted_authority_digest,
+            )
+            .await?;
+        let budget_id = seal_basis.budget_id.clone();
+        let page_limit = seal_basis.page_limit;
         let after = if page_token.is_empty() {
             None
         } else {
             Some(
-                bind_sealed_cursor(page_token, &seal_basis)
+                cursor_sealer
+                    .bind(page_token, &seal_basis, unix_seconds()?)
                     .map_err(|error| KernelError::Denied(error.to_string()))?
                     .after_object_id,
             )
@@ -448,7 +473,14 @@ impl PostgresWorldKernel {
             .count_authorized_objects(world, principal, membership, object_type)
             .await?;
         let authorized = self
-            .load_authorized_objects(world, principal, membership, object_type, after.as_deref())
+            .load_authorized_objects(
+                world,
+                principal,
+                membership,
+                object_type,
+                after.as_deref(),
+                page_limit,
+            )
             .await?;
         let page_end = page_limit as usize;
         let page: Vec<_> = authorized
@@ -461,12 +493,13 @@ impl PostgresWorldKernel {
             let last = objects
                 .last()
                 .ok_or_else(|| KernelError::Conflict("page incomplete".to_owned()))?;
-            seal_next(&seal_basis, &last.object_id, true)
+            cursor_sealer
+                .seal_next(&seal_basis, &last.object_id, true, unix_seconds()?)
                 .map_err(|error| KernelError::Store(error.to_string()))?
         } else {
             String::new()
         };
-        let compute_digest = server_budgeted_compute(&objects);
+        let page_digest = authorized_page_digest(&budget_id, &objects)?;
         let explanation_jcs = serde_jcs::to_string(&serde_json::json!({
             "authorizedCount": authorized_count,
             "budgetId": budget_id.as_str(),
@@ -485,16 +518,64 @@ impl PostgresWorldKernel {
             decision: KernelPolicyDecision::Permit,
             membership: membership.clone(),
             object_type: object_type.to_owned(),
-            budget_id,
+            budget_id: budget_id.as_str().to_owned(),
             page_limit,
+            trusted_authority_digest: seal_basis.trusted_authority_digest,
+            authority_cut: seal_basis.authority_cut,
+            authorized_plan_digest: seal_basis.authorized_plan_digest,
             authorized_count,
             objects,
             next_cursor,
-            compute_digest,
+            page_digest,
             explanation_jcs,
         })
     }
 
+    async fn sealed_query_basis(
+        &self,
+        catalog: &GovernedCatalogBasis,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &MembershipId,
+        object_type: &str,
+        requested_limit: u32,
+        trusted_authority_digest: TrustedAuthorityDigest,
+    ) -> Result<SealedCursorBasis, KernelError> {
+        let budget_id = self.resolve_query_budget(catalog).await?;
+        let page_limit = effective_page_limit(requested_limit)
+            .map_err(|error| KernelError::Denied(error.to_string()))?;
+        let authority_cut: Option<CommitSequence> = None;
+        let authorized_plan_digest = authorized_plan_digest(&NarrowAuthorizedPlan {
+            schema: "zoen.authorized-object-set-plan.narrow.v1",
+            entitlement_basis: "world+object_type+principal+membership grant",
+            trusted_authority_digest: Some(trusted_authority_digest.as_str()),
+            authority_cut: authority_cut.map(CommitSequence::get),
+            authority_principal: principal.as_str(),
+            membership: membership.as_str(),
+            world: world.as_str(),
+            object_type,
+            release_digest: catalog.release_digest.as_str(),
+            policy_digest: catalog.policy.as_str(),
+            budget_id: budget_id.as_str(),
+            page_limit,
+            projection: &["object_id", "object_type", "fields_jcs"],
+            sort_order: CursorSortOrder::ObjectIdAscending.as_str(),
+        })?;
+        Ok(SealedCursorBasis {
+            trusted_authority_digest: Some(trusted_authority_digest),
+            authority_cut,
+            authorized_plan_digest,
+            authority_principal: principal.clone(),
+            membership: membership.clone(),
+            world: world.clone(),
+            object_type: object_type.to_owned(),
+            release_digest: catalog.release_digest.clone(),
+            policy_digest: catalog.policy.clone(),
+            budget_id,
+            page_limit,
+            sort_order: CursorSortOrder::ObjectIdAscending,
+        })
+    }
     async fn count_authorized_objects(
         &self,
         world: &WorldId,
@@ -526,7 +607,9 @@ impl PostgresWorldKernel {
         membership: &MembershipId,
         object_type: &str,
         after: Option<&str>,
+        page_limit: u32,
     ) -> Result<Vec<KernelAuthorizedObject>, KernelError> {
+        let sql_limit = i64::from(page_limit).saturating_add(1);
         let rows = if let Some(after_id) = after {
             sqlx::query(
                 "SELECT o.object_id, o.object_type, o.fields_jcs
@@ -540,13 +623,15 @@ impl PostgresWorldKernel {
                    AND g.principal_id = $3
                    AND g.membership_id = $4
                    AND o.object_id > $5
-                 ORDER BY o.object_id ASC",
+                 ORDER BY o.object_id ASC
+                 LIMIT $6",
             )
             .bind(world.as_str())
             .bind(object_type)
             .bind(principal.as_str())
             .bind(membership.as_str())
             .bind(after_id)
+            .bind(sql_limit)
             .fetch_all(&self.pool)
             .await
         } else {
@@ -561,12 +646,14 @@ impl PostgresWorldKernel {
                    AND o.object_type = $2
                    AND g.principal_id = $3
                    AND g.membership_id = $4
-                 ORDER BY o.object_id ASC",
+                 ORDER BY o.object_id ASC
+                 LIMIT $5",
             )
             .bind(world.as_str())
             .bind(object_type)
             .bind(principal.as_str())
             .bind(membership.as_str())
+            .bind(sql_limit)
             .fetch_all(&self.pool)
             .await
         }
@@ -586,6 +673,30 @@ impl PostgresWorldKernel {
                 })
             })
             .collect()
+    }
+
+    async fn resolve_query_budget(
+        &self,
+        basis: &GovernedCatalogBasis,
+    ) -> Result<BudgetClassId, KernelError> {
+        let catalogs = self
+            .releases
+            .get_catalogs(&basis.release_digest)
+            .await
+            .map_err(map_release)?
+            .ok_or_else(|| {
+                KernelError::NotFound("active release catalogs were not found".to_owned())
+            })?;
+        let catalog = budget_classes_from_policy_catalog(catalogs.policy().bytes())
+            .map_err(|error| KernelError::Denied(error.to_string()))?;
+        let budget = catalog
+            .selection_order()
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                KernelError::Denied("active release does not publish a query budget".to_owned())
+            })?;
+        Ok(budget.id().clone())
     }
 
     pub(crate) async fn catalog_basis(
@@ -1479,14 +1590,77 @@ fn map_release(error: impl std::fmt::Display) -> KernelError {
     KernelError::Store(error.to_string())
 }
 
-fn server_budgeted_compute(objects: &[KernelAuthorizedObject]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(DEFAULT_QUERY_BUDGET.as_bytes());
-    for object in objects {
-        hasher.update(object.object_id.as_bytes());
-        hasher.update(object.fields_jcs.as_bytes());
-    }
-    encode_hex(hasher.finalize().as_slice())
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NarrowAuthorizedPlan<'a> {
+    schema: &'static str,
+    entitlement_basis: &'static str,
+    trusted_authority_digest: Option<&'a str>,
+    authority_cut: Option<u64>,
+    authority_principal: &'a str,
+    membership: &'a str,
+    world: &'a str,
+    object_type: &'a str,
+    release_digest: &'a str,
+    policy_digest: &'a str,
+    budget_id: &'a str,
+    page_limit: u32,
+    projection: &'static [&'static str],
+    sort_order: &'a str,
+}
+
+fn authorized_plan_digest(
+    plan: &NarrowAuthorizedPlan<'_>,
+) -> Result<AuthorizedObjectSetPlanDigest, KernelError> {
+    let canonical =
+        serde_jcs::to_vec(plan).map_err(|error| KernelError::Store(error.to_string()))?;
+    Ok(AuthorizedObjectSetPlanDigest::from_sha256(
+        Sha256::digest(canonical).into(),
+    ))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizedPageDigestPayload<'a> {
+    schema: &'static str,
+    budget_id: &'a str,
+    objects: Vec<AuthorizedPageObject<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizedPageObject<'a> {
+    object_id: &'a str,
+    object_type: &'a str,
+    fields_jcs: &'a str,
+}
+
+fn authorized_page_digest(
+    budget_id: &BudgetClassId,
+    objects: &[KernelAuthorizedObject],
+) -> Result<String, KernelError> {
+    let payload = AuthorizedPageDigestPayload {
+        schema: "zoen.authorized-page.v1",
+        budget_id: budget_id.as_str(),
+        objects: objects
+            .iter()
+            .map(|object| AuthorizedPageObject {
+                object_id: &object.object_id,
+                object_type: &object.object_type,
+                fields_jcs: &object.fields_jcs,
+            })
+            .collect(),
+    };
+    let canonical = serde_jcs::to_vec(&payload)
+        .map_err(|error| KernelError::Store(format!("page digest is invalid: {error}")))?;
+    Ok(encode_hex(Sha256::digest(canonical).as_slice()))
+}
+
+fn unix_seconds() -> Result<u64, KernelError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .map_err(|error| KernelError::Store(format!("system clock precedes Unix epoch: {error}")))
 }
 
 fn kernel_policy_operation(verb: PublicVerb) -> PolicyOperation {
