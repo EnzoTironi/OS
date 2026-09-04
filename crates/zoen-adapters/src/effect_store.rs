@@ -34,14 +34,14 @@ pub(crate) async fn begin(
     effect_request_id: &EffectRequestId,
 ) -> Result<PostgresEffectUpdate, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let head = sqlx::query_scalar::<_, i64>(
         "SELECT commit_sequence
          FROM authority_heads
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_optional(&mut *transaction)
     .await
     .map_err(store_unavailable)?
@@ -52,7 +52,7 @@ pub(crate) async fn begin(
          WHERE tenant_id = $1 AND effect_request_id = $2
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -75,7 +75,7 @@ pub(crate) async fn get(
     effect_request_id: &EffectRequestId,
 ) -> Result<EffectSnapshot, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let snapshot = load_snapshot(&mut transaction, context, effect_request_id).await?;
     transaction.commit().await.map_err(store_unavailable)?;
     Ok(snapshot)
@@ -97,7 +97,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                AND effect_request_id = $2
                AND adapter_execution_id = $3",
         )
-        .bind(self.context.tenant_id().as_str())
+        .bind(self.context.world_id().as_str())
         .bind(self.effect_request_id.as_str())
         .bind(adapter_execution_id)
         .fetch_optional(&mut *self.transaction)
@@ -117,7 +117,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
              ORDER BY claimed_at ASC
              LIMIT 1",
         )
-        .bind(self.context.tenant_id().as_str())
+        .bind(self.context.world_id().as_str())
         .bind(self.effect_request_id.as_str())
         .fetch_optional(&mut *self.transaction)
         .await
@@ -155,7 +155,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                 claimed_workload_id
              ) VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(effect_request_id.as_str())
         .bind(attempt_id.as_str())
         .bind(adapter_execution_id)
@@ -177,7 +177,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                   AND claimed_workload_id = $4
              )",
         )
-        .bind(self.context.tenant_id().as_str())
+        .bind(self.context.world_id().as_str())
         .bind(self.effect_request_id.as_str())
         .bind(attempt_id.as_str())
         .bind(self.context.workload_id().as_str())
@@ -210,7 +210,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                 result_kind, reason_kind, response_digest
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(effect_request_id.as_str())
         .bind(command.attempt_id.as_str())
         .bind(next_sequence)
@@ -271,7 +271,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                 outcome, provider_operation_id, source_id, source_ref
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(effect_request_id.as_str())
         .bind(command.evidence_id.as_str())
         .bind(next_sequence)
@@ -291,7 +291,7 @@ impl EffectUpdateTransaction for PostgresEffectUpdate {
                 previous_state, resulting_state
              ) VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(effect_request_id.as_str())
         .bind(command.evidence_id.as_str())
         .bind(next_sequence)
@@ -341,7 +341,7 @@ pub(crate) async fn load_snapshot(
          FROM effect_requests
          WHERE tenant_id = $1 AND effect_request_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -355,7 +355,7 @@ pub(crate) async fn load_snapshot(
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY commit_sequence, attempt_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -370,7 +370,7 @@ pub(crate) async fn load_snapshot(
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY commit_sequence, evidence_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -384,7 +384,7 @@ pub(crate) async fn load_snapshot(
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY commit_sequence, evidence_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -413,7 +413,7 @@ async fn append_authority_commit(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, $3)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .bind(kind)
     .execute(&mut **transaction)
@@ -434,7 +434,7 @@ async fn update_effect_state(
          FROM effect_requests
          WHERE tenant_id = $1 AND effect_request_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_one(&mut **transaction)
     .await
@@ -453,7 +453,7 @@ async fn update_effect_state(
              updated_at = clock_timestamp()
          WHERE tenant_id = $1 AND effect_request_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .bind(state_name(state))
     .bind(commit_sequence)
@@ -511,7 +511,7 @@ async fn append_projection_event(
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
          VALUES ($1, $2, 0, $3, 1, $4)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(commit_sequence)
     .bind(event_type)
     .bind(payload)
@@ -531,7 +531,7 @@ async fn advance_head(
          SET commit_sequence = $2
          WHERE tenant_id = $1",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(commit_sequence)
     .execute(&mut **transaction)
     .await

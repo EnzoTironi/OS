@@ -60,7 +60,7 @@ struct WorkloadSession {
     actor_id: String,
     exchange_token: String,
     principal_id: String,
-    tenant_id: String,
+    world_id: String,
     workload_id: String,
 }
 
@@ -324,7 +324,7 @@ impl EffectServiceClient {
                 "authorization",
                 format!("Bearer {}", session.exchange_token),
             )
-            .with_header("x-zoen-tenant", self.identity.tenant_id.clone())
+            .with_header("x-zoen-tenant", self.identity.world_id.clone())
     }
 
     async fn authenticate(&self) -> ServiceResult<WorkloadSession> {
@@ -359,7 +359,7 @@ impl EffectServiceClient {
             ))
         })?;
         let session = parse_session(&document)?;
-        if session.tenant_id != self.identity.tenant_id
+        if session.world_id != self.identity.world_id
             || session.workload_id != self.identity.workload_id
             || session.principal_id != self.identity.principal_id
             || session.actor_id != self.identity.actor_id
@@ -397,7 +397,7 @@ fn parse_session(document: &serde_json::Value) -> ServiceResult<WorkloadSession>
         actor_id: get("actorId")?,
         exchange_token: get("exchangeToken")?,
         principal_id: get("principalId")?,
-        tenant_id: get("tenantId")?,
+        world_id: get("tenantId")?,
         workload_id: get("workloadId")?,
     })
 }

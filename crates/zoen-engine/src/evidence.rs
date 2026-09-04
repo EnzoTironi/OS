@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 use zoen_core::{
-    EvidenceClaim, EvidenceDraft, ExactValue, IntentDigest, TenantId, TimestampMicros, ValidTime,
+    EvidenceClaim, EvidenceDraft, ExactValue, IntentDigest, TimestampMicros, ValidTime, WorldId,
 };
 
 use crate::StoreError;
@@ -22,11 +22,11 @@ pub(crate) fn stamp_ingested_at(draft: &mut EvidenceDraft, ingested_at: Timestam
 }
 
 pub(crate) fn evidence_intent_digest(
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     drafts: &[EvidenceDraft],
 ) -> Result<IntentDigest, String> {
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, tenant_id.as_str());
+    hash_field(&mut hasher, world_id.as_str());
     hash_field(&mut hasher, &drafts.len().to_string());
     for draft in drafts {
         hash_draft(&mut hasher, draft);
@@ -107,8 +107,8 @@ mod tests {
     use zoen_core::{
         ClaimId, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
         DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest, EvidenceDraft,
-        EvidenceProvenance, ExactInteger, ExactValue, RelationId, SourceId, TenantId,
-        TimestampMicros, ValidTime,
+        EvidenceProvenance, ExactInteger, ExactValue, RelationId, SourceId, TimestampMicros,
+        ValidTime, WorldId,
     };
 
     use super::{
@@ -183,8 +183,8 @@ mod tests {
         assert!(first.same_intent(&second));
     }
 
-    fn tenant() -> TenantId {
-        TenantId::parse("tenant.test").expect("tenant")
+    fn tenant() -> WorldId {
+        WorldId::parse("tenant.test").expect("tenant")
     }
 
     fn sample_draft() -> EvidenceDraft {

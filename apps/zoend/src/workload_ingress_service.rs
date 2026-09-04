@@ -19,9 +19,9 @@ use zoen_core::{
     ActionId, ActorId, AudienceClass, DelegationChain, DelegationGrant, DelegationId, DigestRef,
     DurableEventId, ExternalSignalDraft, IdentityError, IngressAllowance, PrincipalId,
     ProjectedCapabilityKind, RateBudgetPolicy, ResourceId, ServerAllowId, SignalSourceIdentity,
-    SignalTrustDisposition, SourceClass, TenantId, TimestampMicros, WORKLOAD_CREDENTIALS_RESOURCE,
+    SignalTrustDisposition, SourceClass, TimestampMicros, WORKLOAD_CREDENTIALS_RESOURCE,
     WORKLOAD_MANAGE_CREDENTIALS_ACTION, WorkloadCredentialId, WorkloadId, WorkloadRevocationReason,
-    offer_external_signal_as_evidence_candidate,
+    WorldId, offer_external_signal_as_evidence_candidate,
 };
 
 use crate::session::SessionExchange;
@@ -48,7 +48,7 @@ pub fn router(state: WorkloadIngressState) -> Router {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssueBody {
-    tenant_id: String,
+    world_id: String,
     workload_id: String,
     principal_id: String,
     actor_id: String,
@@ -120,7 +120,7 @@ struct SignalSourceBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RevokeBody {
-    tenant_id: String,
+    world_id: String,
     reason: Option<String>,
 }
 
@@ -129,7 +129,8 @@ struct RevokeBody {
 struct IssuedJson {
     credential_id: String,
     api_key_once: String,
-    tenant_id: String,
+    #[serde(rename = "tenantId")]
+    world_id: String,
     principal_id: String,
     workload_id: String,
 }
@@ -138,7 +139,8 @@ struct IssuedJson {
 #[serde(rename_all = "camelCase")]
 struct SessionJson {
     credential_id: String,
-    tenant_id: String,
+    #[serde(rename = "tenantId")]
+    world_id: String,
     principal_id: String,
     workload_id: String,
     actor_id: String,
@@ -168,7 +170,7 @@ struct SignalJson {
     id: String,
     durable_event_id: String,
     workload_credential_id: String,
-    tenant_id: String,
+    world_id: String,
     principal_id: String,
     trust_disposition: String,
 }
@@ -177,7 +179,7 @@ struct SignalJson {
 #[serde(rename_all = "camelCase")]
 struct EvidenceOfferJson {
     signal_id: String,
-    tenant_id: String,
+    world_id: String,
     payload_digest_ref: String,
     source_digest_ref: String,
     workload_credential_id: String,
@@ -188,11 +190,11 @@ async fn issue_credential(
     headers: HeaderMap,
     Json(body): Json<IssueBody>,
 ) -> impl IntoResponse {
-    let tenant_id = match TenantId::parse(&body.tenant_id) {
+    let world_id = match WorldId::parse(&body.world_id) {
         Ok(value) => value,
         Err(error) => return bad_request(&error.to_string()),
     };
-    if let Err(response) = require_credential_operator(&state, &headers, &tenant_id).await {
+    if let Err(response) = require_credential_operator(&state, &headers, &world_id).await {
         return *response;
     }
     let expires_at = TimestampMicros::new(body.expires_at_micros);
@@ -205,7 +207,7 @@ async fn issue_credential(
         Err(message) => return bad_request(&message),
     };
     let cmd = IssueWorkloadCredential {
-        tenant_id,
+        world_id,
         workload_id: match WorkloadId::parse(body.workload_id) {
             Ok(value) => value,
             Err(error) => return bad_request(&error.to_string()),
@@ -242,7 +244,7 @@ async fn issue_credential(
             Json(IssuedJson {
                 credential_id: issued.credential.id.to_string(),
                 api_key_once: issued.api_key_once,
-                tenant_id: issued.credential.tenant_id.to_string(),
+                world_id: issued.credential.world_id.to_string(),
                 principal_id: issued.credential.principal_id.to_string(),
                 workload_id: issued.credential.workload_id.to_string(),
             }),
@@ -258,11 +260,11 @@ async fn revoke_credential(
     axum::extract::Path(credential_id): axum::extract::Path<String>,
     Json(body): Json<RevokeBody>,
 ) -> impl IntoResponse {
-    let tenant_id = match TenantId::parse(body.tenant_id) {
+    let world_id = match WorldId::parse(body.world_id) {
         Ok(value) => value,
         Err(error) => return bad_request(&error.to_string()),
     };
-    if let Err(response) = require_credential_operator(&state, &headers, &tenant_id).await {
+    if let Err(response) = require_credential_operator(&state, &headers, &world_id).await {
         return *response;
     }
     let id = match WorkloadCredentialId::parse(credential_id) {
@@ -273,7 +275,7 @@ async fn revoke_credential(
         Ok(value) => value,
         Err(error) => return identity_error(&error),
     };
-    match state.credentials.revoke(&tenant_id, &id, reason).await {
+    match state.credentials.revoke(&world_id, &id, reason).await {
         Ok(credential) => {
             state
                 .sessions
@@ -332,7 +334,7 @@ async fn authenticate(
         StatusCode::OK,
         Json(SessionJson {
             credential_id: credential.id.to_string(),
-            tenant_id: tec.tenant_id().to_string(),
+            world_id: tec.world_id().to_string(),
             principal_id: tec.principal_id().to_string(),
             workload_id: tec.workload_id().to_string(),
             actor_id: tec.actor_id().to_string(),
@@ -382,7 +384,7 @@ async fn accept_signal(
                 .ok()
                 .map(|offer| EvidenceOfferJson {
                     signal_id: offer.signal_id.to_string(),
-                    tenant_id: offer.tenant_id.to_string(),
+                    world_id: offer.world_id.to_string(),
                     payload_digest_ref: offer.payload_digest_ref.as_str().to_owned(),
                     source_digest_ref: offer.source_digest_ref.as_str().to_owned(),
                     workload_credential_id: offer.workload_credential_id.to_string(),
@@ -394,7 +396,7 @@ async fn accept_signal(
                         id: signal.id.to_string(),
                         durable_event_id: signal.durable_event_id.to_string(),
                         workload_credential_id: signal.workload_credential_id.to_string(),
-                        tenant_id: signal.tenant_id.to_string(),
+                        world_id: signal.world_id.to_string(),
                         principal_id: signal.principal_id.to_string(),
                         trust_disposition: signal.trust_disposition.as_str().to_owned(),
                     },
@@ -452,14 +454,14 @@ fn now_micros() -> TimestampMicros {
 async fn require_credential_operator(
     state: &WorkloadIngressState,
     headers: &HeaderMap,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<(), Box<axum::response::Response>> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     let (_, context) = state
         .sessions
-        .resolve_membership(authorization, Some(tenant_id))
+        .resolve_membership(authorization, Some(world_id))
         .await
         .map_err(|error| Box::new(identity_error(&error)))?;
     let action = ActionId::parse(WORKLOAD_MANAGE_CREDENTIALS_ACTION)

@@ -14,7 +14,7 @@ use zoen_core::{
     DefinitionReference, DefinitionRevision, DefinitionRevisionNumber, EffectRequestId,
     EffectSnapshot, EvidenceClaim, EvidenceDraft, EvolutionClassification, ExecutionContext,
     ExplanationTarget, OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision,
-    PolicyRevisionNumber, PrincipalId, ProposalId, TenantId, TimestampMicros, WorkloadId,
+    PolicyRevisionNumber, PrincipalId, ProposalId, TimestampMicros, WorkloadId, WorldId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedDefinitionPublication, AdmittedEvidence, AuthorityStore,
@@ -658,7 +658,7 @@ impl AuthorityStore for PostgresAuthorityStore {
         let context = activation.context();
         let target = activation.target();
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let next_sequence = persist_activation(&mut transaction, activation).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(DefinitionActivation {
@@ -709,11 +709,11 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn get_active_revision(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
     ) -> Result<Option<DefinitionRevision>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT revision.definition_id, revision.revision, revision.digest,
                     revision.canonical_json, revision.commit_sequence
@@ -725,7 +725,7 @@ impl AuthorityStore for PostgresAuthorityStore {
               AND revision.revision = active.revision
              WHERE active.tenant_id = $1 AND active.definition_id = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(definition_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -737,11 +737,11 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn get_active_activation(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
     ) -> Result<Option<DefinitionActivation>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT activation.definition_id, activation.revision, activation.digest,
                     activation.previous_revision, activation.previous_digest,
@@ -759,7 +759,7 @@ impl AuthorityStore for PostgresAuthorityStore {
               AND activation.commit_sequence = active.activation_commit_sequence
              WHERE active.tenant_id = $1 AND active.definition_id = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(definition_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -771,19 +771,19 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn get_migration(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         operation_id: &OperationId,
     ) -> Result<zoen_core::MigrationProgress, StoreError> {
-        migration_store::get(self, tenant_id, operation_id).await
+        migration_store::get(self, world_id, operation_id).await
     }
 
     async fn get_completed_migration(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         from: &DefinitionReference,
         to: &DefinitionReference,
     ) -> Result<Option<zoen_core::MigrationProgress>, StoreError> {
-        migration_store::completed(self, tenant_id, from, to).await
+        migration_store::completed(self, world_id, from, to).await
     }
 
     async fn begin_effect_update(
@@ -832,7 +832,7 @@ impl AuthorityStore for PostgresAuthorityStore {
     ) -> Result<DefinitionPublication, StoreError> {
         let context = publication.context();
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let revision = persist_publication(&mut transaction, publication).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(revision)
@@ -847,12 +847,12 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn preflight_migration_batch(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         operation_id: &OperationId,
         batch_index: u32,
         intent_digest: &zoen_core::IntentDigest,
     ) -> Result<zoen_engine::MigrationBatchPreflight, StoreError> {
-        migration_store::preflight(self, tenant_id, operation_id, batch_index, intent_digest).await
+        migration_store::preflight(self, world_id, operation_id, batch_index, intent_digest).await
     }
 
     async fn get_evidence_operation(
@@ -865,18 +865,18 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn get_revision(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
         digest: &DefinitionDigest,
     ) -> Result<DefinitionRevision, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT definition_id, revision, digest, canonical_json, commit_sequence
              FROM definition_revisions
              WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(definition_id.as_str())
         .bind(digest.as_str())
         .fetch_optional(&mut *transaction)
@@ -972,10 +972,10 @@ impl AuthorityStore for PostgresAuthorityStore {
 
     async fn revision_was_active(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         revision: &DefinitionReference,
     ) -> Result<bool, StoreError> {
-        migration_store::revision_was_active(self, tenant_id, revision).await
+        migration_store::revision_was_active(self, world_id, revision).await
     }
 }
 
@@ -989,7 +989,7 @@ async fn persist_activation(
         .ok_or_else(|| StoreError::Corrupt("commit sequence overflow".to_owned()))?;
     insert_commit_kind(
         transaction,
-        activation.context().tenant_id(),
+        activation.context().world_id(),
         next_sequence,
         "definition_activation",
     )
@@ -997,7 +997,7 @@ async fn persist_activation(
     insert_activation_row(transaction, activation, next_sequence).await?;
     insert_activation_grants(
         transaction,
-        activation.context().tenant_id(),
+        activation.context().world_id(),
         next_sequence,
         activation.context(),
     )
@@ -1018,7 +1018,7 @@ async fn lock_activation_head(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_optional(&mut **transaction)
     .await
     .map_err(store_unavailable)?
@@ -1034,7 +1034,7 @@ async fn lock_activation_head(
            AND revision = $4
          FOR SHARE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(target.definition_id.as_str())
     .bind(target.digest.as_str())
     .bind(u64_to_i64(target.revision.get(), "definition revision")?)
@@ -1050,7 +1050,7 @@ async fn lock_activation_head(
          WHERE tenant_id = $1 AND definition_id = $2
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(target.definition_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -1099,7 +1099,7 @@ async fn insert_activation_row(
             $16, $17, $18
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(target.definition_id.as_str())
     .bind(u64_to_i64(target.revision.get(), "definition revision")?)
     .bind(target.digest.as_str())
@@ -1147,7 +1147,7 @@ async fn project_activation(
             digest = EXCLUDED.digest,
             activation_commit_sequence = EXCLUDED.activation_commit_sequence",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(target.definition_id.as_str())
     .bind(u64_to_i64(target.revision.get(), "definition revision")?)
     .bind(target.digest.as_str())
@@ -1155,8 +1155,8 @@ async fn project_activation(
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
-    insert_projection_event(transaction, context.tenant_id(), next_sequence, activation).await?;
-    advance_authority_head(transaction, context.tenant_id(), next_sequence).await
+    insert_projection_event(transaction, context.world_id(), next_sequence, activation).await?;
+    advance_authority_head(transaction, context.world_id(), next_sequence).await
 }
 
 async fn persist_publication(
@@ -1169,7 +1169,7 @@ async fn persist_publication(
          VALUES ($1, 0)
          ON CONFLICT (tenant_id) DO NOTHING",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
@@ -1179,7 +1179,7 @@ async fn persist_publication(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_one(&mut **transaction)
     .await
     .map_err(store_unavailable)?
@@ -1193,7 +1193,7 @@ async fn persist_publication(
          FROM definition_revisions
          WHERE tenant_id = $1 AND definition_id = $2 AND revision = $3",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(publication.definition_id().as_str())
     .bind(u64_to_i64(publication.revision().get(), "revision")?)
     .fetch_optional(&mut **transaction)
@@ -1253,7 +1253,7 @@ async fn existing_publication(
            AND revision.definition_id = $2
            AND revision.digest = $3",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(publication.definition_id().as_str())
     .bind(publication.digest().as_str())
     .fetch_optional(&mut **transaction)
@@ -1293,7 +1293,7 @@ async fn existing_publication(
 
 async fn insert_commit_kind(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     next_sequence: i64,
     commit_kind: &str,
 ) -> Result<(), StoreError> {
@@ -1301,7 +1301,7 @@ async fn insert_commit_kind(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, $3)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(next_sequence)
     .bind(commit_kind)
     .execute(&mut **transaction)
@@ -1312,7 +1312,7 @@ async fn insert_commit_kind(
 
 async fn insert_projection_event(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     next_sequence: i64,
     activation: &AdmittedDefinitionActivation,
 ) -> Result<(), StoreError> {
@@ -1322,7 +1322,7 @@ async fn insert_projection_event(
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
          VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(next_sequence)
     .bind(event.event_type())
     .bind(i32::from(event.event_version()))
@@ -1341,7 +1341,7 @@ async fn insert_published_revision(
     let context = publication.context();
     insert_commit_kind(
         transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         "definition_publication",
     )
@@ -1351,7 +1351,7 @@ async fn insert_published_revision(
             (tenant_id, definition_id, revision, digest, canonical_json, commit_sequence)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(publication.definition_id().as_str())
     .bind(u64_to_i64(publication.revision().get(), "revision")?)
     .bind(publication.digest().as_str())
@@ -1368,7 +1368,7 @@ async fn insert_published_revision(
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
          VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .bind(event.event_type())
     .bind(i32::from(event.event_version()))
@@ -1376,7 +1376,7 @@ async fn insert_published_revision(
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
-    advance_authority_head(transaction, context.tenant_id(), next_sequence).await
+    advance_authority_head(transaction, context.world_id(), next_sequence).await
 }
 
 async fn insert_publication_row(
@@ -1401,7 +1401,7 @@ async fn insert_publication_row(
             $14
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(publication.definition_id().as_str())
     .bind(u64_to_i64(publication.revision().get(), "revision")?)
     .bind(publication.digest().as_str())
@@ -1440,7 +1440,7 @@ async fn insert_publication_grants(
                 not_before_micros, expires_at_micros
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(commit_sequence)
         .bind(ordinal)
         .bind(grant.id().as_str())
@@ -1476,7 +1476,7 @@ async fn insert_publication_grants(
 
 async fn advance_authority_head(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     next_sequence: i64,
 ) -> Result<(), StoreError> {
     let updated = sqlx::query(
@@ -1484,7 +1484,7 @@ async fn advance_authority_head(
          SET commit_sequence = $2
          WHERE tenant_id = $1",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(next_sequence)
     .execute(&mut **transaction)
     .await
@@ -1500,7 +1500,7 @@ async fn advance_authority_head(
 
 async fn insert_activation_grants(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     context: &ExecutionContext,
 ) -> Result<(), StoreError> {
@@ -1514,7 +1514,7 @@ async fn insert_activation_grants(
                 not_before_micros, expires_at_micros
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(commit_sequence)
         .bind(ordinal)
         .bind(grant.id().as_str())

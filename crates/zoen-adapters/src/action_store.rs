@@ -9,8 +9,8 @@ use zoen_core::{
     DelegationId, EffectRequestId, EntityId, EvidenceDigest, ExecutionContext, ExecutionId,
     InputId, IntentDigest, LineageRole, OperationId, PolicyDigest, PolicyEvidence, PolicyId,
     PolicyRevision, PolicyRevisionNumber, PrincipalId, ProposalAuthority, ProposalId, RelationId,
-    ResourceId, ScenarioId, SourceId, StateBasis, StateBasisDigest, StateDependency, TenantId,
-    TimestampMicros, TrustedExecutionContext, WorkloadId,
+    ResourceId, ScenarioId, SourceId, StateBasis, StateBasisDigest, StateDependency,
+    TimestampMicros, TrustedExecutionContext, WorkloadId, WorldId,
 };
 use zoen_engine::StoreError;
 
@@ -32,11 +32,11 @@ pub(crate) async fn save_proposal(
     context: &ExecutionContext,
     proposal: &ActionProposal,
 ) -> Result<ActionProposal, StoreError> {
-    ensure_context_tenant(context.tenant_id(), &proposal.proposed_by)?;
+    ensure_context_tenant(context.world_id(), &proposal.proposed_by)?;
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     if let Some(existing) =
-        load_proposal(&mut transaction, context.tenant_id(), &proposal.proposal_id).await?
+        load_proposal(&mut transaction, context.world_id(), &proposal.proposal_id).await?
     {
         if existing.operation_id == proposal.operation_id
             && existing.intent_digest == proposal.intent_digest
@@ -48,24 +48,20 @@ pub(crate) async fn save_proposal(
             "proposal id already identifies a different intent".to_owned(),
         ));
     }
-    require_active_revision(&mut transaction, context.tenant_id(), &proposal.definition).await?;
-    if load_proposal_by_operation(
-        &mut transaction,
-        context.tenant_id(),
-        &proposal.operation_id,
-    )
-    .await?
-    .is_some()
+    require_active_revision(&mut transaction, context.world_id(), &proposal.definition).await?;
+    if load_proposal_by_operation(&mut transaction, context.world_id(), &proposal.operation_id)
+        .await?
+        .is_some()
     {
         return Err(StoreError::OperationMismatch);
     }
 
     insert_proposal_row(&mut transaction, context, proposal).await?;
-    insert_inputs(&mut transaction, context.tenant_id(), proposal).await?;
-    insert_dependencies(&mut transaction, context.tenant_id(), proposal).await?;
+    insert_inputs(&mut transaction, context.world_id(), proposal).await?;
+    insert_dependencies(&mut transaction, context.world_id(), proposal).await?;
     insert_grants(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         GrantOwner::Proposal(&proposal.proposal_id),
         &proposal.proposed_by,
     )
@@ -102,7 +98,7 @@ async fn insert_proposal_row(
             $28, $29, $30
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(proposal.proposal_id.as_str())
     .bind(proposal.operation_id.as_str())
     .bind(proposal.intent_digest.as_str())
@@ -184,8 +180,8 @@ pub(crate) async fn get_proposal(
     proposal_id: &ProposalId,
 ) -> Result<ActionProposal, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    let proposal = load_proposal(&mut transaction, context.tenant_id(), proposal_id)
+    set_tenant(&mut transaction, context.world_id()).await?;
+    let proposal = load_proposal(&mut transaction, context.world_id(), proposal_id)
         .await?
         .ok_or(StoreError::NotFound)?;
     transaction.commit().await.map_err(store_unavailable)?;
@@ -197,11 +193,11 @@ pub(crate) async fn save_approval(
     context: &ExecutionContext,
     approval: &ActionApproval,
 ) -> Result<ActionApproval, StoreError> {
-    ensure_context_tenant(context.tenant_id(), &approval.approved_by)?;
+    ensure_context_tenant(context.world_id(), &approval.approved_by)?;
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     if let Some(existing) =
-        load_approval(&mut transaction, context.tenant_id(), &approval.proposal_id).await?
+        load_approval(&mut transaction, context.world_id(), &approval.proposal_id).await?
     {
         if existing.approval_id == approval.approval_id {
             transaction.commit().await.map_err(store_unavailable)?;
@@ -223,7 +219,7 @@ pub(crate) async fn save_approval(
             $9, $10, $11, $12
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(approval.proposal_id.as_str())
     .bind(approval.approval_id.as_str())
     .bind(approval.approved_at.get())
@@ -243,7 +239,7 @@ pub(crate) async fn save_approval(
     .map_err(map_action_insert)?;
     insert_grants(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         GrantOwner::Approval(&approval.proposal_id),
         &approval.approved_by,
     )
@@ -258,8 +254,8 @@ pub(crate) async fn get_approval(
     proposal_id: &ProposalId,
 ) -> Result<Option<ActionApproval>, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    let approval = load_approval(&mut transaction, context.tenant_id(), proposal_id).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
+    let approval = load_approval(&mut transaction, context.world_id(), proposal_id).await?;
     transaction.commit().await.map_err(store_unavailable)?;
     Ok(approval)
 }
@@ -270,8 +266,8 @@ pub(crate) async fn get_operation(
     operation_id: &OperationId,
 ) -> Result<CommitReceipt, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    let receipt = load_operation(&mut transaction, context.tenant_id(), operation_id)
+    set_tenant(&mut transaction, context.world_id()).await?;
+    let receipt = load_operation(&mut transaction, context.world_id(), operation_id)
         .await?
         .ok_or(StoreError::NotFound)?;
     transaction.commit().await.map_err(store_unavailable)?;
@@ -280,7 +276,7 @@ pub(crate) async fn get_operation(
 
 async fn insert_inputs(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal: &ActionProposal,
 ) -> Result<(), StoreError> {
     for (ordinal, input) in proposal.inputs.iter().enumerate() {
@@ -291,7 +287,7 @@ async fn insert_inputs(
                 value_kind, value_text, value_unit
              ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(proposal.proposal_id.as_str())
         .bind(ordinal_i32(ordinal)?)
         .bind(input.id.as_str())
@@ -307,7 +303,7 @@ async fn insert_inputs(
 
 async fn insert_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal: &ActionProposal,
 ) -> Result<(), StoreError> {
     for (ordinal, dependency) in proposal.state_basis.dependencies.iter().enumerate() {
@@ -317,7 +313,7 @@ async fn insert_dependencies(
                 entity_id, relation_id, role, source_digest, source_id, source_ref
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(proposal.proposal_id.as_str())
         .bind(ordinal_i32(ordinal)?)
         .bind(dependency.claim_id.as_str())
@@ -340,7 +336,7 @@ async fn insert_dependencies(
 
 pub(crate) async fn load_proposal(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal_id: &ProposalId,
 ) -> Result<Option<ActionProposal>, StoreError> {
     let row = sqlx::query(
@@ -356,7 +352,7 @@ pub(crate) async fn load_proposal(
          FROM action_proposals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(proposal_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -364,9 +360,9 @@ pub(crate) async fn load_proposal(
     let Some(row) = row else {
         return Ok(None);
     };
-    let grants = load_grants(transaction, tenant_id, GrantOwner::Proposal(proposal_id)).await?;
+    let grants = load_grants(transaction, world_id, GrantOwner::Proposal(proposal_id)).await?;
     let proposed_by = trusted_context(
-        tenant_id,
+        world_id,
         row_string(&row, "proposed_actor_id")?,
         row_string(&row, "proposed_principal_id")?,
         row_string(&row, "proposed_workload_id")?,
@@ -389,7 +385,7 @@ pub(crate) async fn load_proposal(
         definition: definition_from_row(&row)?,
         execution: execution_from_row(&row)?,
         expires_at: TimestampMicros::new(row_i64(&row, "expires_at_micros")?),
-        inputs: load_inputs(transaction, tenant_id, proposal_id).await?,
+        inputs: load_inputs(transaction, world_id, proposal_id).await?,
         intent_digest: IntentDigest::parse(row_string(&row, "intent_digest")?).map_err(corrupt)?,
         operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
         preview_hash: ActionPreviewHash::parse(row_string(&row, "preview_hash")?)
@@ -404,7 +400,7 @@ pub(crate) async fn load_proposal(
             .map(|value| ScenarioId::parse(value).map_err(corrupt))
             .transpose()?,
         state_basis: StateBasis {
-            dependencies: load_dependencies(transaction, tenant_id, proposal_id).await?,
+            dependencies: load_dependencies(transaction, world_id, proposal_id).await?,
             digest: StateBasisDigest::parse(row_string(&row, "state_basis_digest")?)
                 .map_err(corrupt)?,
             observed_commit_sequence: commit_sequence(
@@ -418,7 +414,7 @@ pub(crate) async fn load_proposal(
 
 async fn load_proposal_by_operation(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Option<ActionProposal>, StoreError> {
     let proposal_id = sqlx::query_scalar::<_, String>(
@@ -426,7 +422,7 @@ async fn load_proposal_by_operation(
          FROM action_proposals
          WHERE tenant_id = $1 AND operation_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -435,12 +431,12 @@ async fn load_proposal_by_operation(
         return Ok(None);
     };
     let proposal_id = ProposalId::parse(proposal_id).map_err(corrupt)?;
-    load_proposal(transaction, tenant_id, &proposal_id).await
+    load_proposal(transaction, world_id, &proposal_id).await
 }
 
 pub(crate) async fn load_approval(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal_id: &ProposalId,
 ) -> Result<Option<ActionApproval>, StoreError> {
     let row = sqlx::query(
@@ -450,7 +446,7 @@ pub(crate) async fn load_approval(
          FROM action_approvals
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(proposal_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -458,12 +454,12 @@ pub(crate) async fn load_approval(
     let Some(row) = row else {
         return Ok(None);
     };
-    let grants = load_grants(transaction, tenant_id, GrantOwner::Approval(proposal_id)).await?;
+    let grants = load_grants(transaction, world_id, GrantOwner::Approval(proposal_id)).await?;
     Ok(Some(ActionApproval {
         approval_id: ApprovalId::parse(row_string(&row, "approval_id")?).map_err(corrupt)?,
         approved_at: TimestampMicros::new(row_i64(&row, "approved_at_micros")?),
         approved_by: trusted_context(
-            tenant_id,
+            world_id,
             row_string(&row, "approved_actor_id")?,
             row_string(&row, "approved_principal_id")?,
             row_string(&row, "approved_workload_id")?,
@@ -477,7 +473,7 @@ pub(crate) async fn load_approval(
 
 pub(crate) async fn load_operation(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Option<CommitReceipt>, StoreError> {
     let row = sqlx::query(
@@ -496,7 +492,7 @@ pub(crate) async fn load_operation(
           AND proposal.proposal_id = operation.proposal_id
          WHERE operation.tenant_id = $1 AND operation.operation_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -504,9 +500,9 @@ pub(crate) async fn load_operation(
     let Some(row) = row else {
         return Ok(None);
     };
-    let grants = load_grants(transaction, tenant_id, GrantOwner::Operation(operation_id)).await?;
+    let grants = load_grants(transaction, world_id, GrantOwner::Operation(operation_id)).await?;
     let commit_sequence_value = row_i64(&row, "commit_sequence")?;
-    let effect_request_ids = load_effect_request_ids(transaction, tenant_id, operation_id).await?;
+    let effect_request_ids = load_effect_request_ids(transaction, world_id, operation_id).await?;
     let state_basis_digest = row
         .try_get::<Option<String>, _>("state_basis_digest")
         .map_err(store_unavailable)?;
@@ -515,7 +511,7 @@ pub(crate) async fn load_operation(
         .map_err(store_unavailable)?;
     let commit_state_basis = match (state_basis_digest, observed_commit_sequence) {
         (Some(digest), Some(observed)) => Some(StateBasis {
-            dependencies: load_operation_dependencies(transaction, tenant_id, operation_id).await?,
+            dependencies: load_operation_dependencies(transaction, world_id, operation_id).await?,
             digest: StateBasisDigest::parse(digest).map_err(corrupt)?,
             observed_commit_sequence: commit_sequence(observed, "commit observed sequence")?,
         }),
@@ -531,7 +527,7 @@ pub(crate) async fn load_operation(
         commit_sequence: commit_sequence(commit_sequence_value, "commit sequence")?,
         commit_state_basis,
         committed_by: trusted_context(
-            tenant_id,
+            world_id,
             row_string(&row, "committed_actor_id")?,
             row_string(&row, "committed_principal_id")?,
             row_string(&row, "committed_workload_id")?,
@@ -543,13 +539,13 @@ pub(crate) async fn load_operation(
         operation_id: OperationId::parse(row_string(&row, "operation_id")?).map_err(corrupt)?,
         policy: policy_from_row(&row)?,
         proposal_id: ProposalId::parse(row_string(&row, "proposal_id")?).map_err(corrupt)?,
-        record_ids: load_record_ids(transaction, tenant_id, operation_id).await?,
+        record_ids: load_record_ids(transaction, world_id, operation_id).await?,
     }))
 }
 
 async fn load_inputs(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal_id: &ProposalId,
 ) -> Result<Vec<ActionInput>, StoreError> {
     let rows = sqlx::query(
@@ -558,7 +554,7 @@ async fn load_inputs(
          WHERE tenant_id = $1 AND proposal_id = $2
          ORDER BY ordinal",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(proposal_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -575,7 +571,7 @@ async fn load_inputs(
 
 async fn load_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     proposal_id: &ProposalId,
 ) -> Result<Vec<StateDependency>, StoreError> {
     let rows = sqlx::query(
@@ -585,7 +581,7 @@ async fn load_dependencies(
          WHERE tenant_id = $1 AND proposal_id = $2
          ORDER BY ordinal",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(proposal_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -612,7 +608,7 @@ async fn load_dependencies(
 
 async fn load_operation_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Vec<StateDependency>, StoreError> {
     let rows = sqlx::query(
@@ -622,7 +618,7 @@ async fn load_operation_dependencies(
          WHERE tenant_id = $1 AND operation_id = $2
          ORDER BY ordinal",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -649,7 +645,7 @@ async fn load_operation_dependencies(
 
 async fn load_record_ids(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Vec<ClaimId>, StoreError> {
     let rows = sqlx::query(
@@ -658,7 +654,7 @@ async fn load_record_ids(
          WHERE tenant_id = $1 AND operation_id = $2
          ORDER BY ordinal",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -670,7 +666,7 @@ async fn load_record_ids(
 
 async fn load_effect_request_ids(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Vec<EffectRequestId>, StoreError> {
     let rows = sqlx::query(
@@ -680,7 +676,7 @@ async fn load_effect_request_ids(
            AND operation_id = $2
          ORDER BY ordinal",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -759,13 +755,13 @@ impl GrantOwner<'_> {
 
 async fn insert_grants(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     owner: GrantOwner<'_>,
     context: &TrustedExecutionContext,
 ) -> Result<(), StoreError> {
     for (ordinal, grant) in context.delegation().grants().iter().enumerate() {
         sqlx::query(owner.insert_query())
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(owner.id())
             .bind(ordinal_i32(ordinal)?)
             .bind(grant.id().as_str())
@@ -801,11 +797,11 @@ async fn insert_grants(
 
 async fn load_grants(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     owner: GrantOwner<'_>,
 ) -> Result<Vec<DelegationGrant>, StoreError> {
     let rows = sqlx::query(owner.select_query())
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(owner.id())
         .fetch_all(&mut **transaction)
         .await
@@ -842,14 +838,14 @@ where
 }
 
 fn trusted_context(
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     actor_id: String,
     principal_id: String,
     workload_id: String,
     grants: Vec<DelegationGrant>,
 ) -> Result<TrustedExecutionContext, StoreError> {
     Ok(TrustedExecutionContext::new(
-        tenant_id.clone(),
+        world_id.clone(),
         ActorId::parse(actor_id).map_err(corrupt)?,
         PrincipalId::parse(principal_id).map_err(corrupt)?,
         WorkloadId::parse(workload_id).map_err(corrupt)?,
@@ -960,10 +956,10 @@ fn parse_lineage_role(value: &str) -> Result<LineageRole, StoreError> {
 }
 
 fn ensure_context_tenant(
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     context: &TrustedExecutionContext,
 ) -> Result<(), StoreError> {
-    if context.tenant_id() == tenant_id {
+    if context.world_id() == world_id {
         Ok(())
     } else {
         Err(StoreError::Corrupt(

@@ -534,7 +534,7 @@ when {
       {
         evolutionAckDigest: "a".repeat(64),
         installId: builderPackInstallId,
-        tenantId: tenantA,
+        worldId: tenantA,
       },
       StatusCode.Forbidden,
     );
@@ -552,7 +552,7 @@ when {
       {
         evolutionAckDigest: "b".repeat(64),
         installId: observerPackInstallId,
-        tenantId: tenantA,
+        worldId: tenantA,
       },
       StatusCode.Forbidden,
     );
@@ -918,7 +918,7 @@ async function preparePackInstall(
           digest: definition.digest,
         },
       ],
-      tenantId,
+      worldId: tenantId,
     },
     StatusCode.Ok,
   );
@@ -928,7 +928,7 @@ async function preparePackInstall(
     token,
     tenantId,
     "/pack/admin/preview-install",
-    { packDigest, tenantId },
+    { packDigest, worldId: tenantId },
     StatusCode.Ok,
   );
   const previewDigest = requiredString(preview, "previewDigest");
@@ -936,7 +936,7 @@ async function preparePackInstall(
     token,
     tenantId,
     "/pack/admin/install",
-    { packDigest, previewDigest, tenantId },
+    { packDigest, previewDigest, worldId: tenantId },
     StatusCode.Ok,
   );
   const installId = requiredString(installed, "installId");
@@ -944,7 +944,7 @@ async function preparePackInstall(
     token,
     tenantId,
     "/pack/admin/decide-grants",
-    { decisions: [], installId, tenantId },
+    { decisions: [], installId, worldId: tenantId },
     StatusCode.Ok,
   );
   assert.equal(requiredString(resolved, "phase"), "grants_resolved");
@@ -1204,7 +1204,7 @@ async function membershipDelegation(
   const result = await client.query<{ delegation_json: unknown }>(
     `SELECT delegation_json
      FROM memberships
-     WHERE account_id = $1 AND tenant_id = $2 AND status = 'active'`,
+     WHERE account_id = $1 AND world_id = $2 AND status = 'active'`,
     [accountId, tenantId],
   );
   assert.equal(result.rowCount, 1);
@@ -1224,7 +1224,7 @@ async function replaceMembershipActions(
        '{grants,0,actionIds}',
        $1::jsonb
      )
-     WHERE account_id = $2 AND tenant_id = $3 AND status = 'active'`,
+     WHERE account_id = $2 AND world_id = $3 AND status = 'active'`,
     [JSON.stringify(actionIds), accountId, tenantId],
   );
   assert.equal(result.rowCount, 1);
@@ -1241,7 +1241,7 @@ async function restoreMembershipDelegation(
   const result = await client.query(
     `UPDATE memberships
      SET delegation_json = $1::jsonb
-     WHERE account_id = $2 AND tenant_id = $3 AND status = 'active'`,
+     WHERE account_id = $2 AND world_id = $3 AND status = 'active'`,
     [encoded, accountId, tenantId],
   );
   assert.equal(result.rowCount, 1);

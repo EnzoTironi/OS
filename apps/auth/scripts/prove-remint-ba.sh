@@ -389,7 +389,7 @@ excerpt="bound_auth_door_principal.admin.a"
 record "zoen-ensure-agent-binding" "deploy/fly/zoen-ensure-agent-binding" "$zoend_base" "0" "$excerpt" "$ts"
 
 remint_token="$(tr -d '\n' < "$token_file")"
-url="${zoend_base}/identity/admin/resolve-context?tenant=tenant.a"
+url="${zoend_base}/identity/admin/resolve-context?world=tenant.a"
 body="${work}/remint-resolve"
 status="$(
   curl -sS -o "$body" -w '%{http_code}' \
@@ -437,7 +437,7 @@ record "Keycloak gone, auth and remint stay" "grep program:auth deploy/fly/super
 
 {
   printf '## 3. Remint Bearer mints TEC\n\n'
-  printf '`deploy/fly/zoen-remint-agent` wrote the opaque `session_token`. `GET /identity/admin/resolve-context?tenant=tenant.a` with that Bearer returned 200. Garbage Bearer returned 401.\n\n'
+  printf '`deploy/fly/zoen-remint-agent` wrote the opaque `session_token`. `GET /identity/admin/resolve-context?world=tenant.a` with that Bearer returned 200. Garbage Bearer returned 401.\n\n'
   printf '## 4. Keycloak program\n\n'
   printf '`[program:keycloak]` is gone from `deploy/fly/supervisord.conf`. `[program:auth]` and `[program:remint]` stay.\n\n'
   printf '## 5. Inventory: no machine mint on the door\n\n'

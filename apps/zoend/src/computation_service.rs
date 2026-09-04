@@ -15,7 +15,7 @@ use zoen_core::{
     ActionPreviewHash, BudgetClassId, CapabilityId, ClaimId, ComponentDigest,
     ComponentExecutionEvidence, ComponentInterface, Consistency, ExecutionContext, ExecutionId,
     ExecutionResultDigest, ExplanationTarget, IntentDigest, OperationId, ProposalAuthority,
-    ProposalId, SemanticQuery, WorldId,
+    ProposalId, SemanticQuery,
 };
 use zoen_engine::{
     ActionEngine, ActionError, CapabilityManifest, CommitOutcome, ComponentAdmissionError,
@@ -124,8 +124,7 @@ impl ComputationService for ComputationServiceImpl {
         let budget_class = BudgetClassId::parse(request.budget_class.trim())
             .map_err(|error| invalid(error.to_string()))?;
         let manifest = parse_manifest(manifest)?;
-        let world = WorldId::parse(trusted.tenant_id().as_str())
-            .map_err(|error| invalid(error.to_string()))?;
+        let world = trusted.world_id().clone();
         let (_release, class) = self
             .policy
             .budget_class_for_active_world(&world, &budget_class)

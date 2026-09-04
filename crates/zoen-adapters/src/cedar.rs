@@ -183,7 +183,7 @@ impl CedarPolicyEvaluator {
             };
         };
         if projection.membership.principal_id != *request.context.principal_id()
-            || projection.membership.tenant_id != *request.context.tenant_id()
+            || projection.membership.world_id != *request.context.world_id()
             || projection.resource.entity_id.as_str() != request.resource_id.as_str()
         {
             return PolicyEvaluation::EvaluationError {
@@ -295,7 +295,7 @@ fn projection_json(projection: &PolicyWorldProjection, clearance: &Clearance) ->
         &mut entities,
         &mut seen,
         "Zoen::Tenant",
-        projection.membership.tenant_id.as_str(),
+        projection.membership.world_id.as_str(),
         &serde_json::json!({}),
         &[],
     );
@@ -305,11 +305,11 @@ fn projection_json(projection: &PolicyWorldProjection, clearance: &Clearance) ->
             .iter()
             .map(|token| serde_json::Value::String(token.as_str().to_owned()))
             .collect::<Vec<_>>(),
-        "tenantId": projection.membership.tenant_id.as_str()
+        "tenantId": projection.membership.world_id.as_str()
     });
     let principal_parents = [serde_json::json!({
         "type": "Zoen::Tenant",
-        "id": projection.membership.tenant_id.as_str()
+        "id": projection.membership.world_id.as_str()
     })];
     push_cedar_entity(
         &mut entities,
@@ -427,7 +427,7 @@ fn cedar_request(request: &PolicyRequest<'_>) -> Result<Request, String> {
             "classification": request.classification
                 .map_or("none", zoen_core::EvolutionClassification::as_str),
             "inputs": inputs,
-            "tenantId": request.context.tenant_id().as_str(),
+            "tenantId": request.context.world_id().as_str(),
             "workloadId": request.context.workload_id().as_str()
         }),
         None,
@@ -612,7 +612,7 @@ mod tests {
         ActionId, ActorId, ClassificationToken, DefinitionDigest, DefinitionId,
         DefinitionReference, DefinitionRevisionNumber, DelegationChain, DelegationGrant,
         DelegationId, EntityId, ExactInteger, InputId, PrincipalId, RelationId, ResourceId,
-        TenantId, TimestampMicros, TrustedExecutionContext, TypeId, WorkloadId,
+        TimestampMicros, TrustedExecutionContext, TypeId, WorkloadId, WorldId,
     };
 
     use super::{CedarPolicyEvaluator, sha256};
@@ -1002,7 +1002,7 @@ when {
         PolicyWorldProjection {
             membership: PolicyMembershipProjection {
                 principal_id: context.principal_id().clone(),
-                tenant_id: context.tenant_id().clone(),
+                world_id: context.world_id().clone(),
             },
             neighbors: vec![PolicyObjectProjection {
                 classification: BTreeSet::from([ClassificationToken::world_floor()]),
@@ -1036,7 +1036,7 @@ when {
         )
         .expect("grant");
         TrustedExecutionContext::new(
-            TenantId::parse("tenant.a").expect("tenant"),
+            WorldId::parse("tenant.a").expect("tenant"),
             ActorId::parse("actor.admin.a").expect("actor"),
             PrincipalId::parse(principal).expect("principal"),
             workload_id,
@@ -1059,7 +1059,7 @@ when {
         PolicyWorldProjection {
             membership: PolicyMembershipProjection {
                 principal_id: context.principal_id().clone(),
-                tenant_id: context.tenant_id().clone(),
+                world_id: context.world_id().clone(),
             },
             neighbors: Vec::new(),
             resource: PolicyObjectProjection {
@@ -1079,7 +1079,7 @@ when {
         PolicyWorldProjection {
             membership: PolicyMembershipProjection {
                 principal_id: context.principal_id().clone(),
-                tenant_id: context.tenant_id().clone(),
+                world_id: context.world_id().clone(),
             },
             neighbors: Vec::new(),
             resource: PolicyObjectProjection {
@@ -1105,7 +1105,7 @@ when {
         )
         .expect("grant");
         TrustedExecutionContext::new(
-            TenantId::parse("tenant.test").expect("tenant"),
+            WorldId::parse("tenant.test").expect("tenant"),
             ActorId::parse("actor.test").expect("actor"),
             PrincipalId::parse("principal.test").expect("principal"),
             workload_id,

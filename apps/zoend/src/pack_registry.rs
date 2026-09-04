@@ -14,7 +14,7 @@ use zoen_core::{
     AttributionEventKind, DefinitionDigest, DefinitionId, ObjectSource, ObjectStorePutResult,
     OpenResult, PackDigest, PackError, PackId, PackVisibility, PublicKeyId, PublisherId,
     PublisherKey, PublisherKeyStatus, ReferralId, ShareInstallPolicy, ShareResolve, ShareToken,
-    SignatureEvidence, TenantId, TimestampMicros, WorldId,
+    SignatureEvidence, TimestampMicros, WorldId,
 };
 
 use crate::session::SessionExchange;
@@ -54,7 +54,7 @@ struct RegisterKeyBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PutBody {
-    tenant_id: String,
+    world_id: String,
     manifest_jcs: String,
     ontology_artifacts: Vec<OntologyArtifactBody>,
     signature: SignatureBody,
@@ -93,7 +93,7 @@ enum VisibilityBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenBody {
-    tenant_id: Option<String>,
+    world_id: Option<String>,
     pack_digest: String,
     #[serde(default)]
     source: Option<OpenSourceBody>,
@@ -115,7 +115,7 @@ enum OpenSourceBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MintShareBody {
-    tenant_id: String,
+    world_id: String,
     pack_digest: String,
     publisher_id: String,
     referral_id: Option<String>,
@@ -130,7 +130,7 @@ struct ResolveShareBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AttributionBody {
-    tenant_id: Option<String>,
+    world_id: Option<String>,
     kind: String,
     pack_digest: String,
     publisher_id: String,
@@ -153,7 +153,7 @@ struct AttributionSummaryBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConfigBody {
-    tenant_id: String,
+    world_id: String,
     public_registry_enabled: bool,
 }
 
@@ -188,7 +188,7 @@ async fn put_object(
     headers: HeaderMap,
     Json(body): Json<PutBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -279,7 +279,7 @@ async fn open_object(
         Ok(digest) => digest,
         Err(error) => return bad_request(&error.to_string()),
     };
-    let viewer_tenant = body.tenant_id.as_deref();
+    let viewer_tenant = body.world_id.as_deref();
     let source = match body.source.unwrap_or(OpenSourceBody::Registry {
         endpoint: "public".to_owned(),
     }) {
@@ -334,7 +334,7 @@ async fn mint_share(
     headers: HeaderMap,
     Json(body): Json<MintShareBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
+    if let Err(error) = require_context(&state, &headers, &body.world_id).await {
         return context_error(error);
     }
     let digest = match PackDigest::parse(body.pack_digest) {
@@ -486,7 +486,7 @@ async fn record_attribution(
             publisher_id: &publisher_id,
             referral_id: &referral_id,
             share_token: body.share_token.as_deref(),
-            tenant_id: body.tenant_id.as_deref(),
+            world_id: body.world_id.as_deref(),
             idempotency_key: &body.idempotency_key,
         })
         .await
@@ -546,7 +546,7 @@ async fn set_config(
     headers: HeaderMap,
     Json(body): Json<ConfigBody>,
 ) -> impl IntoResponse {
-    if let Err(error) = require_context(&state, &headers, &body.tenant_id).await {
+    if let Err(error) = require_context(&state, &headers, &body.world_id).await {
         return context_error(error);
     }
     match state
@@ -689,19 +689,19 @@ async fn require_bearer(
 async fn require_context(
     state: &PackRegistryState,
     headers: &HeaderMap,
-    tenant_id: &str,
+    world_id: &str,
 ) -> Result<zoen_core::ExecutionContext, ContextError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     let claimed =
-        TenantId::parse(tenant_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
+        WorldId::parse(world_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
     let context = state
         .sessions
         .resolve(authorization, Some(&claimed))
         .await
         .map_err(|error| map_resolve_error(&error))?;
-    if context.tenant_id() != &claimed {
+    if context.world_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
         ));

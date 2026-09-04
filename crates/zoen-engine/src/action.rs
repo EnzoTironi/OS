@@ -14,9 +14,9 @@ use zoen_core::{
     ExecutionContext, IntentDigest, LineageRole, OperationId, PolicyEvaluation, PolicyEvidence,
     PreconditionEvaluation, PrincipalId, ProposalAuthority, ProposalId, RelationId, RelationTarget,
     ResourceId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SemanticValue,
-    StateBasis, StateBasisDigest, StateDependency, TenantId, TimestampMicros,
-    TrustedExecutionContext, TypeId, ValidTime, WORLD_SHARE_ACTION, classified_as_relation,
-    encode_hex, evaluate_expression, expression_relations, join_labels,
+    StateBasis, StateBasisDigest, StateDependency, TimestampMicros, TrustedExecutionContext,
+    TypeId, ValidTime, WORLD_SHARE_ACTION, WorldId, classified_as_relation, encode_hex,
+    evaluate_expression, expression_relations, join_labels,
 };
 
 use crate::{
@@ -58,7 +58,7 @@ pub enum PolicyOperation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyMembershipProjection {
     pub principal_id: PrincipalId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -145,7 +145,7 @@ pub fn directory_projection(
     Ok(PolicyWorldProjection {
         membership: PolicyMembershipProjection {
             principal_id: context.principal_id().clone(),
-            tenant_id: context.tenant_id().clone(),
+            world_id: context.world_id().clone(),
         },
         neighbors: Vec::new(),
         resource: PolicyObjectProjection {
@@ -426,7 +426,7 @@ where
     ) -> Result<Vec<ActionDiscovery>, ActionError> {
         let canonical = self
             .store
-            .get_active_revision(context.tenant_id(), &definition.definition_id)
+            .get_active_revision(context.world_id(), &definition.definition_id)
             .await
             .map_err(ActionError::Store)?
             .ok_or(ActionError::InactiveDefinition)?;
@@ -1027,7 +1027,7 @@ where
         let revision = self
             .store
             .get_revision(
-                context.tenant_id(),
+                context.world_id(),
                 &definition.definition_id,
                 &definition.digest,
             )
@@ -1204,7 +1204,7 @@ where
         Ok(PolicyWorldProjection {
             membership: PolicyMembershipProjection {
                 principal_id: request.context.principal_id().clone(),
-                tenant_id: request.context.tenant_id().clone(),
+                world_id: request.context.world_id().clone(),
             },
             neighbors,
             resource: PolicyObjectProjection {
@@ -1399,7 +1399,7 @@ fn intent_digest(
     state_basis: &StateBasis,
 ) -> Result<IntentDigest, ActionError> {
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, context.tenant_id().as_str());
+    hash_field(&mut hasher, context.world_id().as_str());
     hash_field(&mut hasher, command.definition.definition_id.as_str());
     hash_field(&mut hasher, command.definition.digest.as_str());
     hash_field(&mut hasher, &command.definition.revision.get().to_string());

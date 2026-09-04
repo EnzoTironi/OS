@@ -40,7 +40,7 @@ const zoendBaseUrl = required("S3_ZOEND");
 const definitionId = process.env.S3_DEFINITION_ID?.trim() || "world.s2read";
 const definitionDigest = required("S3_DEFINITION_DIGEST");
 const validAt = required("S3_VALID_AT");
-const tenantId = required("S3_TENANT");
+const worldId = required("S3_TENANT");
 const membershipA = required("S3_MEMBERSHIP_A");
 const membershipB = required("S3_MEMBERSHIP_B");
 
@@ -50,8 +50,8 @@ const sandboxA = await openBoundSandbox({
   disksRoot,
   doorToken: required("S3_TOKEN_A"),
   membershipId: membershipA,
-  tenantId,
   validAt,
+  worldId,
   zoendBaseUrl,
 });
 
@@ -61,8 +61,8 @@ const sandboxB = await openBoundSandbox({
   disksRoot,
   doorToken: required("S3_TOKEN_B"),
   membershipId: membershipB,
-  tenantId,
   validAt,
+  worldId,
   zoendBaseUrl,
 });
 

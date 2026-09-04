@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ActionId, DefinitionDigest, DefinitionId, DigestError, IdentifierError, RelationId, TenantId,
+    ActionId, DefinitionDigest, DefinitionId, DigestError, IdentifierError, RelationId,
     TimestampMicros, WorldId, parse_identifier,
 };
 
@@ -404,7 +404,7 @@ pub struct CapabilityGrant {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstallReceipt {
     pub install_id: InstallId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub pack_digest: PackDigest,
     pub pack_id: PackId,
     pub pack_version: PackVersion,

@@ -190,6 +190,10 @@ async function seedMemberships(): Promise<void> {
   await client.connect();
   try {
     await client.query("BEGIN");
+    await client.query(
+      "INSERT INTO worlds (world_id, kind) VALUES ($1, 'personal') ON CONFLICT (world_id) DO NOTHING",
+      [world],
+    );
     for (const persona of personas) {
       const suffix = persona.membership.replace("membership.", "");
       const delegation = {
@@ -210,13 +214,13 @@ async function seedMemberships(): Promise<void> {
       );
       if (persona.kind === "personal") {
         await client.query(
-          "INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)",
+          "INSERT INTO personal_worlds (account_id, world_id) VALUES ($1, $2)",
           [persona.account, world],
         );
       }
       await client.query(
         `INSERT INTO memberships (
-           membership_id, account_id, tenant_id, principal_id, status, kind,
+           membership_id, account_id, world_id, principal_id, status, kind,
            invite_id, workload_id, actor_id, delegation_json, clearance_json
          ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9::jsonb,$10::jsonb)`,
         [

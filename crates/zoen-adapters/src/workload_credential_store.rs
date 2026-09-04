@@ -12,10 +12,10 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionId, ActorId, AudienceClass, Clearance, DelegationChain, DelegationGrant, DelegationId,
     IdentityError, IngressAllowance, PrincipalId, ProjectedCapabilityKind, RateBudgetPolicy,
-    ResourceId, ServerAllowId, SourceClass, TenantId, TimestampMicros, TrustedExecutionContext,
+    ResourceId, ServerAllowId, SourceClass, TimestampMicros, TrustedExecutionContext,
     VerifiedWorkloadEvidence, WorkloadCredential, WorkloadCredentialId,
     WorkloadCredentialLookupKey, WorkloadCredentialStatus, WorkloadId, WorkloadRevocationReason,
-    WorkloadSecretId, trusted_context_from_workload_credential,
+    WorkloadSecretId, WorldId, trusted_context_from_workload_credential,
 };
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct PostgresWorkloadCredentialStore {
 
 #[derive(Clone, Debug)]
 pub struct IssueWorkloadCredential {
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub workload_id: WorkloadId,
     pub principal_id: PrincipalId,
     pub actor_id: ActorId,
@@ -97,7 +97,7 @@ impl PostgresWorkloadCredentialStore {
              )",
         )
         .bind(credential_id.as_str())
-        .bind(cmd.tenant_id.as_str())
+        .bind(cmd.world_id.as_str())
         .bind(cmd.principal_id.as_str())
         .bind(cmd.workload_id.as_str())
         .bind(cmd.actor_id.as_str())
@@ -132,7 +132,7 @@ impl PostgresWorkloadCredentialStore {
 
         let credential = WorkloadCredential {
             id: credential_id,
-            tenant_id: cmd.tenant_id,
+            world_id: cmd.world_id,
             principal_id: cmd.principal_id,
             workload_id: cmd.workload_id,
             actor_id: cmd.actor_id,
@@ -222,12 +222,12 @@ impl PostgresWorkloadCredentialStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn revoke(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         id: &WorkloadCredentialId,
         reason: WorkloadRevocationReason,
     ) -> Result<WorkloadCredential, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let mut credential = load_credential_for_tenant(&mut transaction, tenant_id, id).await?;
+        let mut credential = load_credential_for_tenant(&mut transaction, world_id, id).await?;
         let now = now_micros();
         sqlx::query(
             "UPDATE workload_credentials
@@ -239,7 +239,7 @@ impl PostgresWorkloadCredentialStore {
         .bind(id.as_str())
         .bind(now.get())
         .bind(reason.as_str())
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
@@ -431,7 +431,7 @@ async fn load_credential(
 
 async fn load_credential_for_tenant(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     id: &WorkloadCredentialId,
 ) -> Result<WorkloadCredential, IdentityError> {
     let sql = format!(
@@ -442,7 +442,7 @@ async fn load_credential_for_tenant(
     );
     let row = sqlx::query(&sql)
         .bind(id.as_str())
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .fetch_optional(&mut **transaction)
         .await
         .map_err(unavailable)?
@@ -538,7 +538,7 @@ fn row_to_credential(row: &PgRow) -> Result<WorkloadCredential, IdentityError> {
     Ok(WorkloadCredential {
         id: WorkloadCredentialId::parse(row_text(row, "credential_id")?)
             .map_err(|_| IdentityError::Conflict("invalid credential id".to_owned()))?,
-        tenant_id: TenantId::parse(row_text(row, "tenant_id")?)
+        world_id: WorldId::parse(row_text(row, "tenant_id")?)
             .map_err(|_| IdentityError::Conflict("invalid tenant".to_owned()))?,
         principal_id: PrincipalId::parse(row_text(row, "principal_id")?)
             .map_err(|_| IdentityError::Conflict("invalid principal".to_owned()))?,

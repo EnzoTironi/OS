@@ -56,8 +56,8 @@ export interface WorkbenchSessionOptions {
   readonly definitionId?: string;
   readonly doorToken?: string;
   readonly membershipId: string;
-  readonly tenantId?: string;
   readonly validAt?: string;
+  readonly worldId?: string;
 }
 
 export interface BoundSandbox {
@@ -76,8 +76,8 @@ export interface OpenBoundSandboxInput {
   readonly disksRoot: string;
   readonly doorToken: string;
   readonly membershipId: string;
-  readonly tenantId: string;
   readonly validAt: string;
+  readonly worldId: string;
   readonly zoendBaseUrl: string;
 }
 
@@ -268,7 +268,7 @@ export function workbenchBackend(options: {
         );
         if (
           sessionOptions?.doorToken !== undefined &&
-          sessionOptions.tenantId !== undefined
+          sessionOptions.worldId !== undefined
         ) {
           putHostCredential(
             hostCredentialFromRaw({
@@ -276,8 +276,8 @@ export function workbenchBackend(options: {
               definitionId: sessionOptions.definitionId ?? "",
               doorToken: sessionOptions.doorToken,
               membershipId,
-              tenantId: sessionOptions.tenantId,
               validAt: sessionOptions.validAt ?? "",
+              worldId: sessionOptions.worldId,
             })
           );
         }

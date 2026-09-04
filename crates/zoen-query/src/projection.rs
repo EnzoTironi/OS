@@ -5,7 +5,7 @@ use parquet::arrow::ArrowWriter;
 use serde::Serialize;
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
-use zoen_core::TenantId;
+use zoen_core::WorldId;
 
 use crate::{
     ObjectStoreConfig, QueryError,
@@ -75,10 +75,10 @@ impl ProjectionWorker {
     /// unavailable, or a newer watermark already exists.
     pub async fn run_once(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         options: ProjectionRunOptions,
     ) -> Result<ProjectionOutcome, QueryError> {
-        let state = load_source_state(&self.pool, tenant_id).await?;
+        let state = load_source_state(&self.pool, world_id).await?;
         let target = state.authority_head;
         if target == 0 {
             return Err(QueryError::Invalid(
@@ -89,12 +89,12 @@ impl ProjectionWorker {
             && let Some(current) = state.projection
             && current.through_commit >= target
         {
-            self.refresh_watermark(tenant_id).await?;
+            self.refresh_watermark(world_id).await?;
             return current.into_outcome(false);
         }
 
-        self.verify_outbox(tenant_id, target).await?;
-        let claims = self.load_claims(tenant_id, target).await?;
+        self.verify_outbox(world_id, target).await?;
+        let claims = self.load_claims(world_id, target).await?;
         let batch = claims_to_batch(&claims)?;
         let mut writer = ArrowWriter::try_new(Vec::new(), batch.schema(), None)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
@@ -108,7 +108,7 @@ impl ProjectionWorker {
         let build_id = Uuid::new_v4().to_string();
         let parquet_object_key = format!(
             "projections/{PROJECTION_ID}/{}/{build_id}/claims.parquet",
-            tenant_id.as_str()
+            world_id.as_str()
         );
         put_immutable(&*self.store, &parquet_object_key, parquet).await?;
 
@@ -121,17 +121,17 @@ impl ProjectionWorker {
             }],
             projection_id: PROJECTION_ID,
             semantic_schema_revision: SEMANTIC_SCHEMA_REVISION,
-            tenant_id: tenant_id.as_str(),
+            world_id: world_id.as_str(),
             through_commit: target,
         };
         let manifest_bytes = serde_json::to_vec(&manifest)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
         let manifest_digest = sha256(&manifest_bytes);
-        let manifest_object_key = projection_manifest_object_key(tenant_id, &manifest_digest);
+        let manifest_object_key = projection_manifest_object_key(world_id, &manifest_digest);
         put_immutable(&*self.store, &manifest_object_key, manifest_bytes).await?;
 
         self.publish_manifest(
-            tenant_id,
+            world_id,
             PublishedManifest {
                 build_id: &build_id,
                 manifest_digest: &manifest_digest,
@@ -154,9 +154,9 @@ impl ProjectionWorker {
         })
     }
 
-    async fn verify_outbox(&self, tenant_id: &TenantId, target: i64) -> Result<(), QueryError> {
+    async fn verify_outbox(&self, world_id: &WorldId, target: i64) -> Result<(), QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let missing = sqlx::query(
             "SELECT count(*)::bigint AS missing
              FROM public.authority_commits c
@@ -170,7 +170,7 @@ impl ProjectionWorker {
                      AND o.ordinal = 0
                )",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(target)
         .fetch_one(&mut *transaction)
         .await
@@ -189,11 +189,11 @@ impl ProjectionWorker {
 
     async fn load_claims(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         target: i64,
     ) -> Result<Vec<PhysicalClaim>, QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let rows = sqlx::query(
             "SELECT tenant_id, claim_id, definition_id, definition_digest,
                     definition_revision, entity_id, relation_id, value_kind, value_text,
@@ -203,7 +203,7 @@ impl ProjectionWorker {
              WHERE tenant_id = $1 AND commit_sequence <= $2
              ORDER BY commit_sequence, claim_id",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(target)
         .fetch_all(&mut *transaction)
         .await
@@ -218,13 +218,13 @@ impl ProjectionWorker {
 
     async fn publish_manifest(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         manifest: PublishedManifest<'_>,
     ) -> Result<(), QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
-            .bind(format!("{}:{PROJECTION_ID}", tenant_id.as_str()))
+            .bind(format!("{}:{PROJECTION_ID}", world_id.as_str()))
             .execute(&mut *transaction)
             .await
             .map_err(unavailable)?;
@@ -234,7 +234,7 @@ impl ProjectionWorker {
              WHERE tenant_id = $1 AND projection_id = $2
              FOR UPDATE",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(PROJECTION_ID)
         .fetch_optional(&mut *transaction)
         .await
@@ -258,7 +258,7 @@ impl ProjectionWorker {
                 parquet_object_key, parquet_digest
              ) VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(PROJECTION_ID)
         .bind(manifest.manifest_digest)
         .bind(manifest.build_id)
@@ -279,7 +279,7 @@ impl ProjectionWorker {
                 manifest_digest = EXCLUDED.manifest_digest,
                 updated_at = pg_catalog.clock_timestamp()",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(PROJECTION_ID)
         .bind(manifest.through_commit)
         .bind(manifest.manifest_digest)
@@ -290,15 +290,15 @@ impl ProjectionWorker {
         Ok(())
     }
 
-    async fn refresh_watermark(&self, tenant_id: &TenantId) -> Result<(), QueryError> {
+    async fn refresh_watermark(&self, world_id: &WorldId) -> Result<(), QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let result = sqlx::query(
             "UPDATE public.projection_watermarks
              SET updated_at = pg_catalog.clock_timestamp()
              WHERE tenant_id = $1 AND projection_id = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(PROJECTION_ID)
         .execute(&mut *transaction)
         .await
@@ -329,10 +329,10 @@ pub(crate) struct ProjectionState {
 
 pub(crate) async fn load_source_state(
     pool: &PgPool,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<SourceState, QueryError> {
     let mut transaction = pool.begin().await.map_err(unavailable)?;
-    set_tenant(&mut transaction, tenant_id).await?;
+    set_tenant(&mut transaction, world_id).await?;
     let row = sqlx::query(
         "SELECT h.commit_sequence AS authority_head,
                 w.through_commit, w.manifest_digest,
@@ -347,7 +347,7 @@ pub(crate) async fn load_source_state(
           AND m.manifest_digest = w.manifest_digest
          WHERE h.tenant_id = $1",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(PROJECTION_ID)
     .fetch_optional(&mut *transaction)
     .await
@@ -396,7 +396,7 @@ struct ProjectionManifest<'a> {
     object_refs: Vec<ProjectionObjectRef<'a>>,
     projection_id: &'a str,
     semantic_schema_revision: u32,
-    tenant_id: &'a str,
+    world_id: &'a str,
     through_commit: i64,
 }
 
@@ -452,10 +452,10 @@ async fn put_immutable(
 
 async fn set_tenant(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<(), QueryError> {
     sqlx::query("SELECT pg_catalog.set_config('zoen.tenant_id', $1, true)")
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .execute(&mut **transaction)
         .await
         .map_err(unavailable)?;
@@ -471,9 +471,9 @@ fn unavailable(error: impl Display) -> QueryError {
     QueryError::Unavailable(error.to_string())
 }
 
-fn projection_manifest_object_key(tenant_id: &TenantId, manifest_digest: &str) -> String {
+fn projection_manifest_object_key(world_id: &WorldId, manifest_digest: &str) -> String {
     format!(
         "projections/{PROJECTION_ID}/{}/manifests/{manifest_digest}.json",
-        tenant_id.as_str()
+        world_id.as_str()
     )
 }

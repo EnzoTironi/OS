@@ -6,7 +6,7 @@ use axum::{
 use sha2::{Digest, Sha256};
 use zoen_adapters::PostgresIdentityStore;
 use zoen_core::{
-    ChannelProvider, ExternalSubject, IdentityError, VerifiedSessionEvidence, ZoenAccountId,
+    AccountId, ChannelProvider, ExternalSubject, IdentityError, VerifiedSessionEvidence,
 };
 
 use crate::session::SessionExchange;
@@ -62,7 +62,7 @@ pub fn require_machine(actor: &IdentityAdminActor) -> Option<Response> {
 pub async fn require_account(
     identity: &PostgresIdentityStore,
     actor: &IdentityAdminActor,
-    account_id: &ZoenAccountId,
+    account_id: &AccountId,
 ) -> Option<Response> {
     match actor {
         IdentityAdminActor::Machine => None,
@@ -106,7 +106,7 @@ pub fn identity_error_response(error: &IdentityError) -> Response {
         | IdentityError::AlreadyConsumed
         | IdentityError::InviteExpired
         | IdentityError::AccountMerged { .. }
-        | IdentityError::InviteTenantMismatch
+        | IdentityError::InviteWorldMismatch
         | IdentityError::Conflict(_)
         | IdentityError::PersonalExists => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,

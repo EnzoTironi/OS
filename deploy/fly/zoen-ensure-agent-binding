@@ -107,7 +107,7 @@ import json,sys
 snap=json.load(sys.stdin)
 for m in snap.get("memberships", []):
     if (
-        m.get("tenantId")=="tenant.a"
+        m.get("worldId")=="tenant.a"
         and m.get("principalId")=="principal.admin.a"
         and m.get("status")=="active"
         and m.get("actorId")=="actor.admin.a"
@@ -127,7 +127,7 @@ sys.exit(1)
 import json,sys
 snap=json.load(sys.stdin)
 for m in snap.get("memberships", []):
-    if m.get("tenantId")=="tenant.a" and m.get("principalId")=="principal.admin.a" and m.get("status")=="active":
+    if m.get("worldId")=="tenant.a" and m.get("principalId")=="principal.admin.a" and m.get("status")=="active":
         sys.exit(0)
 sys.exit(1)
 ' <"${tmp}/account.json"; then
@@ -140,7 +140,7 @@ sys.exit(1)
   invite_body="$(python3 -c '
 import json, sys
 print(json.dumps({
-    "tenantId": "tenant.a",
+    "worldId": "tenant.a",
     "principalId": "principal.admin.a",
     "token": sys.argv[1],
     "expiresAtMicros": int(sys.argv[2]),

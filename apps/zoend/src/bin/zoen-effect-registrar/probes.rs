@@ -58,14 +58,14 @@ impl Probes {
     /// identity, or is stale.
     pub fn require_credential_marker(
         marker_path: &str,
-        tenant_id: &str,
+        world_id: &str,
         workload_id: &str,
         principal_id: &str,
         actor_id: &str,
         max_age_ms: u64,
     ) -> Result<(), ProbeError> {
         let marker = read_marker(marker_path)?;
-        if marker.tenant_id != tenant_id
+        if marker.world_id != world_id
             || marker.workload_id != workload_id
             || marker.principal_id != principal_id
             || marker.actor_id != actor_id
@@ -120,7 +120,7 @@ impl Probes {
         probe_url: &str,
         caller_token: &str,
         credential_ref: &str,
-        tenant_id: &str,
+        world_id: &str,
     ) -> Result<(), ProbeError> {
         let response = self
             .http
@@ -131,7 +131,7 @@ impl Probes {
             )
             .json(&serde_json::json!({
                 "credentialRef": credential_ref,
-                "tenantId": tenant_id,
+                "tenantId": world_id,
             }))
             .timeout(Duration::from_millis(2000))
             .send()
@@ -235,7 +235,7 @@ struct RawMarker {
     actor_id: String,
     checked_at_micros: String,
     principal_id: String,
-    tenant_id: String,
+    world_id: String,
     workload_id: String,
 }
 
@@ -295,7 +295,7 @@ fn parse_marker(document: &Value) -> Result<RawMarker, ProbeError> {
         actor_id: get("actorId")?,
         checked_at_micros,
         principal_id: get("principalId")?,
-        tenant_id: get("tenantId")?,
+        world_id: get("tenantId")?,
         workload_id,
     })
 }
@@ -329,7 +329,7 @@ fn parse_identity(document: &Value) -> Result<String, ProbeError> {
 /// # Errors
 ///
 /// Returns [`ProbeError`] with the reference error messages on any drift.
-pub fn parse_credential_ref(value: &str, tenant_id: &str) -> Result<String, ProbeError> {
+pub fn parse_credential_ref(value: &str, world_id: &str) -> Result<String, ProbeError> {
     let document: Value = serde_json::from_str(value)
         .map_err(|_| ProbeError("ZOEN_CONNECTOR_CREDENTIAL_REFS must be JSON".to_owned()))?;
     let object = document
@@ -343,13 +343,13 @@ pub fn parse_credential_ref(value: &str, tenant_id: &str) -> Result<String, Prob
             "ZOEN_CONNECTOR_CREDENTIAL_REFS is malformed".to_owned(),
         ));
     }
-    if object.len() != 1 || !object.contains_key(tenant_id) {
+    if object.len() != 1 || !object.contains_key(world_id) {
         return Err(ProbeError(
             "ZOEN_CONNECTOR_CREDENTIAL_REFS must contain only the configured tenant".to_owned(),
         ));
     }
     object
-        .get(tenant_id)
+        .get(world_id)
         .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| {

@@ -6,7 +6,7 @@ use zoen_core::{
     MembershipId, OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest,
     PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber,
     PrincipalId, ReleaseCatalogSnapshot, ReleaseDecisionOutcome, ReleaseDigest,
-    ReleasePreviewDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
+    ReleasePreviewDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
     WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_DEFINITION,
     WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST, WORLD_RELEASE_AUTHORITY_RESOURCE,
     WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION,
@@ -228,12 +228,11 @@ impl PostgresWorldReleaseStore {
     ) -> Result<ReleaseAuthorization, WorldReleaseError> {
         let action_id = ActionId::parse(operation.action_id())?;
         let resource_id = ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE)?;
-        let tenant_id = TenantId::parse(world.as_str())?;
         let identities = PostgresIdentityStore::new(self.pool.clone());
         let context = identities
             .resolve_membership_authority(
                 membership_id,
-                &tenant_id,
+                world,
                 principal_id,
                 &action_id,
                 &resource_id,

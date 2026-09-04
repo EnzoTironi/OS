@@ -95,7 +95,7 @@ async function resolveContext(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   return admin(
     "GET",
-    `/identity/admin/resolve-context?tenant=${encodeURIComponent(tenant)}`,
+    `/identity/admin/resolve-context?world=${encodeURIComponent(tenant)}`,
     undefined,
     token,
   );
@@ -300,7 +300,7 @@ async function main(): Promise<void> {
     );
     assert.equal(bootstrap.status, 200, JSON.stringify(bootstrap.body));
     const boundAccountId = String(bootstrap.body.accountId);
-    const personalTenant = String(bootstrap.body.tenantId);
+    const personalTenant = String(bootstrap.body.worldId);
     const personalPrincipal = String(bootstrap.body.principalId);
     record(
       "external_subject_is_not_principal",
@@ -322,7 +322,7 @@ async function main(): Promise<void> {
     record(
       "bound_tec_uses_membership_principal",
       personalContext.body.principalId === personalPrincipal &&
-        personalContext.body.tenantId === personalTenant &&
+        personalContext.body.worldId === personalTenant &&
         personalContext.body.principalId !== "principal.phone.plus5511999999999",
     );
 
@@ -387,7 +387,7 @@ async function main(): Promise<void> {
       expiresAtMicros: expiresAt,
       principalId: "principal.colliding",
       resourceIds: ["inventory.item.1"],
-      tenantId: "tenant.org.a",
+      worldId: "tenant.org.a",
       token: inviteTokenA,
       workloadId: "workload.org.a",
     });
@@ -398,7 +398,7 @@ async function main(): Promise<void> {
       expiresAtMicros: expiresAt,
       principalId: "principal.colliding",
       resourceIds: ["inventory.item.1"],
-      tenantId: "tenant.org.b",
+      worldId: "tenant.org.b",
       token: inviteTokenB,
       workloadId: "workload.org.b",
     });
@@ -410,7 +410,7 @@ async function main(): Promise<void> {
       expiresAtMicros: expiresAt,
       principalId: phoneSubject,
       resourceIds: ["inventory.item.1"],
-      tenantId: "tenant.org.a",
+      worldId: "tenant.org.a",
       token: "invite-phone-principal",
       workloadId: "workload.org.bad",
     });
@@ -424,7 +424,7 @@ async function main(): Promise<void> {
     const orgMembershipId = String(acceptA.body.membershipId);
     record(
       "invite_is_tenant_bound",
-      acceptA.body.tenantId === "tenant.org.a" &&
+      acceptA.body.worldId === "tenant.org.a" &&
         acceptA.body.principalId === "principal.colliding",
     );
 
@@ -439,7 +439,7 @@ async function main(): Promise<void> {
     record(
       "same_account_distinct_org_principal",
       orgContext.body.principalId === "principal.colliding" &&
-        orgContext.body.tenantId === "tenant.org.a",
+        orgContext.body.worldId === "tenant.org.a",
     );
 
     const crossTenant = await resolveContext(boundToken, "tenant.org.b");
@@ -696,13 +696,13 @@ async function main(): Promise<void> {
     );
     const survivorMembershipTenants = (
       survivorSnapshot.body.memberships as Array<Record<string, unknown>>
-    ).map((membership) => membership.tenantId);
+    ).map((membership) => membership.worldId);
     const absorbedMemberships = absorbedSnapshot.body.memberships as unknown[];
     record(
       "merge_moves_bindings_not_memberships",
       Array.isArray(absorbedMemberships) &&
         absorbedMemberships.length >= 1 &&
-        !survivorMembershipTenants.includes(String(secondBootstrap.body.tenantId)),
+        !survivorMembershipTenants.includes(String(secondBootstrap.body.worldId)),
     );
     killMutant("merge copies memberships");
 

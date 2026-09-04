@@ -21,7 +21,7 @@ pub(crate) struct PhysicalClaim {
     pub source_digest: String,
     pub source_id: String,
     pub source_ref: String,
-    pub tenant_id: String,
+    pub world_id: String,
     pub valid_from_micros: i64,
     pub valid_time_kind: String,
     pub valid_to_micros: Option<i64>,
@@ -43,7 +43,7 @@ impl PhysicalClaim {
             source_digest: text(row, "source_digest")?,
             source_id: text(row, "source_id")?,
             source_ref: text(row, "source_ref")?,
-            tenant_id: text(row, "tenant_id")?,
+            world_id: text(row, "tenant_id")?,
             valid_from_micros: integer(row, "valid_from_micros")?,
             valid_time_kind: text(row, "valid_time_kind")?,
             valid_to_micros: optional_integer(row, "valid_to_micros")?,
@@ -80,7 +80,7 @@ pub(crate) fn claims_to_batch(rows: &[PhysicalClaim]) -> Result<RecordBatch, Que
     let columns: Vec<ArrayRef> = vec![
         Arc::new(StringArray::from(
             rows.iter()
-                .map(|row| row.tenant_id.as_str())
+                .map(|row| row.world_id.as_str())
                 .collect::<Vec<_>>(),
         )),
         Arc::new(StringArray::from(
@@ -216,7 +216,7 @@ pub(crate) fn batches_to_claims(batches: &[RecordBatch]) -> Result<Vec<PhysicalC
                 source_digest: required_string(source_digests, index, "source_digest")?,
                 source_id: required_string(source_ids, index, "source_id")?,
                 source_ref: required_string(source_refs, index, "source_ref")?,
-                tenant_id: required_string(tenant_ids, index, "tenant_id")?,
+                world_id: required_string(tenant_ids, index, "tenant_id")?,
                 valid_from_micros: required_integer(valid_from, index, "valid_from_micros")?,
                 valid_time_kind: required_string(valid_time_kinds, index, "valid_time_kind")?,
                 valid_to_micros: optional_array_integer(valid_to, index),

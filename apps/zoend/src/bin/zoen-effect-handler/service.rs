@@ -31,7 +31,7 @@ pub struct ZoenEffect {
     connector: ConnectorClient,
     effect_service: EffectServiceClient,
     lease: RegistrationLease,
-    tenant_id: String,
+    world_id: String,
 }
 
 /// Dispatch input validated against the frozen contract.
@@ -39,7 +39,7 @@ pub struct ZoenEffect {
 struct DispatchCommand {
     dispatch_version: u64,
     effect_request_id: String,
-    tenant_id: String,
+    world_id: String,
 }
 
 /// Handler response.
@@ -58,7 +58,7 @@ impl ZoenEffect {
     /// Returns [`ServiceError`] or [`LeaseError`] when a downstream client
     /// cannot be constructed.
     pub fn new(
-        tenant_id: String,
+        world_id: String,
         artifact_revision: String,
         connector: ConnectorClient,
         effect_service: EffectServiceClient,
@@ -69,7 +69,7 @@ impl ZoenEffect {
             connector,
             effect_service,
             lease,
-            tenant_id,
+            world_id,
         }
     }
 }
@@ -84,7 +84,7 @@ impl ZoenEffect {
         input: Json<serde_json::Value>,
     ) -> Result<Json<DispatchOutput>, HandlerError> {
         let command = parse_dispatch_input(&input.into_inner())?;
-        if command.tenant_id != self.tenant_id {
+        if command.world_id != self.world_id {
             return Err(TerminalError::new(
                 "effect invocation tenant does not match the worker credential",
             )
@@ -92,7 +92,7 @@ impl ZoenEffect {
         }
         let expected_key = format!(
             "{}:{}:{}",
-            command.tenant_id, command.effect_request_id, command.dispatch_version
+            command.world_id, command.effect_request_id, command.dispatch_version
         );
         if ctx.key() != expected_key {
             return Err(TerminalError::new(
@@ -285,7 +285,7 @@ fn parse_dispatch_input(input: &serde_json::Value) -> Result<DispatchCommand, Ha
         .and_then(serde_json::Value::as_str)
         .filter(|value| is_semantic_id(value))
         .ok_or_else(malformed)?;
-    let tenant_id = object
+    let world_id = object
         .get("tenantId")
         .and_then(serde_json::Value::as_str)
         .filter(|value| is_semantic_id(value))
@@ -293,7 +293,7 @@ fn parse_dispatch_input(input: &serde_json::Value) -> Result<DispatchCommand, Ha
     Ok(DispatchCommand {
         dispatch_version,
         effect_request_id: effect_request_id.to_owned(),
-        tenant_id: tenant_id.to_owned(),
+        world_id: world_id.to_owned(),
     })
 }
 

@@ -17,6 +17,7 @@ set -euo pipefail
 scenario_table=(
   "activation-identity:::live"
   "messaging-boundary:::live"
+  "bound-conversation:::live"
   "definition-publication:::live"
   "cedar-object-projection:::live"
   "commercial-identity:::live"

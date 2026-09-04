@@ -48,7 +48,7 @@ impl PostgresClaimLoader {
         query: &PostgresClaimQuery,
     ) -> Result<Vec<EvidenceClaim>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let claims = load_in_transaction(&mut transaction, context, query).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(claims)
@@ -63,7 +63,7 @@ impl PostgresClaimLoader {
         query: &PostgresTypeQuery,
     ) -> Result<Vec<EntityId>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let entity_ids = load_entity_ids_in_transaction(&mut transaction, context, query).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(entity_ids)
@@ -103,7 +103,7 @@ pub(crate) async fn load_in_transaction(
            )
          ORDER BY claim_id"
     ))
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(query.definition.definition_id.as_str())
     .bind(query.definition.digest.as_str())
     .bind(u64_to_i64(
@@ -154,7 +154,7 @@ pub(crate) async fn load_entity_ids_in_transaction(
          ORDER BY entity_id
          LIMIT $8",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(query.definition.definition_id.as_str())
     .bind(query.definition.digest.as_str())
     .bind(u64_to_i64(
@@ -209,7 +209,7 @@ impl PostgresClaimLoader {
         query: &PostgresOverlayClaimQuery,
     ) -> Result<Vec<EvidenceClaim>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let claims = load_overlay_in_transaction(&mut transaction, context, query).await?;
         transaction.commit().await.map_err(store_unavailable)?;
         Ok(claims)
@@ -224,7 +224,7 @@ impl PostgresClaimLoader {
         query: &PostgresOverlayTypeQuery,
     ) -> Result<Vec<EntityId>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let entity_ids =
             load_overlay_entity_ids_in_transaction(&mut transaction, context, query).await?;
         transaction.commit().await.map_err(store_unavailable)?;
@@ -240,13 +240,13 @@ impl PostgresClaimLoader {
         scenario_id: &zoen_core::ScenarioId,
     ) -> Result<CommitSequence, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, context.tenant_id()).await?;
+        set_tenant(&mut transaction, context.world_id()).await?;
         let row = sqlx::query(
             "SELECT base_commit_sequence, status
              FROM world_scenarios
              WHERE tenant_id = $1 AND scenario_id = $2",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(scenario_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -305,7 +305,7 @@ pub(crate) async fn load_overlay_in_transaction(
            )
          ORDER BY claim_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(query.scenario_id.as_str())
     .bind(query.definition.definition_id.as_str())
     .bind(query.definition.digest.as_str())
@@ -356,7 +356,7 @@ pub(crate) async fn load_overlay_entity_ids_in_transaction(
          ORDER BY entity_id
          LIMIT $8",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(query.scenario_id.as_str())
     .bind(query.definition.definition_id.as_str())
     .bind(query.definition.digest.as_str())

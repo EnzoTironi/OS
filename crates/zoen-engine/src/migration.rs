@@ -106,7 +106,7 @@ where
         let source = self
             .store
             .get_revision(
-                context.tenant_id(),
+                context.world_id(),
                 &recipe.definition_id,
                 &recipe.from_digest,
             )
@@ -114,11 +114,7 @@ where
             .map_err(MigrationError::Store)?;
         let target = self
             .store
-            .get_revision(
-                context.tenant_id(),
-                &recipe.definition_id,
-                &recipe.to_digest,
-            )
+            .get_revision(context.world_id(), &recipe.definition_id, &recipe.to_digest)
             .await
             .map_err(MigrationError::Store)?;
         let source_definition = decode_canonical_definition(&source.canonical_json)
@@ -175,7 +171,7 @@ where
         match self
             .store
             .preflight_migration_batch(
-                context.tenant_id(),
+                context.world_id(),
                 operation_id,
                 batch_index,
                 &intent_digest,
@@ -191,7 +187,7 @@ where
         }
         let migration = self
             .store
-            .get_migration(context.tenant_id(), operation_id)
+            .get_migration(context.world_id(), operation_id)
             .await
             .map_err(MigrationError::Store)?;
         let policy = self
@@ -206,7 +202,7 @@ where
         let target = self
             .store
             .get_revision(
-                context.tenant_id(),
+                context.world_id(),
                 &migration.plan.to.definition_id,
                 &migration.plan.to.digest,
             )
@@ -237,7 +233,7 @@ where
         operation_id: &OperationId,
     ) -> Result<MigrationProgress, MigrationError> {
         self.store
-            .get_migration(context.tenant_id(), operation_id)
+            .get_migration(context.world_id(), operation_id)
             .await
             .map_err(MigrationError::Store)
     }

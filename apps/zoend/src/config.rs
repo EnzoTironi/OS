@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use zoen_core::{TenantId, WorldId};
+use zoen_core::WorldId;
 use zoen_query::ObjectStoreConfig;
 
 /// Auth mode selected at process boot from the environment boundary.
@@ -82,9 +82,9 @@ pub fn effect_registration_health_url() -> Result<Option<String>, Box<dyn Error 
 /// # Errors
 ///
 /// Returns an error when `ZOEN_TENANT_ID` is set but not a tenant identifier.
-pub fn ready_tenant_id() -> Result<Option<TenantId>, Box<dyn Error + Send + Sync>> {
+pub fn ready_tenant_id() -> Result<Option<WorldId>, Box<dyn Error + Send + Sync>> {
     nonempty(optional_env("ZOEN_TENANT_ID")?)
-        .map(TenantId::parse)
+        .map(WorldId::parse)
         .transpose()
         .map_err(|error| config_error(&error.to_string()))
 }

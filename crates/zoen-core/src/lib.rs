@@ -54,16 +54,16 @@ pub use human::{
     project_human_task_packet_from_contract, validate_human_task_contract,
 };
 pub use identity::{
-    AccountMergePlan, AccountStatus, AudienceClass, BindingStatus, ChannelProvider,
-    ClassificationToken, Clearance, DelegationTemplateId, DurableEventId, ExternalBinding,
-    ExternalBindingId, ExternalSignalId, ExternalSubject, IdentityError, IngressAllowance, Invite,
-    InviteId, InviteToken, MachineToken, Membership, MembershipId, MembershipKind,
-    MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind, RateBudgetPolicy,
-    RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass, UnbindReason,
-    VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP, WorkloadCredential,
-    WorkloadCredentialId, WorkloadCredentialLookupKey, WorkloadCredentialStatus,
-    WorkloadEvidenceKind, WorkloadExchangeToken, WorkloadRevocationReason, WorkloadSecretId,
-    ZoenAccount, ZoenAccountId, join_labels, mac_write_permitted, resource_label,
+    Account, AccountId, AccountMergePlan, AccountStatus, AudienceClass, BindingStatus,
+    ChannelBinding, ChannelBindingId, ChannelProvider, ClassificationToken, Clearance,
+    DelegationTemplateId, DurableEventId, ExternalSignalId, ExternalSubject, IdentityError,
+    IngressAllowance, Invite, InviteId, InviteToken, MachineToken, Membership, MembershipId,
+    MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
+    RateBudgetPolicy, RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass,
+    UnbindReason, VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP,
+    WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
+    WorkloadCredentialStatus, WorkloadEvidenceKind, WorkloadExchangeToken,
+    WorkloadRevocationReason, WorkloadSecretId, join_labels, mac_write_permitted, resource_label,
     trusted_context_from_membership, trusted_context_from_workload_credential,
 };
 pub use jcs::{JcsError, canonicalize_json, canonicalize_json_bytes, is_canonical_digest_hex};
@@ -173,7 +173,6 @@ semantic_id!(RelationId);
 semantic_id!(ResourceId);
 semantic_id!(ScenarioId);
 semantic_id!(SourceId);
-semantic_id!(TenantId);
 semantic_id!(TypeId);
 semantic_id!(UnitId);
 semantic_id!(WorkloadId);
@@ -750,7 +749,7 @@ impl EvolutionPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrustedExecutionContext {
-    tenant_id: TenantId,
+    world_id: WorldId,
     actor_id: ActorId,
     delegation: DelegationChain,
     principal_id: PrincipalId,
@@ -761,7 +760,7 @@ pub struct TrustedExecutionContext {
 impl TrustedExecutionContext {
     #[must_use]
     pub fn new(
-        tenant_id: TenantId,
+        world_id: WorldId,
         actor_id: ActorId,
         principal_id: PrincipalId,
         workload_id: WorkloadId,
@@ -769,7 +768,7 @@ impl TrustedExecutionContext {
         clearance: crate::Clearance,
     ) -> Self {
         Self {
-            tenant_id,
+            world_id,
             actor_id,
             delegation,
             principal_id,
@@ -799,8 +798,8 @@ impl TrustedExecutionContext {
     }
 
     #[must_use]
-    pub fn tenant_id(&self) -> &TenantId {
-        &self.tenant_id
+    pub fn world_id(&self) -> &WorldId {
+        &self.world_id
     }
 
     #[must_use]

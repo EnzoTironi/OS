@@ -42,7 +42,7 @@ pub struct RegistrarConfig {
     /// Worker workload id (always `workload.effect-worker`).
     pub worker_workload_id: String,
     /// Tenant id.
-    pub tenant_id: String,
+    pub world_id: String,
     /// zoend origin (path `/`).
     pub zoend_url: String,
 }
@@ -89,7 +89,7 @@ pub fn load_config() -> Result<RegistrarConfig, RegistrarConfigError> {
         100,
         60_000,
     )?;
-    let tenant_id = required_min1(&environment, "ZOEN_TENANT_ID")?;
+    let world_id = required_min1(&environment, "ZOEN_TENANT_ID")?;
     Ok(RegistrarConfig {
         restate_admin_url: endpoints.restate_admin_url,
         connector_caller_token: endpoints.connector_caller_token,
@@ -106,7 +106,7 @@ pub fn load_config() -> Result<RegistrarConfig, RegistrarConfigError> {
         worker_credential_ready_file: worker.credential_ready_file,
         worker_principal_id: worker.principal_id,
         worker_workload_id: worker.workload_id,
-        tenant_id,
+        world_id,
         zoend_url: endpoints.zoend_url,
     })
 }

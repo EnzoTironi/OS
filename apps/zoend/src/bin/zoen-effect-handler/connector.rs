@@ -141,7 +141,7 @@ pub struct ConnectorClient {
     caller_token: String,
     credential_ref: String,
     http: reqwest::Client,
-    tenant_id: String,
+    world_id: String,
     timeout: Duration,
     url: String,
 }
@@ -152,7 +152,7 @@ impl ConnectorClient {
     /// # Errors
     ///
     /// Returns [`ConnectorError::Retryable`] when the HTTP client cannot be built.
-    pub fn new(config: &ConnectorConfig, tenant_id: &str) -> Result<Self, ConnectorError> {
+    pub fn new(config: &ConnectorConfig, world_id: &str) -> Result<Self, ConnectorError> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_millis(config.request_timeout_ms))
             .build()
@@ -161,7 +161,7 @@ impl ConnectorClient {
             caller_token: config.caller_token.clone(),
             credential_ref: config.credential_ref.clone(),
             http,
-            tenant_id: tenant_id.to_owned(),
+            world_id: world_id.to_owned(),
             timeout: Duration::from_millis(config.request_timeout_ms),
             url: config.url.clone(),
         })
@@ -190,7 +190,7 @@ impl ConnectorClient {
                 "idempotencyKey": request.idempotency_key,
                 "payloadBase64": request.payload_base64,
                 "requestDigest": request.request_digest,
-                "tenantId": self.tenant_id,
+                "tenantId": self.world_id,
             }))
             .timeout(self.timeout)
             .send()
