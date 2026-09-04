@@ -131,6 +131,13 @@ pub struct TypeAssignment {
 }
 
 impl TypeAssignment {
+    /// Returns this assignment id as a verified `TypeAssignmentRef`.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if `TypeAssignmentId` and `TypeAssignmentRef` ever diverge
+    /// in identifier grammar, which cannot happen for a value already parsed
+    /// as `TypeAssignmentId`.
     #[must_use]
     pub fn assignment_ref(&self) -> TypeAssignmentRef {
         TypeAssignmentRef::parse(self.id.as_str())
@@ -236,7 +243,7 @@ impl Display for TypedObjectError {
 
 impl Error for TypedObjectError {}
 
-/// Contextual identifier attached to an ObjectKey (ticker, CIK, FIGI, …).
+/// Contextual identifier attached to an `ObjectKey` (ticker, CIK, FIGI, …).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IdentifierAssertion {
     pub object: ObjectKey,
@@ -300,7 +307,7 @@ impl IdentityResolveResult {
     }
 }
 
-/// Canonical digest over a TypeAssignmentAssertion for attribution.
+/// Canonical digest over a `TypeAssignmentAssertion` for attribution.
 #[must_use]
 pub fn type_assignment_assertion_digest(assertion: &TypeAssignmentAssertion) -> String {
     let (start, end) = match assertion.valid_time {
