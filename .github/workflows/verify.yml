@@ -131,6 +131,7 @@ jobs:
           - definition-publication
           - cedar-object-projection
           - commercial-identity
+          - cursor-security
           - dirty-quote
           - durable-commit
           - evolution-breaking
@@ -164,6 +165,12 @@ jobs:
           name: e2e-binaries
       - run: chmod +x target/debug/zoen target/debug/zoen-effect-dispatcher target/debug/zoen-effect-handler target/debug/zoen-effect-registrar target/debug/zoen-http-connector target/debug/zoen-projection
       - run: ./e2e/run.sh run ${{ matrix.scenario }}
+      - if: ${{ always() && matrix.scenario == 'cursor-security' }}
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          name: cursor-security-substrate-evidence
+          path: artifacts/cursor-security/cursor-security.json
 
   e2e-concurrent:
     needs: [build]

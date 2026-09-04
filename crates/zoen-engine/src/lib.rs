@@ -86,8 +86,9 @@ pub use scenario::{
     ApplyOutcome, Scenario, ScenarioEngine, ScenarioError, ScenarioProposalPlan, ScenarioStatus,
 };
 pub use sealed_cursor::{
-    DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis, SealedCursorError,
-    bind as bind_sealed_cursor, effective_page_limit, resolve_budget_id, seal_next,
+    AuthorizedObjectSetPlanDigest, CursorKeyId, CursorKeyring, CursorSealer, CursorSigningKey,
+    CursorSortOrder, DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis,
+    SealedCursorError, TrustedAuthorityDigest, effective_page_limit,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
