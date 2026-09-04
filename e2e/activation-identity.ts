@@ -89,6 +89,40 @@ async function admin(
   return { body: parsed, status: response.status };
 }
 
+async function issueLinkIntent(
+  provider: "linq" | "telegram" | "whatsapp",
+  subjectKey: string
+): Promise<Record<string, unknown>> {
+  const issued = await admin(
+    "POST",
+    "/identity/link-intents",
+    { provider, subjectKey },
+    e2eIdentityAdminToken()
+  );
+  assert.equal(issued.status, 201, JSON.stringify(issued.body));
+  return issued.body;
+}
+
+async function confirmLinkIntent(
+  token: unknown,
+  sessionToken: string
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await fetch(`${baseUrl}/identity/link-intents/confirm`, {
+    body: JSON.stringify({ token }),
+    headers: {
+      "content-type": "application/json",
+      cookie: `better-auth.session_token=${encodeURIComponent(sessionToken)}`,
+      origin: baseUrl,
+    },
+    method: "POST",
+  });
+  const text = await response.text();
+  return {
+    body: text.length === 0 ? {} : jsonObject.parse(JSON.parse(text) as unknown),
+    status: response.status,
+  };
+}
+
 async function resolveContext(
   token: string,
   tenant: string,
@@ -326,37 +360,27 @@ async function main(): Promise<void> {
         personalContext.body.principalId !== "principal.phone.plus5511999999999",
     );
 
-    const linkPhone = await admin("POST", "/identity/admin/bind-verified", {
-      accountId: boundAccountId,
-      provider: "whatsapp",
-      subjectKey: phoneSubject,
-    });
+    const phoneIntent = await issueLinkIntent("whatsapp", phoneSubject);
+    const linkPhone = await confirmLinkIntent(phoneIntent.token, boundToken);
     record(
-      "subject_already_bound_rejected",
-      linkPhone.status === 409,
+      "verified_channel_links_only_through_browser_session",
+      linkPhone.status === 200 &&
+        linkPhone.body.targetAccountId === boundAccountId &&
+        linkPhone.body.sourceAccountId === provisionalAccountId &&
+        linkPhone.body.sourceAccountPreserved === false,
     );
 
-    const provisionalSnapshot = await admin(
+    const linkedSourceSnapshot = await admin(
       "GET",
       `/identity/admin/accounts/${provisionalAccountId}`,
     );
-    const whatsappBinding = (
-      provisionalSnapshot.body.bindings as Array<Record<string, unknown>>
-    ).find((binding) => binding.provider === "whatsapp");
-    assert.ok(whatsappBinding);
+    record(
+      "empty_channel_source_becomes_merged_shell",
+      (linkedSourceSnapshot.body.account as Record<string, unknown>).status ===
+        "merged_into",
+    );
     await admin("POST", "/identity/admin/unbind", {
-      bindingId: String(whatsappBinding.bindingId),
-      reason: "recycle",
-    });
-    const recycledBind = await admin("POST", "/identity/admin/bind-verified", {
-      accountId: boundAccountId,
-      provider: "whatsapp",
-      subjectKey: phoneSubject,
-    });
-    assert.equal(recycledBind.status, 200, JSON.stringify(recycledBind.body));
-
-    await admin("POST", "/identity/admin/unbind", {
-      bindingId: String(recycledBind.body.bindingId),
+      bindingId: String(linkPhone.body.bindingId),
       reason: "recycle",
     });
     const recycledAccount = await admin("POST", "/identity/admin/provisional", {
@@ -534,105 +558,72 @@ async function main(): Promise<void> {
     );
     killMutant("stale membership cache");
 
-    const onboardSubject = "5531888888888@s.whatsapp.net";
-    const mintedOnboard = await admin("POST", "/identity/admin/onboard-tokens", {
-      provider: "whatsapp",
-      subjectKey: onboardSubject,
-    });
-    assert.equal(mintedOnboard.status, 200, JSON.stringify(mintedOnboard.body));
-    const onboardToken = String(mintedOnboard.body.token);
+    const linkSubject = "5531888888888@s.whatsapp.net";
+    const issuedLink = await issueLinkIntent("whatsapp", linkSubject);
+    const linkToken = String(issuedLink.token);
     record(
-      "onboard_mint_href_is_public_path",
-      String(mintedOnboard.body.href).includes(`/onboard/${onboardToken}`),
+      "link_intent_uses_fragment_token",
+      String(issuedLink.href) === `${baseUrl}/link#token=${linkToken}`,
     );
-    const onboardPage = await fetch(`${baseUrl}/onboard/${onboardToken}`);
-    const onboardHtml = await onboardPage.text();
+    const linkPage = await fetch(`${baseUrl}/link`);
+    const linkHtml = await linkPage.text();
     record(
-      "onboard_get_is_html",
-      onboardPage.status === 200 &&
-        (onboardPage.headers.get("content-type") ?? "").includes("text/html") &&
-        onboardHtml.includes("Confirmar este WhatsApp") &&
-        !onboardHtml.trim().startsWith("{"),
+      "link_get_is_token_free_html",
+      linkPage.status === 200 &&
+        (linkPage.headers.get("content-type") ?? "").includes("text/html") &&
+        linkHtml.includes("ligar esta conversa") &&
+        !linkHtml.includes(linkToken),
     );
-    const onboardConfirm = await fetch(
-      `${baseUrl}/onboard/${onboardToken}/confirm`,
-      { method: "POST" },
+    const missingSession = await fetch(
+      `${baseUrl}/identity/link-intents/confirm`,
+      {
+        body: JSON.stringify({ token: linkToken }),
+        headers: { "content-type": "application/json", origin: baseUrl },
+        method: "POST",
+      },
     );
-    record("onboard_confirm_binds", onboardConfirm.status === 200);
-    const onboardReplay = await fetch(
-      `${baseUrl}/onboard/${onboardToken}/confirm`,
-      { method: "POST" },
+    record("link_confirmation_requires_door_cookie", missingSession.status === 401);
+    const linked = await confirmLinkIntent(linkToken, boundToken);
+    record(
+      "link_confirmation_binds_exact_channel",
+      linked.status === 200 && linked.body.targetAccountId === boundAccountId,
     );
-    record("onboard_confirm_idempotent_409", onboardReplay.status === 409);
-    const onboardBound = await admin(
+    const linkReplay = await confirmLinkIntent(linkToken, boundToken);
+    record("link_confirmation_replay_fails_closed", linkReplay.status === 409);
+    const linkedSnapshot = await admin(
       "GET",
-      `/identity/admin/resolve-subject?provider=whatsapp&subjectKey=${encodeURIComponent(onboardSubject)}`,
+      `/identity/admin/resolve-subject?provider=whatsapp&subjectKey=${encodeURIComponent(linkSubject)}`,
     );
     record(
-      "onboard_confirm_verified_membership",
-      onboardBound.status === 200,
+      "linked_channel_resolves_browser_membership",
+      linkedSnapshot.status === 200 &&
+        (linkedSnapshot.body.account as Record<string, unknown>).accountId ===
+          boundAccountId,
     );
 
-    const admitSubject = "+5511966665555";
-    const oidcAdmit = await admin(
-      "POST",
-      "/identity/admin/admit-whatsapp",
-      {
-        provider: "whatsapp",
-        subjectKey: admitSubject,
-      },
-      boundToken,
-    );
-    record(
-      "oidc_cannot_admit_whatsapp",
-      oidcAdmit.status === 403 &&
-        oidcAdmit.body.error === "identity_admin_forbidden",
-    );
-    const doorAdmit = await admin("POST", "/identity/admin/admit-whatsapp", {
+    const doorIntent = await admin("POST", "/identity/link-intents", {
       provider: "whatsapp",
       subjectKey: e2eWhatsAppDoorE164(),
     });
     record(
-      "admit_whatsapp_door_rejected",
-      doorAdmit.status === 400 &&
-        doorAdmit.body.error === "invalid external subject",
+      "whatsapp_door_cannot_receive_link_intent",
+      doorIntent.status === 400 &&
+        doorIntent.body.error === "invalid external subject",
     );
-    const admitted = await admin("POST", "/identity/admin/admit-whatsapp", {
+    const retiredBind = await admin("POST", "/identity/admin/bind-verified", {
+      accountId: boundAccountId,
       provider: "whatsapp",
-      subjectKey: admitSubject,
+      subjectKey: "+5511966665555",
     });
-    assert.equal(admitted.status, 200, JSON.stringify(admitted.body));
-    const admittedMemberships = admitted.body.memberships as Array<
-      Record<string, unknown>
-    >;
-    const admittedBindings = admitted.body.bindings as Array<
-      Record<string, unknown>
-    >;
-    const personal = admittedMemberships.find(
-      (row) => row.kind === "personal" && row.status === "active",
+    const retiredOnboard = await admin(
+      "POST",
+      "/identity/admin/onboard-tokens",
+      { provider: "whatsapp", subjectKey: "+5511966665555" },
     );
     record(
-      "admit_whatsapp_mints_personal_membership",
-      admitted.status === 200 &&
-        personal !== undefined &&
-        String(personal.principalId) !== admitSubject &&
-        admittedBindings.some(
-          (binding) =>
-            binding.provider === "whatsapp" &&
-            binding.subjectKey === admitSubject &&
-            binding.status === "verified",
-        ),
+      "direct_bind_and_onboard_routes_are_retired",
+      retiredBind.status === 404 && retiredOnboard.status === 404,
     );
-    const admittedResolve = await admin(
-      "GET",
-      `/identity/admin/resolve-subject?provider=whatsapp&subjectKey=${encodeURIComponent(admitSubject)}`,
-    );
-    record("admit_whatsapp_resolves_without_onboard", admittedResolve.status === 200);
-    const admittedAgain = await admin("POST", "/identity/admin/admit-whatsapp", {
-      provider: "whatsapp",
-      subjectKey: admitSubject,
-    });
-    record("admit_whatsapp_idempotent", admittedAgain.status === 200);
 
     const boundExplainCode = await expectConnectCode(
       () =>
@@ -675,17 +666,13 @@ async function main(): Promise<void> {
     );
     assert.equal(secondBootstrap.status, 200, JSON.stringify(secondBootstrap.body));
     const secondAccountId = String(secondBootstrap.body.accountId);
-    const plan = await admin("POST", "/identity/admin/plan-merge", {
-      absorbed: secondAccountId,
-      survivor: boundAccountId,
-    });
-    assert.equal(plan.status, 200, JSON.stringify(plan.body));
-    const commit = await admin("POST", "/identity/admin/commit-merge", {
-      absorbed: secondAccountId,
-      moveBindings: plan.body.moveBindings,
-      survivor: boundAccountId,
-    });
-    assert.equal(commit.status, 204, JSON.stringify(commit.body));
+    const movableSubject = "8100000099";
+    const linkToSecond = await issueLinkIntent("telegram", movableSubject);
+    const linkedToSecond = await confirmLinkIntent(linkToSecond.token, secondToken);
+    assert.equal(linkedToSecond.status, 200, JSON.stringify(linkedToSecond.body));
+    const moveToFirst = await issueLinkIntent("telegram", movableSubject);
+    const movedToFirst = await confirmLinkIntent(moveToFirst.token, boundToken);
+    assert.equal(movedToFirst.status, 200, JSON.stringify(movedToFirst.body));
     const survivorSnapshot = await admin(
       "GET",
       `/identity/admin/accounts/${boundAccountId}`,
@@ -699,8 +686,11 @@ async function main(): Promise<void> {
     ).map((membership) => membership.worldId);
     const absorbedMemberships = absorbedSnapshot.body.memberships as unknown[];
     record(
-      "merge_moves_bindings_not_memberships",
-      Array.isArray(absorbedMemberships) &&
+      "link_moves_one_binding_not_memberships_or_world",
+      movedToFirst.body.sourceAccountId === secondAccountId &&
+        movedToFirst.body.targetAccountId === boundAccountId &&
+        movedToFirst.body.sourceAccountPreserved === true &&
+        Array.isArray(absorbedMemberships) &&
         absorbedMemberships.length >= 1 &&
         !survivorMembershipTenants.includes(String(secondBootstrap.body.worldId)),
     );

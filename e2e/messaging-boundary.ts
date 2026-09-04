@@ -106,6 +106,32 @@ async function admin(
   return { body: parsed, status: response.status };
 }
 
+async function linkSubject(
+  sessionToken: string,
+  provider: "linq" | "telegram",
+  subjectKey: string
+): Promise<Record<string, unknown>> {
+  const issued = await admin(
+    "POST",
+    "/identity/link-intents",
+    { provider, subjectKey },
+    e2eIdentityAdminToken()
+  );
+  assert.equal(issued.status, 201, JSON.stringify(issued.body));
+  const response = await fetch(`${baseUrl}/identity/link-intents/confirm`, {
+    body: JSON.stringify({ token: issued.body.token }),
+    headers: {
+      "content-type": "application/json",
+      cookie: `better-auth.session_token=${encodeURIComponent(sessionToken)}`,
+      origin: baseUrl,
+    },
+    method: "POST",
+  });
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(response.status, 200, JSON.stringify(body));
+  return body;
+}
+
 async function seedBoundAccount(): Promise<{
   accountId: string;
   worldId: string;
@@ -130,36 +156,19 @@ async function seedBoundAccount(): Promise<{
   const principalId = String(bootstrap.body.principalId);
   const membershipId = String(bootstrap.body.membershipId);
 
-  const telegramBind = await admin(
-    "POST",
-    "/identity/admin/bind-verified",
-    {
-      accountId,
-      provider: "telegram",
-      subjectKey: telegramSubject,
-    },
-    e2eIdentityAdminToken(),
+  const telegramBind = await linkSubject(
+    boundToken,
+    "telegram",
+    telegramSubject
   );
-  assert.equal(telegramBind.status, 200, JSON.stringify(telegramBind.body));
-
-  const linqBind = await admin(
-    "POST",
-    "/identity/admin/bind-verified",
-    {
-      accountId,
-      provider: "linq",
-      subjectKey: linqSubject,
-    },
-    e2eIdentityAdminToken(),
-  );
-  assert.equal(linqBind.status, 200, JSON.stringify(linqBind.body));
+  const linqBind = await linkSubject(boundToken, "linq", linqSubject);
 
   return {
     accountId,
-    linqBindingId: String(linqBind.body.bindingId),
+    linqBindingId: String(linqBind.bindingId),
     membershipId,
     principalId,
-    telegramBindingId: String(telegramBind.body.bindingId),
+    telegramBindingId: String(telegramBind.bindingId),
     worldId,
   };
 }

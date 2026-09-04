@@ -56,8 +56,8 @@ pub use effect_dispatcher::{
 pub use effect_store::PostgresEffectUpdate;
 pub use external_signal_store::PostgresExternalSignalStore;
 pub use identity_store::{
-    AccountSnapshot, BoundIngress, CompleteOnboard, CreateInvite, MintedOnboardToken,
-    OnboardTokenRow, PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
+    AccountSnapshot, BoundIngress, ConfirmedLinkIntent, CreateInvite, MintedLinkIntent,
+    PostgresIdentityStore, UnbindAuthority, WorldInvite, dest_invitee_delegation,
 };
 pub use integrity::{IntegrityError, ProjectionWatermarkStatus};
 pub use ontology_catalog::{
