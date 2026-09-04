@@ -1182,6 +1182,20 @@ enum Oauth2ConnectFailure {
     SourceStore,
 }
 
+#[derive(Clone, Copy)]
+enum SourceFetchFailure {
+    BaseMissing,
+    McpUrlMissing,
+    GoogleFolderMissing,
+    InvalidConfiguration,
+    InvalidAuthentication,
+    Request,
+    Rejected,
+    InvalidResponse,
+    ResourceNotFound,
+    ResourceEmpty,
+}
+
 /// Run an ontology command against a running zoend.
 ///
 /// # Errors
@@ -2584,7 +2598,10 @@ async fn sync_source(
     if env.isolate && !dry_run {
         return Ok(fail(1, "isolate cannot commit"));
     }
-    let fetched = fetch_source(&instance).await?;
+    let fetched = match fetch_source(&instance).await {
+        Ok(fetched) => fetched,
+        Err(failure) => return Ok(fail_source_fetch(failure)),
+    };
     let cas = put_cas(env, &fetched.bytes)?;
     if dry_run {
         return Ok(ok(&json!({
@@ -2631,48 +2648,48 @@ async fn sync_source(
     })))
 }
 
-async fn fetch_source(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_source(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     match instance.kind.as_str() {
         "mcp" => fetch_mcp(instance).await,
         "google" => fetch_drive(instance).await,
-        _ => fetch_rest(instance).await,
+        "oauth2" | "rest" => fetch_rest(instance).await,
+        _ => Err(SourceFetchFailure::InvalidConfiguration),
     }
 }
 
-async fn fetch_rest(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_rest(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     let base = instance
         .base_url
         .as_deref()
-        .ok_or_else(|| format!("source {} has no --base", instance.id))?;
+        .ok_or(SourceFetchFailure::BaseMissing)?;
     let path = instance
         .introduced
         .as_ref()
         .and_then(|introduced| introduced.path.as_deref())
         .unwrap_or("/");
-    let mut url = reqwest::Url::parse(base)?;
-    url = url.join(path.trim_start_matches('/'))?;
+    let mut url = reqwest::Url::parse(base)
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?
+        .join(path.trim_start_matches('/'))
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     if let Some(cursor) = &instance.cursor {
         url.query_pairs_mut().append_pair("cursor", cursor);
     }
     let client = reqwest::Client::new();
     let response = client
-        .get(url.clone())
+        .get(url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let bytes = response.bytes().await?.to_vec();
     if !status.is_success() {
-        return Err(format!(
-            "source GET {url} {status} {}",
-            String::from_utf8_lossy(&bytes)
-        )
-        .into());
+        return Err(SourceFetchFailure::Rejected);
     }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?
+        .to_vec();
     let parsed = parse_json(&bytes);
     let hash = hash8(&bytes);
     Ok(SourceFetch {
@@ -2685,45 +2702,55 @@ async fn fetch_rest(
     })
 }
 
-async fn fetch_drive(
-    instance: &SourceInstance,
-) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
-    let base = instance.base_url.as_deref().ok_or(
-        "google profile sync needs --base stand-in or planted OAuth; door tokens are not ingest authority",
-    )?;
+async fn fetch_drive(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
+    let base = instance
+        .base_url
+        .as_deref()
+        .ok_or(SourceFetchFailure::BaseMissing)?;
     let folder = instance
         .introduced
         .as_ref()
         .and_then(|introduced| introduced.folder.as_deref())
-        .ok_or("introduce a folder, not the account")?;
-    let base_url = reqwest::Url::parse(base)?;
-    let mut folder_url = base_url.join("drive/v3/files")?;
+        .ok_or(SourceFetchFailure::GoogleFolderMissing)?;
+    let base_url =
+        reqwest::Url::parse(base).map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
+    let mut folder_url = base_url
+        .join("drive/v3/files")
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     folder_url.query_pairs_mut().append_pair(
         "q",
         &format!("name='{folder}' and mimeType='application/vnd.google-apps.folder'"),
     );
     let folder_list = fetch_json(folder_url, instance).await?;
-    let folder_id =
-        first_file_id(&folder_list).ok_or_else(|| format!("folder {folder} not found"))?;
-    let mut children_url = base_url.join("drive/v3/files")?;
+    let folder_id = first_file_id(&folder_list).ok_or(SourceFetchFailure::ResourceNotFound)?;
+    let mut children_url = base_url
+        .join("drive/v3/files")
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     children_url
         .query_pairs_mut()
         .append_pair("q", &format!("'{folder_id}' in parents"));
     let children = fetch_json(children_url, instance).await?;
-    let file = first_file(&children).ok_or_else(|| format!("folder {folder} has no files"))?;
-    let mut media_url = base_url.join(&format!("drive/v3/files/{}", file.id))?;
+    let file = first_file(&children).ok_or(SourceFetchFailure::ResourceEmpty)?;
+    let mut media_url = base_url
+        .join(&format!("drive/v3/files/{}", file.id))
+        .map_err(|_| SourceFetchFailure::InvalidConfiguration)?;
     media_url.query_pairs_mut().append_pair("alt", "media");
     let client = reqwest::Client::new();
     let response = client
-        .get(media_url.clone())
+        .get(media_url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let bytes = response.bytes().await?.to_vec();
     if !status.is_success() {
-        return Err(format!("drive media {media_url} {status}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?
+        .to_vec();
     let inner = unzip_first(&bytes).unwrap_or(bytes.clone());
     Ok(SourceFetch {
         cursor: file.modified_time,
@@ -2735,11 +2762,11 @@ async fn fetch_drive(
     })
 }
 
-async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, Box<dyn Error + Send + Sync>> {
+async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, SourceFetchFailure> {
     let url = instance
         .url
         .as_deref()
-        .ok_or_else(|| format!("source {} has no --url", instance.id))?;
+        .ok_or(SourceFetchFailure::McpUrlMissing)?;
     mcp_call(
         url,
         instance,
@@ -2761,7 +2788,7 @@ async fn fetch_mcp(instance: &SourceInstance) -> Result<SourceFetch, Box<dyn Err
         }),
     )
     .await?;
-    let bytes = serde_json::to_vec(&listed)?;
+    let bytes = serde_json::to_vec(&listed).map_err(|_| SourceFetchFailure::InvalidResponse)?;
     let hash = hash8(&bytes);
     Ok(SourceFetch {
         cursor: cursor_from_unknown(&listed),
@@ -2778,7 +2805,7 @@ async fn mcp_call(
     instance: &SourceInstance,
     method: &str,
     params: Value,
-) -> Result<Value, Box<dyn Error + Send + Sync>> {
+) -> Result<Value, SourceFetchFailure> {
     let mut headers = auth_headers(instance)?;
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     let client = reqwest::Client::new();
@@ -2787,15 +2814,20 @@ async fn mcp_call(
         .headers(headers)
         .json(&json!({ "id": 1, "jsonrpc": "2.0", "method": method, "params": params }))
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("mcp {method} {status} {text}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
-    let doc: Value = serde_json::from_str(&text)?;
-    if let Some(error) = doc.get("error") {
-        return Err(format!("mcp {method} {error}").into());
+    let text = response
+        .text()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    let doc: Value =
+        serde_json::from_str(&text).map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    if doc.get("error").is_some() {
+        return Err(SourceFetchFailure::Rejected);
     }
     Ok(doc.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -2835,19 +2867,22 @@ async fn fetch_oauth2_token(
     }))
 }
 
-fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, Box<dyn Error + Send + Sync>> {
+fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, SourceFetchFailure> {
     let mut headers = HeaderMap::new();
     match &instance.auth {
         SourceAuth::ApiKey(auth) => {
             headers.insert(
-                HeaderName::from_bytes(auth.header.as_bytes())?,
-                HeaderValue::from_str(&auth.value)?,
+                HeaderName::from_bytes(auth.header.as_bytes())
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
+                HeaderValue::from_str(&auth.value)
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
             );
         }
         SourceAuth::Oauth2(auth) => {
             headers.insert(
                 AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", auth.access_token))?,
+                HeaderValue::from_str(&format!("Bearer {}", auth.access_token))
+                    .map_err(|_| SourceFetchFailure::InvalidAuthentication)?,
             );
         }
         SourceAuth::None => {}
@@ -2858,19 +2893,23 @@ fn auth_headers(instance: &SourceInstance) -> Result<HeaderMap, Box<dyn Error + 
 async fn fetch_json(
     url: reqwest::Url,
     instance: &SourceInstance,
-) -> Result<Value, Box<dyn Error + Send + Sync>> {
+) -> Result<Value, SourceFetchFailure> {
     let client = reqwest::Client::new();
     let response = client
-        .get(url.clone())
+        .get(url)
         .headers(auth_headers(instance)?)
         .send()
-        .await?;
+        .await
+        .map_err(|_| SourceFetchFailure::Request)?;
     let status = response.status();
-    let text = response.text().await?;
     if !status.is_success() {
-        return Err(format!("GET {url} {status} {text}").into());
+        return Err(SourceFetchFailure::Rejected);
     }
-    Ok(serde_json::from_str(&text)?)
+    let text = response
+        .text()
+        .await
+        .map_err(|_| SourceFetchFailure::InvalidResponse)?;
+    serde_json::from_str(&text).map_err(|_| SourceFetchFailure::InvalidResponse)
 }
 
 struct DriveFile {
@@ -3771,6 +3810,39 @@ fn fail_oauth2_connect(failure: Oauth2ConnectFailure) -> CommandResult {
             FailCode::NotConnected,
             "oauth2 source could not be stored",
         ),
+    }
+}
+
+fn fail_source_fetch(failure: SourceFetchFailure) -> CommandResult {
+    match failure {
+        SourceFetchFailure::BaseMissing => {
+            fail(2, "source sync requires a configured base endpoint")
+        }
+        SourceFetchFailure::McpUrlMissing => {
+            fail(2, "source sync requires a configured MCP endpoint")
+        }
+        SourceFetchFailure::GoogleFolderMissing => fail(2, "introduce a folder, not the account"),
+        SourceFetchFailure::InvalidConfiguration => fail(2, "source sync configuration is invalid"),
+        SourceFetchFailure::InvalidAuthentication => fail_coded(
+            1,
+            FailCode::Unauthenticated,
+            "source authentication is invalid",
+        ),
+        SourceFetchFailure::Request => fail_coded(1, FailCode::NotConnected, "source fetch failed"),
+        SourceFetchFailure::Rejected => {
+            fail_coded(1, FailCode::NotConnected, "source fetch was rejected")
+        }
+        SourceFetchFailure::InvalidResponse => fail_coded(
+            1,
+            FailCode::NotConnected,
+            "source returned an invalid response",
+        ),
+        SourceFetchFailure::ResourceNotFound => {
+            fail_coded(1, FailCode::NotConnected, "source resource was not found")
+        }
+        SourceFetchFailure::ResourceEmpty => {
+            fail_coded(1, FailCode::NotConnected, "source resource is empty")
+        }
     }
 }
 

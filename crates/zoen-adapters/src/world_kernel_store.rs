@@ -23,8 +23,7 @@ use zoen_engine::{
 
 use crate::{
     PostgresIdentityStore, PostgresWorldReleaseStore, cedar::budget_classes_from_policy_catalog,
-    clock_micros,
-    ontology_catalog::require_loadable_ontology_catalog,
+    clock_micros, ontology_catalog::require_loadable_ontology_catalog,
     release_cedar::require_loadable_policy_catalog, typed_object_store::PreparedTypeAssignment,
 };
 
