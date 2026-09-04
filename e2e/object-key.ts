@@ -169,6 +169,20 @@ function policyCatalogBytes(): string {
   return `${JSON.stringify({
     schema: "zoen.policy-catalog.v1",
     authorization: { policies },
+    computeBudgets: [
+      {
+        deadlineMillis: 2_000,
+        fuel: 5_000_000,
+        id: "budget.query.default",
+        instances: 4,
+        memories: 2,
+        memoryBytes: 8 * 1024 * 1024,
+        priority: 10,
+        resourceId: "zoen.query.budget.default",
+        tableElements: 1_024,
+        tables: 2,
+      },
+    ],
     membershipDelegation: [],
     sourceAdmission: [],
   })}\n`;
