@@ -42,7 +42,7 @@ mod world_release_store;
 
 pub use action_store::PostgresActionCommit;
 pub use authority_store::{PostgresAuthorityStore, PostgresInitError};
-pub use cedar::{CedarConfigError, CedarPolicyEvaluator};
+pub use cedar::{CedarConfigError, CedarPolicyEvaluator, budget_classes_from_policy_catalog};
 pub use claim_store::{
     PostgresClaimLoader, PostgresClaimQuery, PostgresOverlayClaimQuery, PostgresOverlayTypeQuery,
     PostgresTypeQuery,

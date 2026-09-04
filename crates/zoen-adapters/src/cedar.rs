@@ -493,7 +493,7 @@ struct PolicyCatalogDocument {
     #[serde(default)]
     contractual_usage: serde_json::Value,
     #[serde(default)]
-    compute_budgets: serde_json::Value,
+    compute_budgets: Vec<BudgetClassWire>,
 }
 
 #[derive(Deserialize)]
@@ -523,6 +523,69 @@ struct PolicyEntry {
     policy_id: String,
     revision: u64,
     source: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BudgetClassWire {
+    deadline_millis: u64,
+    fuel: u64,
+    id: String,
+    instances: u64,
+    memories: u64,
+    memory_bytes: u64,
+    table_elements: u64,
+    tables: u64,
+}
+
+/// Parse `computeBudgets` from `PolicyCatalog` bytes into a [`BudgetClassCatalog`].
+///
+/// # Errors
+///
+/// Returns [`CedarConfigError::Invalid`] when catalog JSON, schema, or budget
+/// entries are malformed.
+pub fn budget_classes_from_policy_catalog(
+    bytes: &[u8],
+) -> Result<zoen_core::BudgetClassCatalog, CedarConfigError> {
+    let document = serde_json::from_slice::<PolicyCatalogDocument>(bytes)
+        .map_err(|error| CedarConfigError::Invalid(format!("policy catalog JSON: {error}")))?;
+    if document.schema != zoen_core::WORLD_POLICY_CATALOG_SCHEMA {
+        return Err(CedarConfigError::Invalid(format!(
+            "expected schema {}, got {}",
+            zoen_core::WORLD_POLICY_CATALOG_SCHEMA,
+            document.schema
+        )));
+    }
+    let mut classes = Vec::with_capacity(document.compute_budgets.len());
+    for entry in document.compute_budgets {
+        let id = zoen_core::BudgetClassId::parse(entry.id)
+            .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
+        let instances = usize_budget(entry.instances, "instances")?;
+        let memories = usize_budget(entry.memories, "memories")?;
+        let memory_bytes = usize_budget(entry.memory_bytes, "memoryBytes")?;
+        let table_elements = usize_budget(entry.table_elements, "tableElements")?;
+        let tables = usize_budget(entry.tables, "tables")?;
+        let class = zoen_core::BudgetClass::new(
+            id,
+            entry.fuel,
+            memory_bytes,
+            table_elements,
+            instances,
+            tables,
+            memories,
+            entry.deadline_millis,
+        )
+        .map_err(|error| CedarConfigError::Invalid(error.to_string()))?;
+        classes.push(class);
+    }
+    zoen_core::BudgetClassCatalog::from_classes(classes)
+        .map_err(|error| CedarConfigError::Invalid(error.to_string()))
+}
+
+fn usize_budget(value: u64, field: &str) -> Result<usize, CedarConfigError> {
+    usize::try_from(value).map_err(|_| {
+        CedarConfigError::Invalid(format!("BudgetClass field {field} exceeds platform size"))
+    })
 }
 
 #[cfg(test)]

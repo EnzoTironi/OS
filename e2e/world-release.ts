@@ -9,6 +9,7 @@ import {
   e2ePostgresUrl,
   writeScenarioArtifact,
 } from "./host-env.js";
+import { parseZoenJson, runZoenCli, type ZoenCliResult } from "./zoen-cli.js";
 
 const scenario = "world-release";
 const repositoryRoot = process.cwd();
@@ -83,6 +84,28 @@ when {
     },
     membershipDelegation: [],
     sourceAdmission: [],
+    computeBudgets: [
+      {
+        id: "clinic.query.standard",
+        fuel: 5_000_000,
+        memoryBytes: 8 * 1024 * 1024,
+        tableElements: 1024,
+        instances: 4,
+        tables: 2,
+        memories: 2,
+        deadlineMillis: 2000,
+      },
+      {
+        id: "clinic.query.tight",
+        fuel: 20_000,
+        memoryBytes: 8 * 1024 * 1024,
+        tableElements: 1024,
+        instances: 4,
+        tables: 2,
+        memories: 2,
+        deadlineMillis: 2000,
+      },
+    ],
   })}
 `;
   return {
@@ -122,41 +145,14 @@ function record(name: string, observed: boolean): void {
   assertions[name] = observed;
 }
 
-interface ZoenResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
+type ZoenResult = ZoenCliResult;
 
 function runZoen(args: readonly string[]): ZoenResult {
-  try {
-    const stdout = execFileSync(zoenPath, args, {
-      encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-    });
-    return { status: 0, stdout, stderr: "" };
-  } catch (error) {
-    if (error !== null && typeof error === "object" && "status" in error) {
-      const failed = error as {
-        status: number | null;
-        stdout: string | Buffer;
-        stderr: string | Buffer;
-      };
-      return {
-        status: failed.status ?? 1,
-        stdout: String(failed.stdout),
-        stderr: String(failed.stderr),
-      };
-    }
-    throw error;
-  }
+  return runZoenCli(zoenPath, databaseUrl, args);
 }
 
 function parseJson(text: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(text);
-  assert.equal(typeof value, "object");
-  assert.notEqual(value, null);
-  return value as Record<string, unknown>;
+  return parseZoenJson(text);
 }
 
 function sha256Hex(text: string): string {
@@ -818,6 +814,45 @@ async function main(): Promise<void> {
     permittedBody.policyCatalogDigest === liveExpected.catalogs.policy!,
   );
 
+  const budgets = runZoen([
+    "world",
+    "release",
+    "budgets",
+    "--world",
+    "world.alpha",
+  ]);
+  record("budgets_cli_succeeds", budgets.status === 0);
+  const budgetsBody = budgets.status === 0 ? parseJson(budgets.stdout) : {};
+  const budgetClasses = Array.isArray(budgetsBody.budgetClasses)
+    ? (budgetsBody.budgetClasses as Array<Record<string, unknown>>)
+    : [];
+  record(
+    "budgets_list_release_owned_classes",
+    budgetClasses.some((entry) => entry.id === "clinic.query.standard") &&
+      budgetClasses.some((entry) => entry.id === "clinic.query.tight"),
+  );
+  record(
+    "budgets_bind_active_release_digest",
+    budgetsBody.digest === liveExpected.digest &&
+      budgetsBody.policyCatalogDigest === liveExpected.catalogs.policy,
+  );
+  const standard = budgetClasses.find(
+    (entry) => entry.id === "clinic.query.standard",
+  );
+  const tight = budgetClasses.find((entry) => entry.id === "clinic.query.tight");
+  record(
+    "caller_cannot_raise_budget_above_catalog",
+    standard !== undefined &&
+      tight !== undefined &&
+      Number(tight.fuel) < Number(standard.fuel),
+  );
+  const schemaBudgets = runZoen(["schema", "world.release.budgets"]);
+  record(
+    "schema_lists_world_release_budgets",
+    schemaBudgets.status === 0 &&
+      schemaBudgets.stdout.includes("world.release.budgets"),
+  );
+
   const bootOnly = runZoen([
     "world",
     "release",
@@ -1192,12 +1227,12 @@ async function main(): Promise<void> {
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
     dimensions: {
-      actors: "builder publishes Cedar PolicyCatalog bytes; owner previews, decides, and activates; authorize uses active-release Cedar",
-      isolation: "another World cannot preview, decide, activate, read catalogs, or authorize for this World",
-      negative: "non-builder, missing policy evidence, hex-only, missing/invalid Cedar, boot-manifest-only after activation, mixed catalogs, unpublished activate, activate without approve, reject then activate, stale/wrong preview",
-      path: "publish Cedar-bearing policy catalog, preview impact, owner decide approve, activate, digest binds four catalogs, authorize governed verb from active-release Cedar",
-      recovery: "decide without activate keeps prior pointer, candidate, and durable decision; retry converges to one active",
-      replay: "identical catalog bytes, publish, preview, decide, and activate replay keep one digest and no second rows",
+      actors: "builder publishes Cedar PolicyCatalog with BudgetClass entries; owner activates; CLI lists release-owned budgets; authorize uses active-release Cedar",
+      isolation: "another World cannot preview, decide, activate, read catalogs, budgets, or authorize for this World",
+      negative: "non-builder, missing policy evidence, hex-only, missing/invalid Cedar, boot-manifest-only after activation, mixed catalogs, unpublished activate, activate without approve, reject then activate, stale/wrong preview; catalog tight class is lower than standard so callers cannot invent a higher ceiling",
+      path: "publish PolicyCatalog computeBudgets, activate, CLI budgets lists server-owned classes bound to active release, authorize from catalog Cedar",
+      recovery: "decide without activate keeps prior pointer, candidate, and durable decision; retry converges to one active; budgets remain release-bound",
+      replay: "identical catalog bytes, publish, preview, decide, activate, and budgets listing replay keep one digest and no second rows",
     },
     fixtureDigest,
     finishedAt: new Date().toISOString(),

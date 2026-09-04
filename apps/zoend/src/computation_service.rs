@@ -12,9 +12,10 @@ use zoen_adapters::{
     PostgresAuthorityStore, ReleaseCedarEvaluator, WasmtimeComputationExecutor, WasmtimeConfigError,
 };
 use zoen_core::{
-    ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence,
-    ComponentInterface, Consistency, ExecutionContext, ExecutionId, ExecutionResultDigest,
-    ExplanationTarget, IntentDigest, OperationId, ProposalAuthority, ProposalId, SemanticQuery,
+    ActionPreviewHash, BudgetClassId, CapabilityId, ClaimId, ComponentDigest,
+    ComponentExecutionEvidence, ComponentInterface, Consistency, ExecutionContext, ExecutionId,
+    ExecutionResultDigest, ExplanationTarget, IntentDigest, OperationId, ProposalAuthority,
+    ProposalId, SemanticQuery, WorldId,
 };
 use zoen_engine::{
     ActionEngine, ActionError, CapabilityManifest, CommitOutcome, ComponentAdmissionError,
@@ -120,14 +121,17 @@ impl ComputationService for ComputationServiceImpl {
             .ok_or_else(|| invalid("capability manifest is required"))?
             .to_owned_message()
             .map_err(|error| invalid(error.to_string()))?;
-        let limits = request
-            .limits
-            .as_option()
-            .ok_or_else(|| invalid("resource limits are required"))?
-            .to_owned_message()
+        let budget_class = BudgetClassId::parse(request.budget_class.trim())
             .map_err(|error| invalid(error.to_string()))?;
         let manifest = parse_manifest(manifest)?;
-        let limits = parse_limits(&limits)?;
+        let world = WorldId::parse(trusted.tenant_id().as_str())
+            .map_err(|error| invalid(error.to_string()))?;
+        let (_release, class) = self
+            .policy
+            .budget_class_for_active_world(&world, &budget_class)
+            .await
+            .map_err(|message| ConnectError::new(ErrorCode::FailedPrecondition, message))?;
+        let limits = ComputationLimits::from_budget_class(&class);
         let host = ScopedComputationHost::new(
             trusted.clone(),
             manifest.clone(),
@@ -569,23 +573,6 @@ fn parse_manifest(
         })
         .collect::<Result<Vec<_>, ConnectError>>()?;
     CapabilityManifest::new(interface, capabilities).map_err(|error| map_contract_error(&error))
-}
-
-fn parse_limits(limits: &ResourceLimits) -> Result<ComputationLimits, ConnectError> {
-    ComputationLimits::new(
-        limits.fuel,
-        usize_limit(limits.memory_bytes, "memory_bytes")?,
-        usize_limit(limits.table_elements, "table_elements")?,
-        usize_limit(limits.instances, "instances")?,
-        usize_limit(limits.tables, "tables")?,
-        usize_limit(limits.memories, "memories")?,
-        limits.deadline_millis,
-    )
-    .map_err(|error| map_contract_error(&error))
-}
-
-fn usize_limit(value: u64, name: &str) -> Result<usize, ConnectError> {
-    usize::try_from(value).map_err(|_| invalid(format!("{name} exceeds this host's range")))
 }
 
 fn admission_error(

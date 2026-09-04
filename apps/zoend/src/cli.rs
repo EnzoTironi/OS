@@ -224,6 +224,12 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
         stdout_json: r#"{"format":"json","fields":["digest","world","catalogs"]}"#,
     },
     SchemaEntry {
+        command: "world.release.budgets",
+        required_flags: &["--world"],
+        examples: &["zoen world release budgets --world world.alpha"],
+        stdout_json: r#"{"format":"json","fields":["authority","budgetClasses","digest","policyCatalogDigest","world"]}"#,
+    },
+    SchemaEntry {
         command: "world.release.authorize",
         required_flags: &[
             "--world",
@@ -759,6 +765,12 @@ pub enum ReleaseCommand {
         digest: String,
         #[arg(long)]
         world: Option<String>,
+    },
+    /// List release-owned `BudgetClass` entries from the active `PolicyCatalog`
+    #[command(after_help = "Examples:\n  zoen world release budgets --world world.alpha")]
+    Budgets {
+        #[arg(long)]
+        world: String,
     },
     /// Authorize a governed verb using active-release `PolicyCatalog` Cedar
     #[command(
