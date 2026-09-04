@@ -138,6 +138,8 @@ when {
         instances: 4,
         memories: 2,
         memoryBytes: 8 * 1024 * 1024,
+        priority: 10,
+        resourceId: "zoen.query.budget.default",
         tableElements: 1_024,
         tables: 2,
       },
