@@ -646,6 +646,18 @@ assert(
     "W2-04|W1-06|W1-07|W2-05|W2-06|W2-07|W2-08|W3-01",
   "landing order changed"
 );
+assert(
+  frontier.activeCandidates
+    .map(({ unit }) => unit)
+    .sort()
+    .join("|") ===
+    program.units
+      .filter(({ status }) => status === "active")
+      .map(({ id }) => id)
+      .sort()
+      .join("|"),
+  "active candidates must match active program units"
+);
 const allowedInitialPullRequestClassifications = new Set([
   "Replace",
   "Drop",

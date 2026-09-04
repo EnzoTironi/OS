@@ -29,12 +29,12 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | --- | --- | --- | --- | --- |
 | W1-03 | proof_pending | codex/w1-03-rust-recovery | 6683cdcf47af02464a01aa021b34977f450da5d2 | #625 |
 | W1-04 | proof_pending | codex/w1-04-eve-runtime-boundary | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | #618 |
-| W1-06 | active | codex/w1-06-product-readiness | b7379dac92cee3e5824e1b80990f5d9d1cf60670 | #672 |
-| W1-07 | active | coder/w1-07-one-fly-ci | ac604bfdb3ff6724efddf82a67acf158e9860eb2 | #674 |
-| W2-04 | active | coder/w2-04-world-release-activate | eb33b4162f061cdcee3858e164a9f834d54fd50d | #678 |
-| W2-05 | active | coder/w2-05-seven-verbs | 8e36a702b100d2f3488331a9ed793c261c93af83 | #682 |
-| W2-06 | active | coder/w2-06-sealed-cursors | b2954ccc881b102d0f92b3ad123764b2535f5946 | #685 |
-| W2-07 | active | coder/w2-07-budget-class | d4d22e3b31e9f937bf3e47c754e29dfc0ca810e0 | #681 |
+| W1-06 | active | not assigned | not recorded | not open |
+| W1-07 | active | not assigned | not recorded | not open |
+| W2-04 | active | not assigned | not recorded | not open |
+| W2-05 | active | not assigned | not recorded | not open |
+| W2-06 | active | not assigned | not recorded | not open |
+| W2-07 | active | not assigned | not recorded | not open |
 | W2-08 | active | coder/w2-08-object-key | 8ee0d0708f65ba9aed5dd123326bc3b88aee7b73 | #686 |
 | W3-01 | active | coder/w3-01-identity-storage | ed949bd9fe8e6f8edc7ad71fead3fabaf1ea9c8a | #683 |
 

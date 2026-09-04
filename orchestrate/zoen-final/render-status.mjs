@@ -428,6 +428,27 @@ const counts = Object.fromEntries(
 const currentUnits = program.units.filter(({ status: unitStatus }) =>
   ["active", "proof_pending"].includes(unitStatus)
 );
+const activeUnitIds = program.units
+  .filter(({ status: unitStatus }) => unitStatus === "active")
+  .map(({ id }) => id)
+  .sort();
+const activeCandidateIds = frontier.activeCandidates
+  .map(({ unit }) => unit)
+  .sort();
+unique(activeCandidateIds, "active candidate units");
+if (activeCandidateIds.join("|") !== activeUnitIds.join("|")) {
+  fail("frontier active candidates must match active program units");
+}
+const activeCandidatesByUnit = new Map(
+  frontier.activeCandidates.map((candidate) => [candidate.unit, candidate])
+);
+const currentUnitRow = (unit) => {
+  const candidate = activeCandidatesByUnit.get(unit.id);
+  const branch = candidate ? candidate.branch : unit.branch;
+  const head = candidate ? candidate.sourceHead : unit.headSha ?? unit.sourceHeadSha;
+  const pullRequest = candidate ? candidate.pr : unit.pr;
+  return `| ${unit.id} | ${unit.status} | ${escapeCell(branch ?? "not assigned")} | ${escapeCell(head ?? "not recorded")} | ${pullRequestCell(pullRequest)} |`;
+};
 const merged = frontier.mergedPullRequests;
 const audit = frontier.roadmapAudit;
 const status = `# Zoen final program status
@@ -459,7 +480,7 @@ Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
 
 | Unit | Status | Branch | Head or source | Pull request |
 | --- | --- | --- | --- | --- |
-${currentUnits.map((unit) => `| ${unit.id} | ${unit.status} | ${escapeCell(unit.branch ?? "not assigned")} | ${escapeCell(unit.headSha ?? unit.sourceHeadSha ?? "not recorded")} | ${pullRequestCell(unit.pr)} |`).join("\n")}
+${currentUnits.map(currentUnitRow).join("\n")}
 
 ## Merged pull requests
 
