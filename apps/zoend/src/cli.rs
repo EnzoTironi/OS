@@ -610,12 +610,39 @@ pub(crate) enum KernelCommand {
         #[arg(long, default_value = "cli")]
         surface: String,
     },
-    /// Query the active catalog basis
+    /// Query the active catalog basis, or page sealed entitled objects
     Query {
         #[arg(long)]
         world: String,
         #[arg(long)]
         principal: String,
+        #[arg(long)]
+        membership: Option<String>,
+        #[arg(long = "type")]
+        object_type: Option<String>,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long = "budget-class")]
+        budget_class: Option<String>,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Plant an immutable governed object with principal:membership grants
+    PlantObject {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long = "type")]
+        object_type: String,
+        #[arg(long = "object-id")]
+        object_id: String,
+        #[arg(long)]
+        fields: String,
+        #[arg(long = "grant", num_args = 0..)]
+        grants: Vec<String>,
         #[arg(long, default_value = "cli")]
         surface: String,
     },
@@ -1548,10 +1575,42 @@ async fn run_kernel_command(
         KernelCommand::Query {
             world,
             principal,
+            membership,
+            object_type,
+            cursor,
+            limit,
+            budget_class,
             surface,
         } => (
             KernelSurface::parse(&surface)?,
-            K::Query { world, principal },
+            K::Query {
+                world,
+                principal,
+                membership,
+                object_type,
+                cursor,
+                limit,
+                budget_class,
+            },
+        ),
+        KernelCommand::PlantObject {
+            world,
+            principal,
+            object_type,
+            object_id,
+            fields,
+            grants,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::PlantObject {
+                world,
+                principal,
+                object_type,
+                object_id,
+                fields,
+                grants,
+            },
         ),
         KernelCommand::Propose {
             world,

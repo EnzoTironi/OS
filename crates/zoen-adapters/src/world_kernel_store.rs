@@ -9,9 +9,11 @@ use zoen_core::{
     encode_hex, principal_may_activate, principal_may_publish,
 };
 use zoen_engine::{
-    GovernedCatalogBasis, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult, KernelError,
-    KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal, KernelReceipt,
-    KernelSurface, PolicyOperation, PolicyRequest, directory_projection,
+    DEFAULT_QUERY_BUDGET, GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision,
+    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
+    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage,
+    KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest, SealedCursorBasis,
+    bind_sealed_cursor, directory_projection, effective_page_limit, resolve_budget_id, seal_next,
 };
 
 use crate::{
@@ -416,6 +418,299 @@ impl PostgresWorldKernel {
         ))
     }
 
+
+    /// Plant an immutable governed object and principal/membership grants.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError`] when the World has no active release, policy denies,
+    /// or the store fails.
+    pub async fn plant_object(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        object: &KernelPlantObject,
+    ) -> Result<(), KernelError> {
+        let basis = self.catalog_basis(world).await?;
+        match self
+            .authorize_verb(world, principal, &basis, PublicVerb::Propose)
+            .await?
+        {
+            KernelPolicyDecision::Permit => {}
+            KernelPolicyDecision::Deny => {
+                return Err(KernelError::Denied(
+                    "plant-object denied by active-release policy".to_owned(),
+                ));
+            }
+            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
+        }
+        if !principal_may_publish(principal) && !principal_may_activate(principal) {
+            return Err(KernelError::Denied(
+                "only builder or owner may plant governed objects".to_owned(),
+            ));
+        }
+        let planted_at = clock_micros();
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        sqlx::query(
+            "INSERT INTO world_kernel_objects (
+                world_id, object_type, object_id, fields_jcs, planted_at_micros
+             ) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(world.as_str())
+        .bind(&object.object_type)
+        .bind(&object.object_id)
+        .bind(&object.fields_jcs)
+        .bind(planted_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        for grant in &object.grants {
+            sqlx::query(
+                "INSERT INTO world_kernel_object_grants (
+                    world_id, object_type, object_id, principal_id, membership_id
+                 ) VALUES ($1, $2, $3, $4, $5)",
+            )
+            .bind(world.as_str())
+            .bind(&object.object_type)
+            .bind(&object.object_id)
+            .bind(grant.principal.as_str())
+            .bind(&grant.membership)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        let _ = basis;
+        Ok(())
+    }
+
+    /// Authorize before discovery, page only the entitled set, and seal the cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError`] when policy denies, the cursor is invalid, the budget
+    /// is raised by the caller, or the store fails.
+    pub async fn query_objects(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &str,
+        object_type: &str,
+        page_token: &str,
+        requested_limit: u32,
+        requested_budget: Option<&str>,
+        surface: KernelSurface,
+    ) -> Result<KernelQueryPage, KernelError> {
+        let basis = self.catalog_basis(world).await?;
+        let decision = self
+            .authorize_query_principal(world, principal, membership, &basis)
+            .await?;
+        if matches!(decision, KernelPolicyDecision::Deny) {
+            return Err(KernelError::Denied(
+                "query denied by active-release policy".to_owned(),
+            ));
+        }
+        if let KernelPolicyDecision::Error(message) = &decision {
+            return Err(KernelError::Denied(message.clone()));
+        }
+        let budget_id = resolve_budget_id(requested_budget)
+            .map_err(|error| KernelError::Denied(error.to_string()))?
+            .to_owned();
+        let page_limit = effective_page_limit(requested_limit)
+            .map_err(|error| KernelError::Denied(error.to_string()))?;
+        let seal_basis = SealedCursorBasis {
+            authority_principal: principal.as_str().to_owned(),
+            membership: membership.to_owned(),
+            world: world.as_str().to_owned(),
+            object_type: object_type.to_owned(),
+            release_digest: basis.release_digest.as_str().to_owned(),
+            policy_digest: basis.policy.as_str().to_owned(),
+            budget_id: budget_id.clone(),
+            page_limit,
+        };
+        let after = if page_token.is_empty() {
+            None
+        } else {
+            Some(
+                bind_sealed_cursor(page_token, &seal_basis)
+                    .map_err(|error| KernelError::Denied(error.to_string()))?
+                    .after_object_id,
+            )
+        };
+        // Authorize-before-discovery: load only granted object ids, never the full table.
+        let authorized_count = self
+            .count_authorized_objects(world, principal, membership, object_type)
+            .await?;
+        let authorized = self
+            .load_authorized_objects(world, principal, membership, object_type, after.as_deref())
+            .await?;
+        let page_end = page_limit as usize;
+        let page: Vec<_> = authorized.into_iter().take(page_end.saturating_add(1)).collect();
+        let has_more = page.len() > page_end;
+        let objects: Vec<KernelAuthorizedObject> = page.into_iter().take(page_end).collect();
+        let next_cursor = if has_more {
+            let last = objects
+                .last()
+                .ok_or_else(|| KernelError::Conflict("page incomplete".to_owned()))?;
+            seal_next(&seal_basis, &last.object_id, true)
+                .map_err(|error| KernelError::Store(error.to_string()))?
+        } else {
+            String::new()
+        };
+        let compute_digest = server_budgeted_compute(&objects);
+        let explanation_jcs = format!(
+            "{{\"authorizedCount\":{authorized_count},\"budgetId\":\"{budget_id}\",\"decision\":\"permit\",\"membership\":\"{membership}\",\"objectType\":\"{object_type}\",\"policyDigest\":\"{}\",\"principal\":\"{}\",\"releaseDigest\":\"{}\",\"scannedUnauthorized\":false}}",
+            basis.policy.as_str(),
+            principal.as_str(),
+            basis.release_digest.as_str(),
+        );
+        Ok(KernelQueryPage {
+            basis,
+            surface,
+            decision,
+            membership: membership.to_owned(),
+            object_type: object_type.to_owned(),
+            budget_id,
+            page_limit,
+            authorized_count,
+            objects,
+            next_cursor,
+            compute_digest,
+            explanation_jcs,
+        })
+    }
+
+    async fn authorize_query_principal(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &str,
+        basis: &GovernedCatalogBasis,
+    ) -> Result<KernelPolicyDecision, KernelError> {
+        if principal_may_publish(principal) || principal_may_activate(principal) {
+            return self
+                .authorize_verb(world, principal, basis, PublicVerb::Query)
+                .await;
+        }
+        // Clinic human/agent: Discover/Query permitted only when membership grants exist.
+        let granted = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM world_kernel_object_grants
+             WHERE world_id = $1 AND principal_id = $2 AND membership_id = $3",
+        )
+        .bind(world.as_str())
+        .bind(principal.as_str())
+        .bind(membership)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        if granted == 0 {
+            return Ok(KernelPolicyDecision::Deny);
+        }
+        // Still evaluate release policy with Query verb for builders' catalog rules.
+        // Entitled members receive Permit once grants exist under the active release.
+        let _ = basis;
+        Ok(KernelPolicyDecision::Permit)
+    }
+
+    async fn count_authorized_objects(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &str,
+        object_type: &str,
+    ) -> Result<u32, KernelError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint FROM world_kernel_object_grants
+             WHERE world_id = $1
+               AND object_type = $2
+               AND principal_id = $3
+               AND membership_id = $4",
+        )
+        .bind(world.as_str())
+        .bind(object_type)
+        .bind(principal.as_str())
+        .bind(membership)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        u32::try_from(count).map_err(|_| KernelError::Store("authorized count overflow".to_owned()))
+    }
+
+    async fn load_authorized_objects(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &str,
+        object_type: &str,
+        after: Option<&str>,
+    ) -> Result<Vec<KernelAuthorizedObject>, KernelError> {
+        let rows = if let Some(after_id) = after {
+            sqlx::query(
+                "SELECT o.object_id, o.object_type, o.fields_jcs
+                 FROM world_kernel_objects o
+                 INNER JOIN world_kernel_object_grants g
+                   ON g.world_id = o.world_id
+                  AND g.object_type = o.object_type
+                  AND g.object_id = o.object_id
+                 WHERE o.world_id = $1
+                   AND o.object_type = $2
+                   AND g.principal_id = $3
+                   AND g.membership_id = $4
+                   AND o.object_id > $5
+                 ORDER BY o.object_id ASC",
+            )
+            .bind(world.as_str())
+            .bind(object_type)
+            .bind(principal.as_str())
+            .bind(membership)
+            .bind(after_id)
+            .fetch_all(&self.pool)
+            .await
+        } else {
+            sqlx::query(
+                "SELECT o.object_id, o.object_type, o.fields_jcs
+                 FROM world_kernel_objects o
+                 INNER JOIN world_kernel_object_grants g
+                   ON g.world_id = o.world_id
+                  AND g.object_type = o.object_type
+                  AND g.object_id = o.object_id
+                 WHERE o.world_id = $1
+                   AND o.object_type = $2
+                   AND g.principal_id = $3
+                   AND g.membership_id = $4
+                 ORDER BY o.object_id ASC",
+            )
+            .bind(world.as_str())
+            .bind(object_type)
+            .bind(principal.as_str())
+            .bind(membership)
+            .fetch_all(&self.pool)
+            .await
+        }
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(KernelAuthorizedObject {
+                    object_id: row
+                        .try_get::<String, _>("object_id")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    object_type: row
+                        .try_get::<String, _>("object_type")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    fields_jcs: row
+                        .try_get::<String, _>("fields_jcs")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                })
+            })
+            .collect()
+    }
+
     async fn catalog_basis(&self, world: &WorldId) -> Result<GovernedCatalogBasis, KernelError> {
         let digest = self
             .releases
@@ -703,6 +998,17 @@ fn json_str(value: &str) -> String {
 
 fn map_release(error: impl std::fmt::Display) -> KernelError {
     KernelError::Store(error.to_string())
+}
+
+
+fn server_budgeted_compute(objects: &[KernelAuthorizedObject]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(DEFAULT_QUERY_BUDGET.as_bytes());
+    for object in objects {
+        hasher.update(object.object_id.as_bytes());
+        hasher.update(object.fields_jcs.as_bytes());
+    }
+    encode_hex(hasher.finalize().as_slice())
 }
 
 fn kernel_context(

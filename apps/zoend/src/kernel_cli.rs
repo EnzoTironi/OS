@@ -5,7 +5,10 @@ use std::error::Error;
 use serde_json::{Value, json};
 use zoen_adapters::{PostgresAuthorityStore, PostgresWorldKernel, PostgresWorldReleaseStore};
 use zoen_core::{PrincipalId, WorldId};
-use zoen_engine::{KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelSurface};
+use zoen_engine::{
+    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelObjectGrant, KernelPlantObject,
+    KernelQueryPage, KernelSurface,
+};
 
 pub struct KernelCliResult {
     pub exit_code: u8,
@@ -22,6 +25,19 @@ pub enum KernelCommand {
     Query {
         world: String,
         principal: String,
+        membership: Option<String>,
+        object_type: Option<String>,
+        cursor: Option<String>,
+        limit: Option<u32>,
+        budget_class: Option<String>,
+    },
+    PlantObject {
+        world: String,
+        principal: String,
+        object_type: String,
+        object_id: String,
+        fields: String,
+        grants: Vec<String>,
     },
     Propose {
         world: String,
@@ -59,7 +75,35 @@ pub async fn run(
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     match command {
         KernelCommand::Discover { world, principal } => discover(&world, &principal, surface).await,
-        KernelCommand::Query { world, principal } => query(&world, &principal, surface).await,
+        KernelCommand::Query {
+            world,
+            principal,
+            membership,
+            object_type,
+            cursor,
+            limit,
+            budget_class,
+        } => {
+            query(
+                &world,
+                &principal,
+                membership.as_deref(),
+                object_type.as_deref(),
+                cursor.as_deref(),
+                limit,
+                budget_class.as_deref(),
+                surface,
+            )
+            .await
+        }
+        KernelCommand::PlantObject {
+            world,
+            principal,
+            object_type,
+            object_id,
+            fields,
+            grants,
+        } => plant_object(&world, &principal, &object_type, &object_id, &fields, &grants).await,
         KernelCommand::Propose {
             world,
             principal,
@@ -103,15 +147,112 @@ async fn discover(
 async fn query(
     world: &str,
     principal: &str,
+    membership: Option<&str>,
+    object_type: Option<&str>,
+    cursor: Option<&str>,
+    limit: Option<u32>,
+    budget_class: Option<&str>,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let world = WorldId::parse(world)?;
     let principal = PrincipalId::parse(principal)?;
-    match kernel.query(&world, &principal, surface).await {
-        Ok(result) => Ok(ok(discover_json(&result))),
+    if object_type.is_none() {
+        return match kernel.query(&world, &principal, surface).await {
+            Ok(result) => Ok(ok(discover_json(&result))),
+            Err(error) => Ok(map_error(error)),
+        };
+    }
+    let membership = membership.ok_or("membership is required for sealed object query")?;
+    let object_type = object_type.ok_or("type is required for sealed object query")?;
+    let page_token = cursor.unwrap_or("");
+    let requested_limit = limit.unwrap_or(5);
+    match kernel
+        .query_objects(
+            &world,
+            &principal,
+            membership,
+            object_type,
+            page_token,
+            requested_limit,
+            budget_class,
+            surface,
+        )
+        .await
+    {
+        Ok(page) => Ok(ok(query_page_json(&page))),
         Err(error) => Ok(map_error(error)),
     }
+}
+
+async fn plant_object(
+    world: &str,
+    principal: &str,
+    object_type: &str,
+    object_id: &str,
+    fields: &str,
+    grants: &[String],
+) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
+    let kernel = kernel().await?;
+    let world = WorldId::parse(world)?;
+    let principal = PrincipalId::parse(principal)?;
+    let mut parsed_grants = Vec::new();
+    for grant in grants {
+        let (grant_principal, membership) = grant.split_once(':').ok_or_else(|| {
+            format!("grant {grant} must be principal:membership")
+        })?;
+        parsed_grants.push(KernelObjectGrant {
+            principal: PrincipalId::parse(grant_principal)?,
+            membership: membership.to_owned(),
+        });
+    }
+    let object = KernelPlantObject {
+        object_id: object_id.to_owned(),
+        object_type: object_type.to_owned(),
+        fields_jcs: fields.to_owned(),
+        grants: parsed_grants,
+    };
+    match kernel.plant_object(&world, &principal, &object).await {
+        Ok(()) => Ok(ok(json!({
+            "grants": grants,
+            "objectId": object_id,
+            "objectType": object_type,
+            "world": world.as_str(),
+        }))),
+        Err(error) => Ok(map_error(error)),
+    }
+}
+
+fn query_page_json(page: &KernelQueryPage) -> Value {
+    json!({
+        "authorizedCount": page.authorized_count,
+        "budgetId": page.budget_id,
+        "catalog": {
+            "components": page.basis.components.as_str(),
+            "executors": page.basis.executors.as_str(),
+            "ontology": page.basis.ontology.as_str(),
+            "policy": page.basis.policy.as_str(),
+        },
+        "computeDigest": page.compute_digest,
+        "decision": match &page.decision {
+            zoen_engine::KernelPolicyDecision::Permit => Value::String("permit".to_owned()),
+            zoen_engine::KernelPolicyDecision::Deny => Value::String("deny".to_owned()),
+            zoen_engine::KernelPolicyDecision::Error(message) => json!({"error": message}),
+        },
+        "explanationJcs": page.explanation_jcs,
+        "membership": page.membership,
+        "nextCursor": page.next_cursor,
+        "objectType": page.object_type,
+        "objects": page.objects.iter().map(|object| json!({
+            "fieldsJcs": object.fields_jcs,
+            "objectId": object.object_id,
+            "objectType": object.object_type,
+        })).collect::<Vec<_>>(),
+        "pageLimit": page.page_limit,
+        "releaseDigest": page.basis.release_digest.as_str(),
+        "surface": page.surface.as_str(),
+        "world": page.basis.world.as_str(),
+    })
 }
 
 async fn propose(

@@ -165,3 +165,43 @@ impl Display for KernelError {
 }
 
 impl Error for KernelError {}
+
+/// One authorized object visible after pre-discovery entitlement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelAuthorizedObject {
+    pub object_id: String,
+    pub object_type: String,
+    pub fields_jcs: String,
+}
+
+/// Sealed object-set page issued only after authorize-before-discovery.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelQueryPage {
+    pub basis: GovernedCatalogBasis,
+    pub surface: KernelSurface,
+    pub decision: KernelPolicyDecision,
+    pub membership: String,
+    pub object_type: String,
+    pub budget_id: String,
+    pub page_limit: u32,
+    pub authorized_count: u32,
+    pub objects: Vec<KernelAuthorizedObject>,
+    pub next_cursor: String,
+    pub compute_digest: String,
+    pub explanation_jcs: String,
+}
+
+/// Request to plant a governed object and its principal/membership grants.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelPlantObject {
+    pub object_id: String,
+    pub object_type: String,
+    pub fields_jcs: String,
+    pub grants: Vec<KernelObjectGrant>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelObjectGrant {
+    pub principal: PrincipalId,
+    pub membership: String,
+}

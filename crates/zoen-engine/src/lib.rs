@@ -22,6 +22,7 @@ mod evolution;
 mod history;
 mod human;
 mod kernel;
+mod sealed_cursor;
 pub mod metrics;
 mod migration;
 mod publication;
@@ -69,9 +70,14 @@ pub use human::{
     parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
 };
 pub use kernel::{
-    GovernedCatalogBasis, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult, KernelError,
-    KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal, KernelReceipt,
+    GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
+    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation, KernelObjectGrant,
+    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
     KernelSurface,
+};
+pub use sealed_cursor::{
+    DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis, SealedCursorError,
+    bind as bind_sealed_cursor, effective_page_limit, resolve_budget_id, seal_next,
 };
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
