@@ -1414,7 +1414,7 @@ async function startBrowser(home: string): Promise<BrowserProcess> {
     const debuggerUrl = await waitForDevtoolsUrl(child, output);
     const debuggerEndpoint = new URL(debuggerUrl);
     const targetEndpoint = `http://${debuggerEndpoint.host}/json/list`;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
       if (processExited(child)) {
         throw new Error(`Chromium exited during startup:\n${output.join("")}`);
       }
@@ -1475,7 +1475,10 @@ async function waitForDevtoolsUrl(
   child: ChildProcessWithoutNullStreams,
   output: string[],
 ): Promise<string> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  // Coverage jobs run Chromium under llvm-cov load; 10s was flaking on main
+  // after W2-04 with DevTools appearing just after the old poll budget.
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
     const match = /DevTools listening on (ws:\/\/\S+)/.exec(output.join(""));
     if (match?.[1] !== undefined) {
       return match[1];
