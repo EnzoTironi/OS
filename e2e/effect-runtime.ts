@@ -291,11 +291,7 @@ async function main(): Promise<void> {
 
     const readiness = await proveProductReadiness({
       admin,
-      adminAToken,
-      adminBToken,
       door,
-      fixture,
-      humanFixture,
       observe,
       policyManifestPath,
       processes,
@@ -474,8 +470,24 @@ async function main(): Promise<void> {
         deploymentId: registration.deploymentId,
         uri: persistedBuildBUri,
       },
+      dimensions: {
+        actors:
+          "the configured World is activated by its durable Owner Membership through the governed CLI before zoend evaluates readiness",
+        isolation:
+          "corrupting another World's distinct active PolicyCatalog leaves the configured World's readiness unchanged",
+        negative:
+          "missing or corrupt active release authority and missing, corrupt, or unloadable release-bound policy fail readiness closed",
+        path:
+          "governed WorldRelease activation -> one-statement active release and PolicyCatalog snapshot -> fresh Cedar compilation -> /ready",
+        recovery:
+          "governed CLI activation restores a deleted active pointer; dependency, Restate, and zoend restarts converge only after exact authority recovers",
+        replay:
+          "identical governed activation reports replay and concurrent readiness probes do not mutate release authority",
+      },
       finishedAt: new Date().toISOString(),
       invocationIdentity: identity,
+      journeys: ["J8"],
+      readinessAuthority: readiness.authority,
       registration,
       scenario: "effect-runtime",
       sourceCommit,

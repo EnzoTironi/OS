@@ -57,7 +57,7 @@ pub use identity_store::{
     AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
     PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
-pub use integrity::{ActiveReleaseStatus, IntegrityError, ProjectionWatermarkStatus};
+pub use integrity::{IntegrityError, ProjectionWatermarkStatus};
 pub use ontology_catalog::{
     ParsedOntologyCatalog, require_loadable_ontology_catalog, seven_verb_ontology_catalog_bytes,
 };
@@ -74,8 +74,8 @@ pub use workload_credential_store::{
 };
 pub use world_kernel_store::PostgresWorldKernel;
 pub use world_release_store::{
-    ActivatePut, DecisionPut, PostgresWorldReleaseStore, PreviewPut, PublicationPut,
-    ReleaseAuthorityOperation, ReleaseAuthorization,
+    ActivatePut, ActiveReleasePolicySnapshot, DecisionPut, PostgresWorldReleaseStore, PreviewPut,
+    PublicationPut, ReleaseAuthorityOperation, ReleaseAuthorization,
 };
 
 pub(crate) async fn set_tenant(

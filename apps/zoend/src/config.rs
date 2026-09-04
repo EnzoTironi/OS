@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use zoen_core::TenantId;
+use zoen_core::{TenantId, WorldId};
 use zoen_query::ObjectStoreConfig;
 
 /// Auth mode selected at process boot from the environment boundary.
@@ -77,7 +77,7 @@ pub fn effect_registration_health_url() -> Result<Option<String>, Box<dyn Error 
     )?))
 }
 
-/// Tenant whose active release and watermark `/ready` must observe.
+/// Tenant whose projection watermark `/ready` must observe.
 ///
 /// # Errors
 ///
@@ -85,6 +85,18 @@ pub fn effect_registration_health_url() -> Result<Option<String>, Box<dyn Error 
 pub fn ready_tenant_id() -> Result<Option<TenantId>, Box<dyn Error + Send + Sync>> {
     nonempty(optional_env("ZOEN_TENANT_ID")?)
         .map(TenantId::parse)
+        .transpose()
+        .map_err(|error| config_error(&error.to_string()))
+}
+
+/// World whose active release and `PolicyCatalog` `/ready` must observe.
+///
+/// # Errors
+///
+/// Returns an error when `ZOEN_WORLD_ID` is set but not a World identifier.
+pub fn ready_world_id() -> Result<Option<WorldId>, Box<dyn Error + Send + Sync>> {
+    nonempty(optional_env("ZOEN_WORLD_ID")?)
+        .map(WorldId::parse)
         .transpose()
         .map_err(|error| config_error(&error.to_string()))
 }

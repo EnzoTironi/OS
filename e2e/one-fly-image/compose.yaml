@@ -78,6 +78,7 @@ services:
       ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS: "1500"
       ZOEN_PUBLIC_ORIGIN: http://127.0.0.1:58701
       ZOEN_TENANT_ID: tenant.a
+      ZOEN_WORLD_ID: tenant.a
       ZOEN_WHATSAPP_DOOR_E164: "+553798136141"
       ZOEN_WORLD_DEFINITION_PATH: /etc/zoen/commercial.canonical.json
       ZOEN_ZOEND: http://127.0.0.1:58701

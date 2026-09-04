@@ -120,6 +120,25 @@ pub struct PostgresWorldReleaseStore {
     pool: PgPool,
 }
 
+/// One uncached, content-verified view of the active release and its policy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActiveReleasePolicySnapshot {
+    release: WorldRelease,
+    policy: PolicyCatalog,
+}
+
+impl ActiveReleasePolicySnapshot {
+    #[must_use]
+    pub fn release(&self) -> &WorldRelease {
+        &self.release
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &PolicyCatalog {
+        &self.policy
+    }
+}
+
 impl PostgresWorldReleaseStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
@@ -570,6 +589,91 @@ impl PostgresWorldReleaseStore {
             .map(ReleaseDigest::parse)
             .transpose()
             .map_err(Into::into)
+    }
+
+    /// Read and verify the active release and its exact `PolicyCatalog` in one
+    /// PostgreSQL snapshot. This path is deliberately uncached for readiness.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError`] when the pointer or any bound immutable
+    /// content is missing, malformed, or does not match its content digest.
+    pub async fn get_active_policy_snapshot(
+        &self,
+        world: &WorldId,
+    ) -> Result<Option<ActiveReleasePolicySnapshot>, WorldReleaseError> {
+        let row = sqlx::query(
+            "SELECT active.world_id AS active_world_id,
+                    active.digest AS active_digest,
+                    release.digest AS digest,
+                    release.world_id AS world_id,
+                    release.parent_digest,
+                    release.ontology_digest,
+                    release.policy_digest,
+                    release.executors_digest,
+                    release.components_digest,
+                    release.canonical_jcs,
+                    publication.digest AS publication_digest,
+                    policy.digest AS stored_policy_digest,
+                    policy.content AS policy_content
+             FROM world_active_releases AS active
+             LEFT JOIN world_releases AS release
+               ON release.digest = active.digest
+             LEFT JOIN world_release_publications AS publication
+               ON publication.digest = active.digest
+             LEFT JOIN world_policy_catalogs AS policy
+               ON policy.digest = release.policy_digest
+             WHERE active.world_id = $1",
+        )
+        .bind(world.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(store)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let active_world =
+            WorldId::parse(row.try_get::<String, _>("active_world_id").map_err(store)?)?;
+        if &active_world != world {
+            return Err(WorldReleaseError::WorldMismatch);
+        }
+        let active_digest =
+            ReleaseDigest::parse(row.try_get::<String, _>("active_digest").map_err(store)?)?;
+        if row
+            .try_get::<Option<String>, _>("digest")
+            .map_err(store)?
+            .is_none()
+        {
+            return Err(WorldReleaseError::NotFound);
+        }
+        let release = row_to_release(&row)?;
+        if release.id() != &active_digest || release.content().world() != world {
+            return Err(WorldReleaseError::WorldMismatch);
+        }
+        let publication_digest = row
+            .try_get::<Option<String>, _>("publication_digest")
+            .map_err(store)?
+            .ok_or(WorldReleaseError::MissingPolicy)?;
+        if publication_digest != active_digest.as_str() {
+            return Err(WorldReleaseError::MissingPolicy);
+        }
+        let stored_policy_digest = row
+            .try_get::<Option<String>, _>("stored_policy_digest")
+            .map_err(store)?
+            .ok_or(WorldReleaseError::MissingCatalog)?;
+        let policy_content = row
+            .try_get::<Option<Vec<u8>>, _>("policy_content")
+            .map_err(store)?
+            .ok_or(WorldReleaseError::MissingCatalog)?;
+        let policy = PolicyCatalog::from_bytes(policy_content);
+        if policy.digest().as_str() != stored_policy_digest
+            || policy.digest() != release.content().policy()
+        {
+            return Err(WorldReleaseError::InvalidPolicyCatalog(
+                "stored bytes do not match the release-bound digest".to_owned(),
+            ));
+        }
+        Ok(Some(ActiveReleasePolicySnapshot { release, policy }))
     }
 
     /// Load the four catalog blobs bound by `digest`.
@@ -1341,6 +1445,12 @@ fn row_to_release(row: &PgRow) -> Result<WorldRelease, WorldReleaseError> {
     if release.id().as_str() != stored_digest {
         return Err(WorldReleaseError::Conflict(
             "stored digest does not match derived content".to_owned(),
+        ));
+    }
+    let stored_jcs = row.try_get::<String, _>("canonical_jcs").map_err(store)?;
+    if release.canonical_jcs() != stored_jcs {
+        return Err(WorldReleaseError::Conflict(
+            "stored canonical JCS does not match derived content".to_owned(),
         ));
     }
     Ok(release)

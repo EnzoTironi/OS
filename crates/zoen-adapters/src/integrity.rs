@@ -39,14 +39,6 @@ impl Error for IntegrityError {
     }
 }
 
-/// Readiness of the tenant's active definition, the current `WorldRelease` stand-in.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ActiveReleaseStatus {
-    Active,
-    Missing,
-    Stale,
-}
-
 /// Readiness of the tenant's projection watermark heartbeat.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProjectionWatermarkStatus {
@@ -77,46 +69,6 @@ impl PostgresAuthorityStore {
             verify_table(&self.pool, table, require_reference).await?;
         }
         Ok(())
-    }
-
-    /// Report whether this tenant has a live definition activation.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`IntegrityError::Query`] when PostgreSQL is unavailable.
-    pub async fn active_release(
-        &self,
-        tenant_id: &TenantId,
-    ) -> Result<ActiveReleaseStatus, IntegrityError> {
-        let mut transaction = self.pool.begin().await.map_err(IntegrityError::Query)?;
-        set_ready_tenant(&mut transaction, tenant_id).await?;
-        let row = sqlx::query(
-            "SELECT count(*)::bigint AS active_count,
-                    count(*) FILTER (WHERE revision.definition_id IS NULL)::bigint AS stale_count
-             FROM public.active_definition_revisions AS active
-             LEFT JOIN public.definition_revisions AS revision
-               ON revision.tenant_id = active.tenant_id
-              AND revision.definition_id = active.definition_id
-              AND revision.digest = active.digest
-              AND revision.revision = active.revision",
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(IntegrityError::Query)?;
-        transaction.commit().await.map_err(IntegrityError::Query)?;
-        let active_count = row
-            .try_get::<i64, _>("active_count")
-            .map_err(IntegrityError::Query)?;
-        let stale_count = row
-            .try_get::<i64, _>("stale_count")
-            .map_err(IntegrityError::Query)?;
-        if active_count == 0 {
-            Ok(ActiveReleaseStatus::Missing)
-        } else if stale_count > 0 {
-            Ok(ActiveReleaseStatus::Stale)
-        } else {
-            Ok(ActiveReleaseStatus::Active)
-        }
     }
 
     /// Report whether the tenant watermark exists and has heartbeat within `max_age`.

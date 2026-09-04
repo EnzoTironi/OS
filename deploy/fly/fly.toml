@@ -44,6 +44,7 @@ kill_timeout = 45
   ZOEN_WORLD_DEFINITION_PATH = "/etc/zoen/commercial.canonical.json"
   ZOEN_PERSONAL_DEFINITION_PATH = "/etc/zoen/personal.canonical.json"
   ZOEN_TENANT_ID = "tenant.a"
+  ZOEN_WORLD_ID = "tenant.a"
   ZOEN_AGENT_BEARER_TOKEN_FILE = "/data/zoen/agent.token"
   ZOEN_BA_AGENT_EMAIL = "agent@zoen.internal"
   ZOEN_CEDAR_POLICY_MANIFEST = "/etc/zoen/policies.json"

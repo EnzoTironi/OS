@@ -92,10 +92,10 @@ export const tenantB = "tenant.b";
 
 const generatedDirectory =
   process.env.ZOEN_E2E_GENERATED_DIR ?? "e2e/explain/.generated";
-const generatedDirectoryPath = path.isAbsolute(generatedDirectory)
+export const effectGeneratedDirectory = path.isAbsolute(generatedDirectory)
   ? generatedDirectory
   : path.join(repositoryRoot, generatedDirectory);
-const composeDirectory = generatedDirectoryPath.replace(/\/\.generated\/?$/, "");
+const composeDirectory = effectGeneratedDirectory.replace(/\/\.generated\/?$/, "");
 const composeFile = path.join(composeDirectory, "compose.yaml");
 const composeProject = `zoen-${path.basename(composeDirectory)}`;
 const cargoTargetRoot = (() => {
@@ -106,17 +106,18 @@ const cargoTargetRoot = (() => {
   return path.isAbsolute(raw) ? raw : path.join(repositoryRoot, raw);
 })();
 const targetDirectory = path.join(cargoTargetRoot, "debug");
+export const zoenExecutablePath = path.join(targetDirectory, "zoen");
 const distDirectory = path.join(repositoryRoot, "dist");
 export const effectArtifactFile = path.join(
-  generatedDirectoryPath,
+  effectGeneratedDirectory,
   "effect-handler-artifact.json",
 );
 export const effectWorkerApiKeyFile = path.join(
-  generatedDirectoryPath,
+  effectGeneratedDirectory,
   "effect-worker.api-key",
 );
 export const effectWorkerReadyFile = path.join(
-  generatedDirectoryPath,
+  effectGeneratedDirectory,
   "effect-worker.ready.json",
 );
 const providerOperationSchema = z
@@ -308,6 +309,7 @@ export function productReadinessEnvironment(): Record<string, string> {
     ZOEN_EVE_BASE_URL: eveOrigin,
     ZOEN_PROJECTION_WATERMARK_MAX_AGE_MS: "1500",
     ZOEN_TENANT_ID: tenantA,
+    ZOEN_WORLD_ID: tenantA,
   };
 }
 
@@ -610,7 +612,7 @@ export async function prepareWorkerArtifact(
 ): Promise<void> {
   await runProcess(
     path.join(targetDirectory, "zoen"),
-    ["write-build-artifact", revision, generatedDirectoryPath],
+    ["write-build-artifact", revision, effectGeneratedDirectory],
   );
 }
 
