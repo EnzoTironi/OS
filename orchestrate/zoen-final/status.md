@@ -3,8 +3,8 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@c9d602eaa0babfef52668849774439310a0cb4c1`
-- Units: 52 total, 11 done, 8 active, 2 proof pending, 31 queued
+- Base: `main@6fae261e475576d2ec858ead6082bd985487f837`
+- Units: 52 total, 12 done, 7 active, 2 proof pending, 31 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -16,10 +16,10 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 ## Roadmap audit
 
 - Scope: #626-#669 (44 units)
-- Observed at: 2026-09-04T11:36:47Z
-- GitHub state: 41 open; 3 verified closed
-- Verified closed: #630, #631, #632
-- Reopened by this audit: #626, #627, #628, #629, #633, #634, #635, #636
+- Observed at: 2026-09-04T13:59:26Z
+- GitHub state: 40 open; 4 verified closed
+- Verified closed: #630, #631, #632, #633
+- Reopened by this audit: #626, #627, #628, #629, #634, #635, #636
 - Rule: Merged code and green CI are inputs; completion requires the issue's named journey and negative, replay, isolation, and recovery proof.
 - Evidence: `orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md`
 
@@ -31,7 +31,6 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | W1-04 | proof_pending | codex/w1-04-eve-runtime-boundary | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | #618 |
 | W1-06 | active | not assigned | not recorded | not open |
 | W1-07 | active | not assigned | not recorded | not open |
-| W2-04 | active | not assigned | not recorded | not open |
 | W2-05 | active | not assigned | not recorded | not open |
 | W2-06 | active | not assigned | not recorded | not open |
 | W2-07 | active | not assigned | not recorded | not open |
@@ -57,6 +56,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #675 | W2-02 | 61b92229f4951d68e4871bf9a68ac5983deaffbb | 26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d | 2026-09-04T01:37:18Z | journey-verified |
 | #676 | W2-03 | e7cfb16ba00e594bfb4543ad59474c6233881571 | 5d6134d4b0d4d97c8f493ed0c22fcf8416887da5 | 2026-09-04T03:58:36Z | journey-verified |
 | #678 | W2-04 | eb33b4162f061cdcee3858e164a9f834d54fd50d | 13395c50f2c4aa458497f01bb2350f49883a37e4 | 2026-09-04T05:04:46Z | audit-rejected |
+| #688 | W2-04 | 28b5e72ddf114ee5a7c38b0f0688b882eaf1dff2 | 6fae261e475576d2ec858ead6082bd985487f837 | 2026-09-04T13:48:39Z | journey-verified |
 | #679 | program ledger | 7d4703524cc16f3da816e2cc1720500d2810f710 | 604f1245e24f9132400c88241952148e7e8b3dc1 | 2026-09-04T08:38:05Z | not applicable |
 | #680 | journey infrastructure | 569313b68e3ae6b160c12d66108e9c7454d3effc | ae1e474539e5075b02d54398a72ff9e4aa9fcada | 2026-09-04T06:10:04Z | not applicable |
 | #681 | W2-07 | d4d22e3b31e9f937bf3e47c754e29dfc0ca810e0 | c49da90e7d126a98de29d5e7f24d9b6ec20baded | 2026-09-04T08:39:11Z | audit-rejected |

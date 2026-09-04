@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "c9d602eaa0babfef52668849774439310a0cb4c1"
+    "sha": "6fae261e475576d2ec858ead6082bd985487f837"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -438,13 +438,13 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "active",
+      "status": "done",
       "dependencies": ["W2-03"],
       "journeys": ["J1"],
-      "branch": "coder/w2-04-world-release-activate",
-      "pr": 678,
-      "headSha": "eb33b4162f061cdcee3858e164a9f834d54fd50d",
-      "mergeSha": "13395c50f2c4aa458497f01bb2350f49883a37e4"
+      "branch": "codex/w2-04-release-authority-lock",
+      "pr": 688,
+      "headSha": "28b5e72ddf114ee5a7c38b0f0688b882eaf1dff2",
+      "mergeSha": "6fae261e475576d2ec858ead6082bd985487f837"
     },
     {
       "id": "W2-05",

@@ -14,7 +14,7 @@ W1-07	Build and run the one-Fly image in CI and restore all live scenarios	integ
 W2-01	Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS	world-authority	2	M	done	W0-05,W1-01,W1-03,W1-04	J1		feat/w2-01-world-release	673	630dddd948d8f1a7b2da553d54fb3b4e7526fee1
 W2-02	Store immutable release candidates and their four content-addressed catalogs	world-authority	2	L	done	W2-01	J1		coder/w2-02-release-catalogs	675	61b92229f4951d68e4871bf9a68ac5983deaffbb
 W2-03	Publish Cedar bundles inside candidates and remove boot policy as authority	world-authority	2	L	done	W2-02	J1		coder/w2-03-cedar-policy-catalog	676	e7cfb16ba00e594bfb4543ad59474c6233881571
-W2-04	Preview, decide, publish, and atomically activate one WorldRelease	world-authority	2	L	active	W2-03	J1		coder/w2-04-world-release-activate	678	eb33b4162f061cdcee3858e164a9f834d54fd50d
+W2-04	Preview, decide, publish, and atomically activate one WorldRelease	world-authority	2	L	done	W2-03	J1		codex/w2-04-release-authority-lock	688	28b5e72ddf114ee5a7c38b0f0688b882eaf1dff2
 W2-05	Implement the seven public verbs on one governed catalog	world-authority	2	L	active	W2-04	J1,J7		coder/w2-05-seven-verbs	682	8e36a702b100d2f3488331a9ed793c261c93af83
 W2-06	Authorize before discovery and seal cursors to authority, query, release, and budget	world-authority	2	L	active	W2-04	J4	FIN-05	coder/w2-06-sealed-cursors	685	b2954ccc881b102d0f92b3ad123764b2535f5946
 W2-07	Replace client computation limits with release-owned BudgetClass	world-authority	2	M	active	W2-04	J4,J7		coder/w2-07-budget-class	681	d4d22e3b31e9f937bf3e47c754e29dfc0ca810e0

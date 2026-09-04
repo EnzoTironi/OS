@@ -360,8 +360,11 @@ const worldReleaseCatalogsMerge = frontier.mergedPullRequests.find(
 const cedarPolicyCatalogMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 676
 );
-const worldReleaseActivateMerge = frontier.mergedPullRequests.find(
+const worldReleaseActivateHistoricalMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 678
+);
+const worldReleaseActivateMerge = frontier.mergedPullRequests.find(
+  ({ number }) => number === 688
 );
 const worldIdentityMerge = frontier.mergedPullRequests.find(
   ({ number }) => number === 621
@@ -377,16 +380,15 @@ const deviceFlowRepairMerge = frontier.mergedPullRequests.find(
 );
 const { roadmapAudit } = frontier;
 assert(
-  program.base.sha === "c9d602eaa0babfef52668849774439310a0cb4c1",
+  program.base.sha === "6fae261e475576d2ec858ead6082bd985487f837",
   "program base must track the audited main tip"
 );
 assert(
   roadmapAudit?.issueRange === "#626-#669" &&
     roadmapAudit.totalIssues === 44 &&
-    roadmapAudit.openIssues === 41 &&
-    roadmapAudit.verifiedClosedIssues?.join("|") === "630|631|632" &&
-    roadmapAudit.reopenedIssues?.join("|") ===
-      "626|627|628|629|633|634|635|636" &&
+    roadmapAudit.openIssues === 40 &&
+    roadmapAudit.verifiedClosedIssues?.join("|") === "630|631|632|633" &&
+    roadmapAudit.reopenedIssues?.join("|") === "626|627|628|629|634|635|636" &&
     roadmapAudit.report ===
       "orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md" &&
     roadmapAudit.observedAt === frontier.main.observedAt &&
@@ -515,21 +517,29 @@ assert(
   "PR #676 must close W2-03 with its journey-verified merge"
 );
 assert(
-  worldReleaseActivateUnit?.status === "active" &&
-    worldReleaseActivateUnit.pr === 678 &&
+  worldReleaseActivateUnit?.status === "done" &&
+    worldReleaseActivateUnit.pr === 688 &&
     worldReleaseActivateUnit.headSha ===
+      "28b5e72ddf114ee5a7c38b0f0688b882eaf1dff2" &&
+    worldReleaseActivateUnit.mergeSha === program.base.sha &&
+    worldReleaseActivateHistoricalMerge?.unit === "W2-04" &&
+    worldReleaseActivateHistoricalMerge.head ===
       "eb33b4162f061cdcee3858e164a9f834d54fd50d" &&
-    worldReleaseActivateUnit.mergeSha ===
+    worldReleaseActivateHistoricalMerge.merge ===
       "13395c50f2c4aa458497f01bb2350f49883a37e4" &&
+    worldReleaseActivateHistoricalMerge.mergedAt === "2026-09-04T05:04:46Z" &&
+    worldReleaseActivateHistoricalMerge.verification === "journey-verified" &&
+    worldReleaseActivateHistoricalMerge.currentVerification ===
+      "audit-rejected" &&
+    worldReleaseActivateHistoricalMerge.fact.includes("94/94") &&
     worldReleaseActivateMerge?.unit === "W2-04" &&
     worldReleaseActivateMerge.head === worldReleaseActivateUnit.headSha &&
     worldReleaseActivateMerge.merge === worldReleaseActivateUnit.mergeSha &&
-    worldReleaseActivateMerge.mergedAt === "2026-09-04T05:04:46Z" &&
+    worldReleaseActivateMerge.mergedAt === "2026-09-04T13:48:39Z" &&
     worldReleaseActivateMerge.verification === "journey-verified" &&
-    worldReleaseActivateMerge.currentVerification === "audit-rejected" &&
-    worldReleaseActivateMerge.fact.includes("94/94") &&
-    frontier.activeCandidates.some(({ unit }) => unit === "W2-04"),
-  "PR #678 historical proof must remain exact while W2-04 is under repair"
+    worldReleaseActivateMerge.fact.includes("132/132") &&
+    !frontier.activeCandidates.some(({ unit }) => unit === "W2-04"),
+  "PR #688 must close repaired W2-04 while preserving the rejected #678 history"
 );
 const ledgerRows = parseAndValidateImplementationLedger(
   program.units,
@@ -607,14 +617,14 @@ const worldReleaseActivateLedger = ledgerRows.find(
   ({ unitId }) => unitId === "W2-04"
 );
 assert(
-  worldReleaseActivateLedger?.pr === "678" &&
+  worldReleaseActivateLedger?.pr === "688" &&
     worldReleaseActivateLedger.headSha === worldReleaseActivateUnit.headSha &&
     worldReleaseActivateLedger.mergeSha === worldReleaseActivateUnit.mergeSha &&
     worldReleaseActivateLedger.verdict === "journey-verified" &&
     worldReleaseActivateLedger.evidence ===
-      "orchestrate/zoen-final/reports/w2-04-validation.md" &&
-    worldReleaseActivateLedger.verifiedAt === "2026-09-04T05:00:00Z" &&
-    worldReleaseActivateLedger.mergedAt === "2026-09-04T05:04:46Z",
+      "orchestrate/zoen-final/reports/w2-04-repair-validation.md" &&
+    worldReleaseActivateLedger.verifiedAt === "2026-09-04T13:25:31Z" &&
+    worldReleaseActivateLedger.mergedAt === "2026-09-04T13:48:39Z",
   "W2-04 must retain its exact journey-verified ledger verdict"
 );
 const worldIdentityLedger = ledgerRows.find(({ unitId }) => unitId === "W1-05");
@@ -643,7 +653,7 @@ await Promise.all(
 );
 assert(
   frontier.landingOrder.join("|") ===
-    "W2-04|W1-06|W1-07|W2-05|W2-06|W2-07|W2-08|W3-01",
+    "W1-06|W1-07|W2-05|W2-06|W2-07|W2-08|W3-01",
   "landing order changed"
 );
 assert(
@@ -1246,6 +1256,7 @@ const markdownFiles = [
   "orchestrate/zoen-final/reports/w2-02-validation.md",
   "orchestrate/zoen-final/reports/w2-03-validation.md",
   "orchestrate/zoen-final/reports/w2-04-validation.md",
+  "orchestrate/zoen-final/reports/w2-04-repair-validation.md",
   "orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md",
 ];
 const markdownLinkTargets = (markdown) => {
