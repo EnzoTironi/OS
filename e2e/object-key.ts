@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   e2eGeneratedDirectory,
@@ -9,6 +7,13 @@ import {
   writeScenarioArtifact,
 } from "./host-env.js";
 import { gitHead } from "./scenario-evidence.js";
+import {
+  constructWorldRelease,
+  parseZoenJson,
+  publishWorldRelease,
+  runZoenCli,
+  writeZoenJsonFile,
+} from "./zoen-cli.js";
 
 const scenario = "object-key";
 const repositoryRoot = process.cwd();
@@ -98,75 +103,21 @@ when {
 }
 
 interface ZoenResult {
-  status: number | null;
+  status: number;
   stdout: string;
   stderr: string;
   body?: Record<string, unknown>;
 }
 
 function runZoen(args: string[]): ZoenResult {
-  try {
-    const stdout = execFileSync(zoenPath, args, {
-      encoding: "utf8",
-      env: { ...process.env, DATABASE_URL: databaseUrl },
-    });
-    return { status: 0, stdout, stderr: "" };
-  } catch (error) {
-    const failure = error as {
-      status?: number | null;
-      stdout?: string;
-      stderr?: string;
-    };
-    return {
-      status: failure.status ?? 1,
-      stdout: failure.stdout ?? "",
-      stderr: failure.stderr ?? String(error),
-    };
-  }
-}
-
-function parseJson(text: string): Record<string, unknown> {
-  return JSON.parse(text) as Record<string, unknown>;
+  return runZoenCli(zoenPath, databaseUrl, args);
 }
 
 function withBody(result: ZoenResult): ZoenResult {
   if (result.status === 0 && result.stdout.trim() !== "") {
-    return { ...result, body: parseJson(result.stdout) };
+    return { ...result, body: parseZoenJson(result.stdout) };
   }
   return result;
-}
-
-async function writeContent(name: string, content: Record<string, unknown>): Promise<string> {
-  await mkdir(generatedDirectory, { recursive: true });
-  const file = path.join(generatedDirectory, name);
-  await writeFile(file, `${JSON.stringify(content, null, 2)}\n`);
-  return file;
-}
-
-function construct(file: string): Record<string, unknown> {
-  const result = runZoen(["world", "release", "construct", "--file", file]);
-  assert.equal(result.status, 0, result.stderr);
-  return parseJson(result.stdout);
-}
-
-function publish(file: string, principal: string, evidenceDigest: string): ZoenResult {
-  return runZoen([
-    "world",
-    "release",
-    "publish",
-    "--file",
-    file,
-    "--principal",
-    principal,
-    "--policy-id",
-    "policy.world",
-    "--policy-digest",
-    evidenceDigest,
-    "--policy-revision",
-    "1",
-    "--determining-policy",
-    "policy.world",
-  ]);
 }
 
 function approveAndActivate(world: string, digest: string, principal: string): {
@@ -184,7 +135,7 @@ function approveAndActivate(world: string, digest: string, principal: string): {
     principal,
   ]);
   assert.equal(preview.status, 0, preview.stderr);
-  const previewDigest = String(parseJson(preview.stdout).previewDigest);
+  const previewDigest = String(parseZoenJson(preview.stdout).previewDigest);
   const decide = runZoen([
     "world",
     "release",
@@ -316,7 +267,7 @@ async function main(): Promise<void> {
     executors: "executor catalog object-key v1\n",
     components: "component catalog object-key v1\n",
   };
-  const contentPath = await writeContent("world.json", {
+  const contentPath = await writeZoenJsonFile(generatedDirectory, "world.json", {
     world: "world.clinic",
     parent: null,
     ontology: { bytes: bytes.ontology },
@@ -324,8 +275,8 @@ async function main(): Promise<void> {
     executors: { bytes: bytes.executors },
     components: { bytes: bytes.components },
   });
-  const release = construct(contentPath);
-  assert.equal(publish(contentPath, "principal.builder", policy.evidenceDigest).status, 0);
+  const release = constructWorldRelease(zoenPath, databaseUrl, contentPath);
+  assert.equal(publishWorldRelease(zoenPath, databaseUrl, contentPath, "principal.builder", policy.evidenceDigest).status, 0);
   const ceremony = approveAndActivate(
     "world.clinic",
     String(release.digest),
@@ -592,7 +543,7 @@ async function main(): Promise<void> {
   record("j4_actors_human_sees_four", humanPage.body?.authorizedCount === 4);
   record(
     "j4_path_typed_patients",
-    humanIds.sort().join(",") === "patient.ada,patient.beau,patient.cara,patient.drew",
+    [...humanIds].sort((a, b) => a.localeCompare(b)).join(",") === "patient.ada,patient.beau,patient.cara,patient.drew",
   );
   record(
     "j4_typed_refs_private",
