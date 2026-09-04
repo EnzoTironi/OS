@@ -8,13 +8,13 @@ use zoen_core::{
     AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus, ChannelProvider, Clearance,
     DelegationChain, DelegationGrant, DelegationId, ExternalBinding, ExternalBindingId,
     ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId,
-    MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
-    TimestampMicros, TrustedExecutionContext, UnbindReason, WORKLOAD_CREDENTIALS_RESOURCE,
-    WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
-    WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION,
-    WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION,
-    WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId, encode_hex,
-    trusted_context_from_membership,
+    MembershipKind, MembershipStatus, PrincipalId, PublicVerb, ResourceId, RevocationReason,
+    TenantId, TimestampMicros, TrustedExecutionContext, UnbindReason,
+    WORKLOAD_CREDENTIALS_RESOURCE, WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION,
+    WORLD_KERNEL_AUTHORITY_RESOURCE, WORLD_READ_ACTION, WORLD_RELEASE_ACTIVATE_ACTION,
+    WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION,
+    WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId,
+    ZoenAccount, ZoenAccountId, encode_hex, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -1325,6 +1325,20 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORLD_RELEASE_ACTIVATE_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Discover.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Query.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Propose.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Decide.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Commit.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Explain.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(PublicVerb::Execute.action_id())
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
         BTreeSet::from([
             ResourceId::parse("zoen.personal.workspace")
@@ -1338,6 +1352,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ResourceId::parse(WORKLOAD_CREDENTIALS_RESOURCE)
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
             ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE)
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse(WORLD_KERNEL_AUTHORITY_RESOURCE)
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
         ]),
         BTreeSet::from([workload_id.clone()]),

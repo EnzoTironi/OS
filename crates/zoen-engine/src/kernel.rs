@@ -6,8 +6,8 @@ use std::{
 };
 
 use zoen_core::{
-    ComponentCatalogDigest, ExecutorCatalogDigest, OntologyCatalogDigest, PolicyCatalogDigest,
-    PrincipalId, PublicVerb, ReleaseDigest, WorldId,
+    ActorId, ComponentCatalogDigest, ExecutorCatalogDigest, MembershipId, OntologyCatalogDigest,
+    PolicyCatalogDigest, PrincipalId, PublicVerb, ReleaseDigest, WorkloadId, WorldId,
 };
 
 /// Product surface that invoked the kernel. Semantics stay identical.
@@ -27,19 +27,6 @@ impl KernelSurface {
             Self::Connect => "connect",
             Self::Mcp => "mcp",
             Self::Eve => "eve",
-        }
-    }
-
-    /// # Errors
-    ///
-    /// Returns the input when it is not a known surface.
-    pub fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "cli" => Ok(Self::Cli),
-            "connect" => Ok(Self::Connect),
-            "mcp" => Ok(Self::Mcp),
-            "eve" => Ok(Self::Eve),
-            other => Err(format!("unknown kernel surface {other}")),
         }
     }
 }
@@ -83,6 +70,9 @@ pub struct KernelProposal {
     pub world: WorldId,
     pub release_digest: ReleaseDigest,
     pub principal: PrincipalId,
+    pub membership: MembershipId,
+    pub actor: ActorId,
+    pub workload: WorkloadId,
     pub preview_hash: String,
     pub input_jcs: String,
 }
@@ -118,6 +108,9 @@ impl KernelDecisionOutcome {
 pub struct KernelDecision {
     pub proposal_id: String,
     pub principal: PrincipalId,
+    pub membership: MembershipId,
+    pub actor: ActorId,
+    pub workload: WorkloadId,
     pub outcome: KernelDecisionOutcome,
 }
 
@@ -126,6 +119,10 @@ pub struct KernelReceipt {
     pub proposal_id: String,
     pub receipt_id: String,
     pub release_digest: ReleaseDigest,
+    pub principal: PrincipalId,
+    pub membership: MembershipId,
+    pub actor: ActorId,
+    pub workload: WorkloadId,
     pub explanation_jcs: String,
 }
 
@@ -143,6 +140,10 @@ pub struct KernelExecution {
     pub receipt_id: String,
     pub execution_id: String,
     pub release_digest: ReleaseDigest,
+    pub principal: PrincipalId,
+    pub membership: MembershipId,
+    pub actor: ActorId,
+    pub workload: WorkloadId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,7 +181,7 @@ pub struct KernelQueryPage {
     pub basis: GovernedCatalogBasis,
     pub surface: KernelSurface,
     pub decision: KernelPolicyDecision,
-    pub membership: String,
+    pub membership: MembershipId,
     pub object_type: String,
     pub budget_id: String,
     pub page_limit: u32,
@@ -189,19 +190,4 @@ pub struct KernelQueryPage {
     pub next_cursor: String,
     pub compute_digest: String,
     pub explanation_jcs: String,
-}
-
-/// Request to plant a governed object and its principal/membership grants.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KernelPlantObject {
-    pub object_id: String,
-    pub object_type: String,
-    pub fields_jcs: String,
-    pub grants: Vec<KernelObjectGrant>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KernelObjectGrant {
-    pub principal: PrincipalId,
-    pub membership: String,
 }

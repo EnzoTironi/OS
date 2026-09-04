@@ -4,10 +4,9 @@ use std::error::Error;
 
 use serde_json::{Value, json};
 use zoen_adapters::{PostgresAuthorityStore, PostgresWorldKernel, PostgresWorldReleaseStore};
-use zoen_core::{PrincipalId, WorldId};
+use zoen_core::{MembershipId, PrincipalId, WorldId};
 use zoen_engine::{
-    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelObjectGrant, KernelPlantObject,
-    KernelQueryPage, KernelSurface,
+    KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelQueryPage, KernelSurface,
 };
 
 pub struct KernelCliResult {
@@ -21,46 +20,44 @@ pub enum KernelCommand {
     Discover {
         world: String,
         principal: String,
+        membership: String,
     },
     Query {
         world: String,
         principal: String,
-        membership: Option<String>,
+        membership: String,
         object_type: Option<String>,
         cursor: Option<String>,
         limit: Option<u32>,
         budget_class: Option<String>,
     },
-    PlantObject {
-        world: String,
-        principal: String,
-        object_type: String,
-        object_id: String,
-        fields: String,
-        grants: Vec<String>,
-    },
     Propose {
         world: String,
         principal: String,
+        membership: String,
         proposal_id: String,
         input: String,
     },
     Decide {
         proposal_id: String,
         principal: String,
+        membership: String,
         decision: String,
     },
     Commit {
         proposal_id: String,
         principal: String,
+        membership: String,
     },
     Explain {
         receipt_id: String,
         principal: String,
+        membership: String,
     },
     Execute {
         receipt_id: String,
         principal: String,
+        membership: String,
     },
 }
 
@@ -74,7 +71,11 @@ pub async fn run(
     command: KernelCommand,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     match command {
-        KernelCommand::Discover { world, principal } => discover(&world, &principal, surface).await,
+        KernelCommand::Discover {
+            world,
+            principal,
+            membership,
+        } => discover(&world, &principal, &membership, surface).await,
         KernelCommand::Query {
             world,
             principal,
@@ -87,7 +88,7 @@ pub async fn run(
             query(
                 &world,
                 &principal,
-                membership.as_deref(),
+                &membership,
                 object_type.as_deref(),
                 cursor.as_deref(),
                 limit,
@@ -96,59 +97,61 @@ pub async fn run(
             )
             .await
         }
-        KernelCommand::PlantObject {
-            world,
-            principal,
-            object_type,
-            object_id,
-            fields,
-            grants,
-        } => {
-            plant_object(
-                &world,
-                &principal,
-                &object_type,
-                &object_id,
-                &fields,
-                &grants,
-            )
-            .await
-        }
         KernelCommand::Propose {
             world,
             principal,
+            membership,
             proposal_id,
             input,
-        } => propose(&world, &principal, &proposal_id, &input, surface).await,
+        } => {
+            propose(
+                &world,
+                &principal,
+                &membership,
+                &proposal_id,
+                &input,
+                surface,
+            )
+            .await
+        }
         KernelCommand::Decide {
             proposal_id,
             principal,
+            membership,
             decision,
-        } => decide(&proposal_id, &principal, &decision, surface).await,
+        } => decide(&proposal_id, &principal, &membership, &decision, surface).await,
         KernelCommand::Commit {
             proposal_id,
             principal,
-        } => commit(&proposal_id, &principal, surface).await,
+            membership,
+        } => commit(&proposal_id, &principal, &membership, surface).await,
         KernelCommand::Explain {
             receipt_id,
             principal,
-        } => explain(&receipt_id, &principal, surface).await,
+            membership,
+        } => explain(&receipt_id, &principal, &membership, surface).await,
         KernelCommand::Execute {
             receipt_id,
             principal,
-        } => execute(&receipt_id, &principal, surface).await,
+            membership,
+        } => execute(&receipt_id, &principal, &membership, surface).await,
     }
 }
 
 async fn discover(
     world: &str,
     principal: &str,
+    membership: &str,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let world = WorldId::parse(world)?;
     let principal = PrincipalId::parse(principal)?;
-    match kernel.discover(&world, &principal, surface).await {
+    let membership = MembershipId::parse(membership)?;
+    match kernel
+        .discover(&world, &principal, &membership, surface)
+        .await
+    {
         Ok(result) => Ok(ok(discover_json(&result))),
         Err(error) => Ok(map_error(error)),
     }
@@ -157,7 +160,7 @@ async fn discover(
 async fn query(
     world: &str,
     principal: &str,
-    membership: Option<&str>,
+    membership: &str,
     object_type: Option<&str>,
     cursor: Option<&str>,
     limit: Option<u32>,
@@ -167,13 +170,13 @@ async fn query(
     let kernel = kernel().await?;
     let world = WorldId::parse(world)?;
     let principal = PrincipalId::parse(principal)?;
+    let membership = MembershipId::parse(membership)?;
     if object_type.is_none() {
-        return match kernel.query(&world, &principal, surface).await {
+        return match kernel.query(&world, &principal, &membership, surface).await {
             Ok(result) => Ok(ok(discover_json(&result))),
             Err(error) => Ok(map_error(error)),
         };
     }
-    let membership = membership.ok_or("membership is required for sealed object query")?;
     let object_type = object_type.ok_or("type is required for sealed object query")?;
     let page_token = cursor.unwrap_or("");
     let requested_limit = limit.unwrap_or(5);
@@ -181,7 +184,7 @@ async fn query(
         .query_objects(
             &world,
             &principal,
-            membership,
+            &membership,
             object_type,
             page_token,
             requested_limit,
@@ -191,44 +194,6 @@ async fn query(
         .await
     {
         Ok(page) => Ok(ok(query_page_json(&page))),
-        Err(error) => Ok(map_error(error)),
-    }
-}
-
-async fn plant_object(
-    world: &str,
-    principal: &str,
-    object_type: &str,
-    object_id: &str,
-    fields: &str,
-    grants: &[String],
-) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
-    let kernel = kernel().await?;
-    let world = WorldId::parse(world)?;
-    let principal = PrincipalId::parse(principal)?;
-    let mut parsed_grants = Vec::new();
-    for grant in grants {
-        let (grant_principal, membership) = grant
-            .split_once(':')
-            .ok_or_else(|| format!("grant {grant} must be principal:membership"))?;
-        parsed_grants.push(KernelObjectGrant {
-            principal: PrincipalId::parse(grant_principal)?,
-            membership: membership.to_owned(),
-        });
-    }
-    let object = KernelPlantObject {
-        object_id: object_id.to_owned(),
-        object_type: object_type.to_owned(),
-        fields_jcs: fields.to_owned(),
-        grants: parsed_grants,
-    };
-    match kernel.plant_object(&world, &principal, &object).await {
-        Ok(()) => Ok(ok(json!({
-            "grants": grants,
-            "objectId": object_id,
-            "objectType": object_type,
-            "world": world.as_str(),
-        }))),
         Err(error) => Ok(map_error(error)),
     }
 }
@@ -250,7 +215,7 @@ fn query_page_json(page: &KernelQueryPage) -> Value {
             zoen_engine::KernelPolicyDecision::Error(message) => json!({"error": message}),
         },
         "explanationJcs": page.explanation_jcs,
-        "membership": page.membership,
+        "membership": page.membership.as_str(),
         "nextCursor": page.next_cursor,
         "objectType": page.object_type,
         "objects": page.objects.iter().map(|object| json!({
@@ -268,6 +233,7 @@ fn query_page_json(page: &KernelQueryPage) -> Value {
 async fn propose(
     world: &str,
     principal: &str,
+    membership: &str,
     proposal_id: &str,
     input: &str,
     surface: KernelSurface,
@@ -275,12 +241,14 @@ async fn propose(
     let kernel = kernel().await?;
     let world = WorldId::parse(world)?;
     let principal = PrincipalId::parse(principal)?;
+    let membership = MembershipId::parse(membership)?;
     match kernel
-        .propose(&world, &principal, proposal_id, input, surface)
+        .propose(&world, &principal, &membership, proposal_id, input, surface)
         .await
     {
         Ok((proposal, surface)) => Ok(ok(json!({
             "inputJcs": proposal.input_jcs,
+            "membership": proposal.membership.as_str(),
             "previewHash": proposal.preview_hash,
             "principal": proposal.principal.as_str(),
             "proposalId": proposal.proposal_id,
@@ -295,18 +263,21 @@ async fn propose(
 async fn decide(
     proposal_id: &str,
     principal: &str,
+    membership: &str,
     decision: &str,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let principal = PrincipalId::parse(principal)?;
+    let membership = MembershipId::parse(membership)?;
     let outcome = KernelDecisionOutcome::parse(decision)?;
     match kernel
-        .decide(proposal_id, &principal, outcome, surface)
+        .decide(proposal_id, &principal, &membership, outcome, surface)
         .await
     {
         Ok((decision, surface)) => Ok(ok(json!({
             "outcome": decision.outcome.as_str(),
+            "membership": decision.membership.as_str(),
             "principal": decision.principal.as_str(),
             "proposalId": decision.proposal_id,
             "surface": surface.as_str(),
@@ -318,13 +289,19 @@ async fn decide(
 async fn commit(
     proposal_id: &str,
     principal: &str,
+    membership: &str,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let principal = PrincipalId::parse(principal)?;
-    match kernel.commit(proposal_id, &principal, surface).await {
+    let membership = MembershipId::parse(membership)?;
+    match kernel
+        .commit(proposal_id, &principal, &membership, surface)
+        .await
+    {
         Ok((receipt, surface)) => Ok(ok(json!({
             "explanationJcs": receipt.explanation_jcs,
+            "membership": receipt.membership.as_str(),
             "proposalId": receipt.proposal_id,
             "receiptId": receipt.receipt_id,
             "releaseDigest": receipt.release_digest.as_str(),
@@ -337,11 +314,16 @@ async fn commit(
 async fn explain(
     receipt_id: &str,
     principal: &str,
+    membership: &str,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let principal = PrincipalId::parse(principal)?;
-    match kernel.explain(receipt_id, &principal, surface).await {
+    let membership = MembershipId::parse(membership)?;
+    match kernel
+        .explain(receipt_id, &principal, &membership, surface)
+        .await
+    {
         Ok(explanation) => Ok(ok(json!({
             "explanationJcs": explanation.explanation_jcs,
             "proposalId": explanation.proposal_id,
@@ -356,13 +338,19 @@ async fn explain(
 async fn execute(
     receipt_id: &str,
     principal: &str,
+    membership: &str,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
     let principal = PrincipalId::parse(principal)?;
-    match kernel.execute(receipt_id, &principal, surface).await {
+    let membership = MembershipId::parse(membership)?;
+    match kernel
+        .execute(receipt_id, &principal, &membership, surface)
+        .await
+    {
         Ok((execution, surface)) => Ok(ok(json!({
             "executionId": execution.execution_id,
+            "membership": execution.membership.as_str(),
             "receiptId": execution.receipt_id,
             "releaseDigest": execution.release_digest.as_str(),
             "surface": surface.as_str(),
