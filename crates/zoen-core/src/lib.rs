@@ -98,7 +98,6 @@ pub use world_release::{
     WORLD_RELEASE_PUBLISH_ACTION, WORLD_RELEASE_SCHEMA, WorldId, WorldRelease,
     WorldReleaseCatalogs, WorldReleaseContent, WorldReleaseDecision, WorldReleaseError,
     WorldReleasePreview, WorldReleasePreviewContent, WorldReleasePublication,
-    principal_may_activate, principal_may_decide, principal_may_publish,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

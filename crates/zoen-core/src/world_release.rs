@@ -179,28 +179,6 @@ impl WorldReleaseCatalogs {
     }
 }
 
-fn last_principal_label(principal: &PrincipalId) -> &str {
-    principal.as_str().rsplit('.').next().unwrap_or("")
-}
-
-/// Builder or World owner may publish a candidate.
-#[must_use]
-pub fn principal_may_publish(principal: &PrincipalId) -> bool {
-    matches!(last_principal_label(principal), "builder" | "owner")
-}
-
-/// Only the World owner may activate a published candidate.
-#[must_use]
-pub fn principal_may_activate(principal: &PrincipalId) -> bool {
-    last_principal_label(principal) == "owner"
-}
-
-/// Only the World owner may decide a release preview.
-#[must_use]
-pub fn principal_may_decide(principal: &PrincipalId) -> bool {
-    principal_may_activate(principal)
-}
-
 /// World identity for release content. Distinct from legacy `TenantId` spelling.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorldId(String);
