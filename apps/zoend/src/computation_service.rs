@@ -13,10 +13,10 @@ use zoen_adapters::{
     ReleaseCedarEvaluator, WasmtimeComputationExecutor, WasmtimeConfigError,
 };
 use zoen_core::{
-    ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest, ComponentExecutionEvidence,
-    ComponentInterface, Consistency, ExecutionContext, ExecutionId, ExecutionResultDigest,
-    ExplanationTarget, IntentDigest, OperationId, ProposalAuthority, ProposalId, SemanticQuery,
-    TimestampMicros,
+    ActionId, ActionPreviewHash, CapabilityId, ClaimId, ComponentDigest,
+    ComponentExecutionEvidence, ComponentInterface, Consistency, ExecutionContext, ExecutionId,
+    ExecutionResultDigest, ExplanationTarget, IntentDigest, OperationId, ProposalAuthority,
+    ProposalId, ResourceId, SemanticQuery, TimestampMicros,
 };
 use zoen_engine::{
     ActionEngine, ActionError, CapabilityManifest, CommitOutcome, ComponentAdmissionError,
@@ -108,6 +108,7 @@ impl ComputationService for ComputationServiceImpl {
         context: RequestContext,
         request: ServiceRequest<'_, ExecuteRequest>,
     ) -> ServiceResult<ExecuteResponse> {
+        let authorized_at = compute_authorized_at()?;
         let (membership, trusted) = {
             let tenant = SessionExchange::tenant_from_header(&context)?;
             self.sessions
@@ -137,11 +138,12 @@ impl ComputationService for ComputationServiceImpl {
             .map_err(|error| map_computation_error(&error))?
         {
             let (execution, evidence, limits) = replayed.into_parts();
+            require_current_replay_authority(&trusted, &evidence, authorized_at)?;
             return Response::ok(execution_response(execution, &evidence, limits));
         }
         let basis = self
             .policy
-            .resolve_compute_basis(membership, compute_authorized_at()?)
+            .resolve_compute_basis(membership, authorized_at)
             .await
             .map_err(|error| map_compute_basis_error(&error))?;
         let limits = basis.limits();
@@ -671,6 +673,7 @@ fn protocol_compute_basis(basis: &ComputeBasisEvidence) -> ComputeBasis {
     ComputeBasis {
         action_id: basis.action_id().to_owned(),
         actor_id: basis.actor_id().to_owned(),
+        approved: basis.approved(),
         authorized_at_micros: basis.authorized_at_micros(),
         basis_digest: basis.digest().to_owned(),
         budget_class_id: basis.budget_class_id().to_owned(),
@@ -688,6 +691,33 @@ fn protocol_compute_basis(basis: &ComputeBasisEvidence) -> ComputeBasis {
         release_digest: basis.release_digest().to_owned(),
         workload_id: basis.workload_id().to_owned(),
         ..Default::default()
+    }
+}
+
+fn require_current_replay_authority(
+    context: &ExecutionContext,
+    basis: &ComputeBasisEvidence,
+    authorized_at: TimestampMicros,
+) -> Result<(), ConnectError> {
+    let action = ActionId::parse(basis.action_id()).map_err(|error| {
+        ConnectError::new(
+            ErrorCode::Unavailable,
+            format!("stored compute action is invalid: {error}"),
+        )
+    })?;
+    let resource = ResourceId::parse(basis.budget_resource_id()).map_err(|error| {
+        ConnectError::new(
+            ErrorCode::Unavailable,
+            format!("stored compute resource is invalid: {error}"),
+        )
+    })?;
+    if context
+        .delegation()
+        .permits(&action, &resource, context.workload_id(), authorized_at)
+    {
+        Ok(())
+    } else {
+        Err(map_compute_basis_error(&ComputeBasisError::Denied))
     }
 }
 

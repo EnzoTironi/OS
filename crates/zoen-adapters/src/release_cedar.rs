@@ -49,6 +49,11 @@ pub struct ComputeBasisEvidence {
 
 impl ComputeBasisEvidence {
     #[must_use]
+    pub fn approved(&self) -> bool {
+        self.document.approved
+    }
+
+    #[must_use]
     pub fn action_id(&self) -> &str {
         &self.document.action_id
     }
@@ -273,6 +278,7 @@ const COMPUTE_BASIS_SCHEMA: &str = "zoen.compute-basis.v1";
 struct ComputeBasisDocument {
     action_id: String,
     actor_id: String,
+    approved: bool,
     authority_definition: AuthorityDefinitionDocument,
     authorized_at_micros: i64,
     budget_class: BudgetClassDocument,
@@ -340,9 +346,12 @@ fn validate_compute_basis_document(
     if document.membership_status != "active" {
         return Err(invalid("compute basis Membership is not Active".to_owned()));
     }
-    if document.action_id != PublicVerb::Execute.action_id() || document.operation != "execute" {
+    if document.action_id != PublicVerb::Execute.action_id()
+        || document.operation != "execute"
+        || !document.approved
+    {
         return Err(invalid(
-            "compute basis must describe the Execute operation".to_owned(),
+            "compute basis must describe an approved Execute operation".to_owned(),
         ));
     }
     if document.authority_definition.definition_id != WORLD_KERNEL_AUTHORITY_DEFINITION
@@ -567,7 +576,7 @@ impl ReleaseCedarEvaluator {
                 .map_err(ComputeBasisError::InvalidCatalog)?;
             let evaluation = evaluator.evaluate_request(&PolicyRequest {
                 action_id: &action_id,
-                approved: false,
+                approved: true,
                 classification: None,
                 context: &context,
                 definition: &definition,
@@ -753,6 +762,7 @@ fn compute_basis_evidence(
     let document = ComputeBasisDocument {
         action_id: action_id.as_str().to_owned(),
         actor_id: membership.actor_id.as_str().to_owned(),
+        approved: true,
         authority_definition: AuthorityDefinitionDocument {
             definition_id: definition.definition_id.as_str().to_owned(),
             digest: definition.digest.as_str().to_owned(),

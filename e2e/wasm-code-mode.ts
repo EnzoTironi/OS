@@ -48,7 +48,7 @@ import {
   writePolicyManifest,
   type ServerProcess,
 } from "./governed-action/support.js";
-import { plantPersonas, sessionOf } from "./ba-door.js";
+import { invitePersona, plantPersonas, sessionOf } from "./ba-door.js";
 import { historyClient } from "./explain/support.js";
 import {
   e2eHttpUrl,
@@ -223,6 +223,53 @@ async function main(): Promise<void> {
     assert.equal(publishedA.componentDigest, program.digest);
     assert.equal(publishedA.componentInterface, componentInterface);
     assert.equal(publishedA.sizeBytes, BigInt(program.bytes.byteLength));
+
+    const expiring = await plantPersonas(door, {
+      adminToken: e2eIdentityAdminToken(),
+      applicationDatabaseUrl: adminDatabaseUrl,
+      personas: [
+        invitePersona({
+          actionIds: ["zoen.world.execute"],
+          actorId: "actor.agent.expiring",
+          id: "agent-expiring",
+          principalId: "principal.agent.expiring",
+          resourceIds: [budgetResourceStandard],
+          tenantId: tenantA,
+          workloadId: "workload.agent.expiring",
+        }),
+      ],
+      zoendBaseUrl: e2eHttpUrl("ZOEN_E2E_ZOEND_PORT", 58_171),
+    });
+    const expiringComputation = computationClient(
+      sessionOf(expiring, "agent-expiring").token,
+      tenantA,
+    );
+    const expiringFirst = await execute(
+      expiringComputation,
+      program,
+      "execution.expiring-replay",
+      "pure",
+      emptyManifest(),
+    );
+    assertCompleted(expiringFirst);
+    assert.ok(expiringFirst.computeBasis?.membershipId);
+    await expireMembershipDelegation(
+      admin,
+      expiringFirst.computeBasis.membershipId,
+    );
+    await expectConnectCode(
+      () =>
+        execute(
+          expiringComputation,
+          program,
+          "execution.expiring-replay",
+          "pure",
+          emptyManifest(),
+        ),
+      Code.PermissionDenied,
+    );
+    inject("expired-membership-delegation-replay");
+    observe("expiredDelegationCannotReadHistoricalReplay", true);
 
     await expectConnectCode(
       () =>
@@ -490,6 +537,8 @@ async function main(): Promise<void> {
       plantedReleaseA.policyCatalogDigest,
     );
     assert.equal(storedExecution.budgetClassId, budgetClassStandard);
+    assert.equal(storedExecution.computeApproved, true);
+    assert.equal(wasmAllowed.computeBasis?.approved, true);
     assert.equal(storedExecution.membershipId, wasmAllowed.computeBasis?.membershipId);
     assert.deepEqual(
       JSON.parse(storedExecution.computeBasisJcs),
@@ -649,7 +698,7 @@ async function main(): Promise<void> {
         isolation:
           "cross-World Membership resolution and Memberships without compute delegation fail closed",
         negative:
-          "the request has no BudgetClass field; delegation denial and revocation stop execution before Wasmtime",
+          "the request has no BudgetClass field; delegation denial, expiry, and revocation stop execution or replay",
         path:
           "Active Membership plus one pinned WorldRelease PolicyCatalog selects BudgetClass, evaluates Cedar, seals ResolvedComputeBasis, then consumes it in Wasmtime",
         recovery:
@@ -709,6 +758,23 @@ async function revokeMembership(membershipId: string): Promise<void> {
     true,
     `revoke Membership ${membershipId}: ${response.status} ${await response.text()}`,
   );
+}
+
+async function expireMembershipDelegation(
+  client: PostgresClient,
+  membershipId: string,
+): Promise<void> {
+  const result = await client.query(
+    `UPDATE memberships
+        SET delegation_json = jsonb_set(
+          delegation_json,
+          '{grants,0,expiresAt}',
+          to_jsonb(floor(extract(epoch FROM clock_timestamp()))::bigint - 1)
+        )
+      WHERE membership_id = $1 AND status = 'active'`,
+    [membershipId],
+  );
+  assert.equal(result.rowCount, 1, `expire delegation ${membershipId}`);
 }
 
 async function recordClaims(
@@ -1052,6 +1118,7 @@ async function executionRecord(
     capability_manifest_digest: string;
     compute_basis_digest: string;
     compute_basis_jcs: string;
+    compute_approved: boolean;
     component_digest: string;
     deadline_millis: string;
     fuel_limit: string;
@@ -1068,7 +1135,7 @@ async function executionRecord(
     table_limit: string;
   }>(
     `SELECT budget_class_id, capability_ids, capability_manifest_digest,
-            compute_basis_digest, compute_basis_jcs, component_digest,
+            compute_approved, compute_basis_digest, compute_basis_jcs, component_digest,
             deadline_millis::text, fuel_limit::text, instance_limit::text,
             memory_limit::text, memory_limit_bytes::text, membership_id,
             policy_catalog_digest, release_digest, started_actor_id,
@@ -1084,6 +1151,7 @@ async function executionRecord(
     budgetClassId: row.budget_class_id,
     capabilityIds: row.capability_ids,
     capabilityManifestDigest: row.capability_manifest_digest,
+    computeApproved: row.compute_approved,
     computeBasisDigest: row.compute_basis_digest,
     computeBasisJcs: row.compute_basis_jcs,
     componentDigest: row.component_digest,

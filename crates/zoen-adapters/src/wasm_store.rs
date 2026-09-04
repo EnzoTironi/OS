@@ -153,7 +153,7 @@ pub(crate) async fn replay_completed_execution(
         "SELECT request_digest, invocation_digest, membership_id,
                 compute_basis_digest, compute_basis_jcs, release_digest,
                 policy_catalog_digest, budget_class_id, budget_resource_id,
-                execute_action_id, compute_operation, authorized_at_micros,
+                execute_action_id, compute_operation, compute_approved, authorized_at_micros,
                 compute_policy_id, compute_policy_digest, compute_policy_revision,
                 compute_determining_policies, fuel_limit, memory_limit_bytes,
                 table_element_limit, instance_limit, table_limit, memory_limit,
@@ -252,6 +252,7 @@ fn validate_stored_basis(
         || row_text(row, "budget_resource_id")? != basis.budget_resource_id()
         || row_text(row, "execute_action_id")? != basis.action_id()
         || row_text(row, "compute_operation")? != basis.operation()
+        || row_bool(row, "compute_approved")? != basis.approved()
         || row_i64(row, "authorized_at_micros")? != basis.authorized_at_micros()
         || row_text(row, "compute_policy_id")? != basis.policy_id()
         || row_text(row, "compute_policy_digest")? != basis.policy_digest()
@@ -298,6 +299,11 @@ fn row_text(row: &sqlx::postgres::PgRow, column: &str) -> Result<String, Computa
 
 fn row_i64(row: &sqlx::postgres::PgRow, column: &str) -> Result<i64, ComputationError> {
     row.try_get::<i64, _>(column)
+        .map_err(|error| ComputationError::Store(error.to_string()))
+}
+
+fn row_bool(row: &sqlx::postgres::PgRow, column: &str) -> Result<bool, ComputationError> {
+    row.try_get::<bool, _>(column)
         .map_err(|error| ComputationError::Store(error.to_string()))
 }
 
@@ -364,7 +370,7 @@ async fn insert_execution(
             started_workload_id, membership_id, compute_basis_digest,
             compute_basis_jcs, release_digest, policy_catalog_digest,
             budget_class_id, budget_resource_id, execute_action_id,
-            compute_operation, authorized_at_micros, compute_policy_id,
+            compute_operation, compute_approved, authorized_at_micros, compute_policy_id,
             compute_policy_digest, compute_policy_revision,
             compute_determining_policies, status
          ) VALUES (
@@ -377,8 +383,8 @@ async fn insert_execution(
             $23, $24, $25,
             $26, $27, $28,
             $29, $30, $31,
-            $32, $33,
-            $34, 'running'
+            $32, $33, $34,
+            $35, 'running'
          )",
     )
     .bind(context.world_id().as_str())
@@ -424,6 +430,7 @@ async fn insert_execution(
     .bind(basis.budget_resource_id())
     .bind(basis.action_id())
     .bind(basis.operation())
+    .bind(basis.approved())
     .bind(basis.authorized_at_micros())
     .bind(basis.policy_id())
     .bind(basis.policy_digest())

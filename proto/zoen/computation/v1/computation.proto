@@ -107,6 +107,7 @@ message ComputeBasis {
   uint64 policy_revision = 16;
   repeated string determining_policies = 17;
   string explanation_jcs = 18;
+  bool approved = 19;
 }
 
 enum ProgramActionStatus {

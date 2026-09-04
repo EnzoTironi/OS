@@ -16,6 +16,8 @@ ADD COLUMN execute_action_id TEXT NOT NULL
     CHECK (execute_action_id = 'zoen.world.execute'),
 ADD COLUMN compute_operation TEXT NOT NULL
     CHECK (compute_operation = 'execute'),
+ADD COLUMN compute_approved BOOLEAN NOT NULL
+    CHECK (compute_approved),
 ADD COLUMN authorized_at_micros BIGINT NOT NULL,
 ADD COLUMN compute_policy_id TEXT NOT NULL,
 ADD COLUMN compute_policy_digest CHAR(64) NOT NULL
@@ -62,6 +64,7 @@ BEGIN
         OR OLD.budget_resource_id <> NEW.budget_resource_id
         OR OLD.execute_action_id <> NEW.execute_action_id
         OR OLD.compute_operation <> NEW.compute_operation
+        OR OLD.compute_approved <> NEW.compute_approved
         OR OLD.authorized_at_micros <> NEW.authorized_at_micros
         OR OLD.compute_policy_id <> NEW.compute_policy_id
         OR OLD.compute_policy_digest <> NEW.compute_policy_digest

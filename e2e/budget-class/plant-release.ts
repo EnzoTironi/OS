@@ -88,8 +88,16 @@ when {
 const kernelAuthorityDigest =
   "3dfddf9c946656d9ce19ccaacecba5db3d284417c1c3f1f9d0ee710163e42dfc";
 
-function computePolicy(world: string): AuthorizationPolicy {
+function computePolicy(
+  world: string,
+  budgets: BudgetClassSpec[],
+): AuthorizationPolicy {
   const actionId = "zoen.world.execute";
+  const resources = [...new Set(budgets.map((budget) => budget.resourceId))].sort();
+  assert.ok(resources.length > 0, "compute policy requires at least one BudgetClass resource");
+  const resourcePredicate = resources
+    .map((resource) => `resource == Zoen::Resource::${JSON.stringify(resource)}`)
+    .join(" ||\n        ");
   const source = `permit (
     principal,
     action == Action::"execute",
@@ -97,8 +105,10 @@ function computePolicy(world: string): AuthorizationPolicy {
 )
 when {
     context.actionId == "${actionId}" &&
+    context.approved == true &&
     context.tenantId == ${JSON.stringify(world)} &&
-    principal in Zoen::Tenant::${JSON.stringify(world)}
+    principal in Zoen::Tenant::${JSON.stringify(world)} &&
+    (${resourcePredicate})
 };
 `;
   return {
@@ -127,7 +137,7 @@ function buildPolicyCatalog(
       policy.actionId !== "zoen.world.execute" ||
       policy.definitionDigest !== kernelAuthorityDigest,
   );
-  policies.push(computePolicy(world));
+  policies.push(computePolicy(world, budgets));
   const allPolicies = [...policies, ...releaseAuthorityPolicies()];
   const bytes = `${JSON.stringify({
     schema: "zoen.policy-catalog.v1",
