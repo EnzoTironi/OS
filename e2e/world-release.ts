@@ -94,7 +94,7 @@ when {
 
 const alphaPolicy = buildPolicyCatalog({});
 const alphaBytes: CatalogBytes = {
-  ontology: "ontology catalog for world.alpha v1\n",
+  ontology: "{\"label\":\"world.alpha.v1\",\"publicVerbs\":[\"Discover\",\"Query\",\"Propose\",\"Decide\",\"Commit\",\"Explain\",\"Execute\"],\"schema\":\"zoen.ontology-catalog.v1\"}\n",
   policy: alphaPolicy.bytes,
   executors: "executor catalog for world.alpha v1\n",
   components: "component catalog for world.alpha v1\n",
@@ -102,7 +102,7 @@ const alphaBytes: CatalogBytes = {
 
 const secondBytes: CatalogBytes = {
   ...alphaBytes,
-  ontology: "ontology catalog for world.alpha v2\n",
+  ontology: "{\"label\":\"world.alpha.v2\",\"publicVerbs\":[\"Discover\",\"Query\",\"Propose\",\"Decide\",\"Commit\",\"Explain\",\"Execute\"],\"schema\":\"zoen.ontology-catalog.v1\"}\n",
 };
 
 const recoveryBytes: CatalogBytes = {
@@ -1072,7 +1072,7 @@ async function main(): Promise<void> {
   // Stale preview: capture preview while recovery is active, replace active, then decide/activate fail
   const staleBytes: CatalogBytes = {
     ...alphaBytes,
-    ontology: "ontology catalog for stale preview\n",
+    ontology: "{\"label\":\"stale.preview\",\"publicVerbs\":[\"Discover\",\"Query\",\"Propose\",\"Decide\",\"Commit\",\"Explain\",\"Execute\"],\"schema\":\"zoen.ontology-catalog.v1\"}\n",
   };
   const stalePath = await writeContent(
     "stale.json",
@@ -1094,7 +1094,7 @@ async function main(): Promise<void> {
   );
   const moverBytes: CatalogBytes = {
     ...alphaBytes,
-    ontology: "ontology catalog that moves active pointer\n",
+    ontology: "{\"label\":\"mover\",\"publicVerbs\":[\"Discover\",\"Query\",\"Propose\",\"Decide\",\"Commit\",\"Explain\",\"Execute\"],\"schema\":\"zoen.ontology-catalog.v1\"}\n",
   };
   const moverPath = await writeContent(
     "mover.json",
@@ -1134,7 +1134,7 @@ async function main(): Promise<void> {
   assert.equal(freshStaleDecide.status, 0, freshStaleDecide.stderr);
   const mover2Bytes: CatalogBytes = {
     ...alphaBytes,
-    ontology: "ontology catalog that moves active again\n",
+    ontology: "{\"label\":\"mover2\",\"publicVerbs\":[\"Discover\",\"Query\",\"Propose\",\"Decide\",\"Commit\",\"Explain\",\"Execute\"],\"schema\":\"zoen.ontology-catalog.v1\"}\n",
   };
   const mover2Path = await writeContent(
     "mover2.json",

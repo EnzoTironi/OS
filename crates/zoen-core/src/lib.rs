@@ -86,12 +86,12 @@ pub use pack::{
 };
 pub use world_release::{
     ComponentCatalog, ComponentCatalogDigest, ExecutorCatalog, ExecutorCatalogDigest,
-    OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest,
+    OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest, PublicVerb,
     ReleaseCatalogSnapshot, ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest,
-    WORLD_POLICY_CATALOG_SCHEMA, WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA, WorldId,
-    WorldRelease, WorldReleaseCatalogs, WorldReleaseContent, WorldReleaseDecision,
-    WorldReleaseError, WorldReleasePreview, WorldReleasePreviewContent, WorldReleasePublication,
-    principal_may_activate, principal_may_decide, principal_may_publish,
+    WORLD_ONTOLOGY_CATALOG_SCHEMA, WORLD_POLICY_CATALOG_SCHEMA, WORLD_RELEASE_PREVIEW_SCHEMA,
+    WORLD_RELEASE_SCHEMA, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseContent,
+    WorldReleaseDecision, WorldReleaseError, WorldReleasePreview, WorldReleasePreviewContent,
+    WorldReleasePublication, principal_may_activate, principal_may_decide, principal_may_publish,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

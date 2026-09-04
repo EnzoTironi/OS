@@ -891,3 +891,65 @@ fn write_json_string(out: &mut String, text: &str) {
     }
     out.push('"');
 }
+
+/// Schema tag for the public-verb ontology catalog blob (§8.3 / W2-05).
+pub const WORLD_ONTOLOGY_CATALOG_SCHEMA: &str = "zoen.ontology-catalog.v1";
+
+/// The seven public verbs on the governed catalog.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PublicVerb {
+    Discover,
+    Query,
+    Propose,
+    Decide,
+    Commit,
+    Explain,
+    Execute,
+}
+
+impl PublicVerb {
+    pub const ALL: [Self; 7] = [
+        Self::Discover,
+        Self::Query,
+        Self::Propose,
+        Self::Decide,
+        Self::Commit,
+        Self::Explain,
+        Self::Execute,
+    ];
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Discover => "Discover",
+            Self::Query => "Query",
+            Self::Propose => "Propose",
+            Self::Decide => "Decide",
+            Self::Commit => "Commit",
+            Self::Explain => "Explain",
+            Self::Execute => "Execute",
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Returns the input when it is not one of the seven public verbs.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "Discover" => Ok(Self::Discover),
+            "Query" => Ok(Self::Query),
+            "Propose" => Ok(Self::Propose),
+            "Decide" => Ok(Self::Decide),
+            "Commit" => Ok(Self::Commit),
+            "Explain" => Ok(Self::Explain),
+            "Execute" => Ok(Self::Execute),
+            other => Err(format!("unknown public verb {other}")),
+        }
+    }
+}
+
+impl Display for PublicVerb {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
