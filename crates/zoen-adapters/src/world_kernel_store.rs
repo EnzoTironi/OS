@@ -3,34 +3,46 @@
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
 use zoen_core::{
-    ActionId, ActorId, Clearance, DefinitionDigest, DefinitionId, DefinitionReference,
-    DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, PrincipalId,
-    PublicVerb, ReleaseDigest, ResourceId, TenantId, TrustedExecutionContext, WorkloadId, WorldId,
-    encode_hex, principal_may_activate, principal_may_publish,
+    ActionId, ActorId, DefinitionDigest, DefinitionId, DefinitionReference,
+    DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence, PrincipalId,
+    PublicVerb, ReleaseDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
+    WORLD_KERNEL_AUTHORITY_DEFINITION, WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST,
+    WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId, encode_hex,
 };
 use zoen_engine::{
     DEFAULT_QUERY_BUDGET, GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision,
     KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
-    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
-    KernelSurface, PolicyOperation, PolicyRequest, SealedCursorBasis, bind_sealed_cursor,
-    directory_projection, effective_page_limit, resolve_budget_id, seal_next,
+    KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt, KernelSurface,
+    PolicyOperation, PolicyRequest, SealedCursorBasis, bind_sealed_cursor, directory_projection,
+    effective_page_limit, resolve_budget_id, seal_next,
 };
 
 use crate::{
-    PostgresWorldReleaseStore, clock_micros, ontology_catalog::require_loadable_ontology_catalog,
+    PostgresIdentityStore, PostgresWorldReleaseStore, clock_micros,
+    ontology_catalog::require_loadable_ontology_catalog,
     release_cedar::require_loadable_policy_catalog,
 };
 
 #[derive(Clone)]
 pub struct PostgresWorldKernel {
+    identity: PostgresIdentityStore,
     releases: PostgresWorldReleaseStore,
     pool: PgPool,
+}
+
+struct AuthorizedVerb {
+    context: TrustedExecutionContext,
+    policy: PolicyEvidence,
 }
 
 impl PostgresWorldKernel {
     #[must_use]
     pub fn new(releases: PostgresWorldReleaseStore, pool: PgPool) -> Self {
-        Self { releases, pool }
+        Self {
+            identity: PostgresIdentityStore::new(pool.clone()),
+            releases,
+            pool,
+        }
     }
 
     /// Discover the seven public verbs on the active governed catalog.
@@ -43,16 +55,16 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
+        membership: &MembershipId,
         surface: KernelSurface,
     ) -> Result<KernelDiscoverResult, KernelError> {
         let basis = self.catalog_basis(world).await?;
-        let decision = self
-            .authorize_verb(world, principal, &basis, PublicVerb::Discover)
+        self.authorize_verb(world, principal, membership, &basis, PublicVerb::Discover)
             .await?;
         Ok(KernelDiscoverResult {
             basis,
             surface,
-            decision,
+            decision: KernelPolicyDecision::Permit,
         })
     }
 
@@ -65,24 +77,16 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
+        membership: &MembershipId,
         surface: KernelSurface,
     ) -> Result<KernelDiscoverResult, KernelError> {
         let basis = self.catalog_basis(world).await?;
-        let decision = self
-            .authorize_verb(world, principal, &basis, PublicVerb::Query)
+        self.authorize_verb(world, principal, membership, &basis, PublicVerb::Query)
             .await?;
-        if matches!(decision, KernelPolicyDecision::Deny) {
-            return Err(KernelError::Denied(
-                "query denied by active-release policy".to_owned(),
-            ));
-        }
-        if let KernelPolicyDecision::Error(message) = &decision {
-            return Err(KernelError::Denied(message.clone()));
-        }
         Ok(KernelDiscoverResult {
             basis,
             surface,
-            decision,
+            decision: KernelPolicyDecision::Permit,
         })
     }
 
@@ -95,39 +99,45 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
+        membership: &MembershipId,
         proposal_id: &str,
         input_jcs: &str,
         surface: KernelSurface,
     ) -> Result<(KernelProposal, KernelSurface), KernelError> {
         let _ = surface;
         let basis = self.catalog_basis(world).await?;
-        match self
-            .authorize_verb(world, principal, &basis, PublicVerb::Propose)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
-                return Err(KernelError::Denied(
-                    "propose denied by active-release policy".to_owned(),
-                ));
-            }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
+        let authority = self
+            .authorize_verb(world, principal, membership, &basis, PublicVerb::Propose)
+            .await?;
         let preview_hash = preview_hash(&basis.release_digest, input_jcs);
         let proposed_at = clock_micros();
+        let policy_revision = policy_revision_i64(&authority.policy)?;
         let inserted = sqlx::query(
             "INSERT INTO world_kernel_proposals (
-                proposal_id, world_id, release_digest, principal_id, input_jcs,
-                preview_hash, proposed_at_micros
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                proposal_id, world_id, release_digest, principal_id, membership_id,
+                actor_id, workload_id, action_id, input_jcs, preview_hash,
+                policy_id, policy_digest, policy_revision, determining_policies,
+                proposed_at_micros
+             ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15
+             )
              ON CONFLICT (world_id, preview_hash) DO NOTHING",
         )
         .bind(proposal_id)
         .bind(world.as_str())
         .bind(basis.release_digest.as_str())
         .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(authority.context.actor_id().as_str())
+        .bind(authority.context.workload_id().as_str())
+        .bind(PublicVerb::Propose.action_id())
         .bind(input_jcs)
         .bind(&preview_hash)
+        .bind(authority.policy.revision.id.as_str())
+        .bind(authority.policy.revision.digest.as_str())
+        .bind(policy_revision)
+        .bind(&authority.policy.determining_policies)
         .bind(proposed_at)
         .execute(&self.pool)
         .await
@@ -139,9 +149,9 @@ impl PostgresWorldKernel {
                 .ok_or_else(|| {
                     KernelError::Conflict("proposal preview collision without row".to_owned())
                 })?;
-            if existing.principal.as_str() != principal.as_str() {
+            if existing.principal != *principal || existing.membership != *membership {
                 return Err(KernelError::Denied(
-                    "proposal replay principal does not match original".to_owned(),
+                    "proposal replay authority does not match original".to_owned(),
                 ));
             }
             return Ok((existing, surface));
@@ -152,6 +162,9 @@ impl PostgresWorldKernel {
                 world: world.clone(),
                 release_digest: basis.release_digest,
                 principal: principal.clone(),
+                membership: membership.clone(),
+                actor: authority.context.actor_id().clone(),
+                workload: authority.context.workload_id().clone(),
                 preview_hash,
                 input_jcs: input_jcs.to_owned(),
             },
@@ -169,6 +182,7 @@ impl PostgresWorldKernel {
         &self,
         proposal_id: &str,
         principal: &PrincipalId,
+        membership: &MembershipId,
         outcome: KernelDecisionOutcome,
         surface: KernelSurface,
     ) -> Result<(KernelDecision, KernelSurface), KernelError> {
@@ -176,33 +190,25 @@ impl PostgresWorldKernel {
         let proposal = self.get_proposal(proposal_id).await?.ok_or_else(|| {
             KernelError::NotFound(format!("proposal {proposal_id} was not found"))
         })?;
-        if !principal_may_activate(principal) {
-            return Err(KernelError::Denied(
-                "only the World owner may Decide".to_owned(),
-            ));
-        }
         let basis = self.catalog_basis(&proposal.world).await?;
         if basis.release_digest != proposal.release_digest {
             return Err(KernelError::Conflict(
                 "proposal release is not the active WorldRelease".to_owned(),
             ));
         }
-        match self
-            .authorize_verb(&proposal.world, principal, &basis, PublicVerb::Decide)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
-                return Err(KernelError::Denied(
-                    "decide denied by active-release policy".to_owned(),
-                ));
-            }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
+        let authority = self
+            .authorize_verb(
+                &proposal.world,
+                principal,
+                membership,
+                &basis,
+                PublicVerb::Decide,
+            )
+            .await?;
         if let Some(existing) = self.get_decision(proposal_id).await? {
-            if existing.principal.as_str() != principal.as_str() {
+            if existing.principal != *principal || existing.membership != *membership {
                 return Err(KernelError::Denied(
-                    "decision replay principal does not match original".to_owned(),
+                    "decision replay authority does not match original".to_owned(),
                 ));
             }
             if existing.outcome != outcome {
@@ -213,14 +219,25 @@ impl PostgresWorldKernel {
             return Ok((existing, surface));
         }
         let decided_at = clock_micros();
+        let policy_revision = policy_revision_i64(&authority.policy)?;
         sqlx::query(
             "INSERT INTO world_kernel_decisions (
-                proposal_id, principal_id, outcome, decided_at_micros
-             ) VALUES ($1, $2, $3, $4)",
+                proposal_id, principal_id, membership_id, actor_id, workload_id,
+                action_id, outcome, policy_id, policy_digest, policy_revision,
+                determining_policies, decided_at_micros
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         )
         .bind(proposal_id)
         .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(authority.context.actor_id().as_str())
+        .bind(authority.context.workload_id().as_str())
+        .bind(PublicVerb::Decide.action_id())
         .bind(outcome.as_str())
+        .bind(authority.policy.revision.id.as_str())
+        .bind(authority.policy.revision.digest.as_str())
+        .bind(policy_revision)
+        .bind(&authority.policy.determining_policies)
         .bind(decided_at)
         .execute(&self.pool)
         .await
@@ -229,6 +246,9 @@ impl PostgresWorldKernel {
             KernelDecision {
                 proposal_id: proposal_id.to_owned(),
                 principal: principal.clone(),
+                membership: membership.clone(),
+                actor: authority.context.actor_id().clone(),
+                workload: authority.context.workload_id().clone(),
                 outcome,
             },
             surface,
@@ -244,6 +264,7 @@ impl PostgresWorldKernel {
         &self,
         proposal_id: &str,
         principal: &PrincipalId,
+        membership: &MembershipId,
         surface: KernelSurface,
     ) -> Result<(KernelReceipt, KernelSurface), KernelError> {
         let _ = surface;
@@ -265,34 +286,56 @@ impl PostgresWorldKernel {
                 "proposal release is not the active WorldRelease".to_owned(),
             ));
         }
-        match self
-            .authorize_verb(&proposal.world, principal, &basis, PublicVerb::Commit)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
+        let authority = self
+            .authorize_verb(
+                &proposal.world,
+                principal,
+                membership,
+                &basis,
+                PublicVerb::Commit,
+            )
+            .await?;
+        if let Some(existing) = self.get_receipt(proposal_id).await? {
+            if existing.principal != *principal || existing.membership != *membership {
                 return Err(KernelError::Denied(
-                    "commit denied by active-release policy".to_owned(),
+                    "commit replay authority does not match original".to_owned(),
                 ));
             }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
-        if let Some(existing) = self.get_receipt(proposal_id).await? {
             return Ok((existing, surface));
         }
         let committed_at = clock_micros();
         let receipt_id = format!("receipt.kernel.{proposal_id}");
-        let explanation_jcs =
-            explanation_jcs(&proposal, &decision, &receipt_id, &basis.release_digest);
+        let explanation_jcs = explanation_jcs(
+            &proposal,
+            &decision,
+            principal,
+            membership,
+            &receipt_id,
+            &basis.release_digest,
+        )?;
+        let policy_revision = policy_revision_i64(&authority.policy)?;
         sqlx::query(
             "INSERT INTO world_kernel_receipts (
-                proposal_id, receipt_id, release_digest, explanation_jcs, committed_at_micros
-             ) VALUES ($1, $2, $3, $4, $5)",
+                proposal_id, receipt_id, release_digest, principal_id, membership_id,
+                actor_id, workload_id, action_id, explanation_jcs, policy_id,
+                policy_digest, policy_revision, determining_policies, committed_at_micros
+             ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+             )",
         )
         .bind(proposal_id)
         .bind(&receipt_id)
         .bind(basis.release_digest.as_str())
+        .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(authority.context.actor_id().as_str())
+        .bind(authority.context.workload_id().as_str())
+        .bind(PublicVerb::Commit.action_id())
         .bind(&explanation_jcs)
+        .bind(authority.policy.revision.id.as_str())
+        .bind(authority.policy.revision.digest.as_str())
+        .bind(policy_revision)
+        .bind(&authority.policy.determining_policies)
         .bind(committed_at)
         .execute(&self.pool)
         .await
@@ -302,6 +345,10 @@ impl PostgresWorldKernel {
                 proposal_id: proposal_id.to_owned(),
                 receipt_id,
                 release_digest: basis.release_digest,
+                principal: principal.clone(),
+                membership: membership.clone(),
+                actor: authority.context.actor_id().clone(),
+                workload: authority.context.workload_id().clone(),
                 explanation_jcs,
             },
             surface,
@@ -317,6 +364,7 @@ impl PostgresWorldKernel {
         &self,
         receipt_id: &str,
         principal: &PrincipalId,
+        membership: &MembershipId,
         surface: KernelSurface,
     ) -> Result<KernelExplanation, KernelError> {
         let receipt = self
@@ -330,18 +378,14 @@ impl PostgresWorldKernel {
                 KernelError::NotFound("proposal for receipt was not found".to_owned())
             })?;
         let basis = self.catalog_basis(&proposal.world).await?;
-        match self
-            .authorize_verb(&proposal.world, principal, &basis, PublicVerb::Explain)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
-                return Err(KernelError::Denied(
-                    "explain denied by active-release policy".to_owned(),
-                ));
-            }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
+        self.authorize_verb(
+            &proposal.world,
+            principal,
+            membership,
+            &basis,
+            PublicVerb::Explain,
+        )
+        .await?;
         Ok(KernelExplanation {
             receipt_id: receipt.receipt_id,
             proposal_id: receipt.proposal_id,
@@ -360,6 +404,7 @@ impl PostgresWorldKernel {
         &self,
         receipt_id: &str,
         principal: &PrincipalId,
+        membership: &MembershipId,
         surface: KernelSurface,
     ) -> Result<(KernelExecution, KernelSurface), KernelError> {
         let _ = surface;
@@ -379,31 +424,45 @@ impl PostgresWorldKernel {
                 "receipt release is not the active WorldRelease".to_owned(),
             ));
         }
-        match self
-            .authorize_verb(&proposal.world, principal, &basis, PublicVerb::Execute)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
+        let authority = self
+            .authorize_verb(
+                &proposal.world,
+                principal,
+                membership,
+                &basis,
+                PublicVerb::Execute,
+            )
+            .await?;
+        if let Some(existing) = self.get_execution(receipt_id).await? {
+            if existing.principal != *principal || existing.membership != *membership {
                 return Err(KernelError::Denied(
-                    "execute denied by active-release policy".to_owned(),
+                    "execute replay authority does not match original".to_owned(),
                 ));
             }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
-        if let Some(existing) = self.get_execution(receipt_id).await? {
             return Ok((existing, surface));
         }
         let executed_at = clock_micros();
         let execution_id = format!("execution.kernel.{receipt_id}");
+        let policy_revision = policy_revision_i64(&authority.policy)?;
         sqlx::query(
             "INSERT INTO world_kernel_executions (
-                receipt_id, execution_id, release_digest, executed_at_micros
-             ) VALUES ($1, $2, $3, $4)",
+                receipt_id, execution_id, release_digest, principal_id, membership_id,
+                actor_id, workload_id, action_id, policy_id, policy_digest,
+                policy_revision, determining_policies, executed_at_micros
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(receipt_id)
         .bind(&execution_id)
         .bind(basis.release_digest.as_str())
+        .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(authority.context.actor_id().as_str())
+        .bind(authority.context.workload_id().as_str())
+        .bind(PublicVerb::Execute.action_id())
+        .bind(authority.policy.revision.id.as_str())
+        .bind(authority.policy.revision.digest.as_str())
+        .bind(policy_revision)
+        .bind(&authority.policy.determining_policies)
         .bind(executed_at)
         .execute(&self.pool)
         .await
@@ -413,80 +472,13 @@ impl PostgresWorldKernel {
                 receipt_id: receipt_id.to_owned(),
                 execution_id,
                 release_digest: basis.release_digest,
+                principal: principal.clone(),
+                membership: membership.clone(),
+                actor: authority.context.actor_id().clone(),
+                workload: authority.context.workload_id().clone(),
             },
             surface,
         ))
-    }
-
-    /// Plant an immutable governed object and principal/membership grants.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when the World has no active release, policy denies,
-    /// or the store fails.
-    pub async fn plant_object(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        object: &KernelPlantObject,
-    ) -> Result<(), KernelError> {
-        let basis = self.catalog_basis(world).await?;
-        match self
-            .authorize_verb(world, principal, &basis, PublicVerb::Propose)
-            .await?
-        {
-            KernelPolicyDecision::Permit => {}
-            KernelPolicyDecision::Deny => {
-                return Err(KernelError::Denied(
-                    "plant-object denied by active-release policy".to_owned(),
-                ));
-            }
-            KernelPolicyDecision::Error(message) => return Err(KernelError::Denied(message)),
-        }
-        if !principal_may_publish(principal) && !principal_may_activate(principal) {
-            return Err(KernelError::Denied(
-                "only builder or owner may plant governed objects".to_owned(),
-            ));
-        }
-        let planted_at = clock_micros();
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        sqlx::query(
-            "INSERT INTO world_kernel_objects (
-                world_id, object_type, object_id, fields_jcs, planted_at_micros
-             ) VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(world.as_str())
-        .bind(&object.object_type)
-        .bind(&object.object_id)
-        .bind(&object.fields_jcs)
-        .bind(planted_at)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        for grant in &object.grants {
-            sqlx::query(
-                "INSERT INTO world_kernel_object_grants (
-                    world_id, object_type, object_id, principal_id, membership_id
-                 ) VALUES ($1, $2, $3, $4, $5)",
-            )
-            .bind(world.as_str())
-            .bind(&object.object_type)
-            .bind(&object.object_id)
-            .bind(grant.principal.as_str())
-            .bind(&grant.membership)
-            .execute(&mut *tx)
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        }
-        tx.commit()
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let _ = basis;
-        Ok(())
     }
 
     /// Authorize before discovery, page only the entitled set, and seal the cursor.
@@ -499,7 +491,7 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
-        membership: &str,
+        membership: &MembershipId,
         object_type: &str,
         page_token: &str,
         requested_limit: u32,
@@ -507,17 +499,8 @@ impl PostgresWorldKernel {
         surface: KernelSurface,
     ) -> Result<KernelQueryPage, KernelError> {
         let basis = self.catalog_basis(world).await?;
-        let decision = self
-            .authorize_query_principal(world, principal, membership, &basis)
+        self.authorize_verb(world, principal, membership, &basis, PublicVerb::Query)
             .await?;
-        if matches!(decision, KernelPolicyDecision::Deny) {
-            return Err(KernelError::Denied(
-                "query denied by active-release policy".to_owned(),
-            ));
-        }
-        if let KernelPolicyDecision::Error(message) = &decision {
-            return Err(KernelError::Denied(message.clone()));
-        }
         let budget_id = resolve_budget_id(requested_budget)
             .map_err(|error| KernelError::Denied(error.to_string()))?
             .to_owned();
@@ -525,7 +508,7 @@ impl PostgresWorldKernel {
             .map_err(|error| KernelError::Denied(error.to_string()))?;
         let seal_basis = SealedCursorBasis {
             authority_principal: principal.as_str().to_owned(),
-            membership: membership.to_owned(),
+            membership: membership.as_str().to_owned(),
             world: world.as_str().to_owned(),
             object_type: object_type.to_owned(),
             release_digest: basis.release_digest.as_str().to_owned(),
@@ -566,17 +549,23 @@ impl PostgresWorldKernel {
             String::new()
         };
         let compute_digest = server_budgeted_compute(&objects);
-        let explanation_jcs = format!(
-            "{{\"authorizedCount\":{authorized_count},\"budgetId\":\"{budget_id}\",\"decision\":\"permit\",\"membership\":\"{membership}\",\"objectType\":\"{object_type}\",\"policyDigest\":\"{}\",\"principal\":\"{}\",\"releaseDigest\":\"{}\",\"scannedUnauthorized\":false}}",
-            basis.policy.as_str(),
-            principal.as_str(),
-            basis.release_digest.as_str(),
-        );
+        let explanation_jcs = serde_jcs::to_string(&serde_json::json!({
+            "authorizedCount": authorized_count,
+            "budgetId": budget_id.as_str(),
+            "decision": "permit",
+            "membership": membership.as_str(),
+            "objectType": object_type,
+            "policyDigest": basis.policy.as_str(),
+            "principal": principal.as_str(),
+            "releaseDigest": basis.release_digest.as_str(),
+            "scannedUnauthorized": false,
+        }))
+        .map_err(|error| KernelError::Store(error.to_string()))?;
         Ok(KernelQueryPage {
             basis,
             surface,
-            decision,
-            membership: membership.to_owned(),
+            decision: KernelPolicyDecision::Permit,
+            membership: membership.clone(),
             object_type: object_type.to_owned(),
             budget_id,
             page_limit,
@@ -588,43 +577,11 @@ impl PostgresWorldKernel {
         })
     }
 
-    async fn authorize_query_principal(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        membership: &str,
-        basis: &GovernedCatalogBasis,
-    ) -> Result<KernelPolicyDecision, KernelError> {
-        if principal_may_publish(principal) || principal_may_activate(principal) {
-            return self
-                .authorize_verb(world, principal, basis, PublicVerb::Query)
-                .await;
-        }
-        // Clinic human/agent: Discover/Query permitted only when membership grants exist.
-        let granted = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*)::bigint FROM world_kernel_object_grants
-             WHERE world_id = $1 AND principal_id = $2 AND membership_id = $3",
-        )
-        .bind(world.as_str())
-        .bind(principal.as_str())
-        .bind(membership)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        if granted == 0 {
-            return Ok(KernelPolicyDecision::Deny);
-        }
-        // Still evaluate release policy with Query verb for builders' catalog rules.
-        // Entitled members receive Permit once grants exist under the active release.
-        let _ = basis;
-        Ok(KernelPolicyDecision::Permit)
-    }
-
     async fn count_authorized_objects(
         &self,
         world: &WorldId,
         principal: &PrincipalId,
-        membership: &str,
+        membership: &MembershipId,
         object_type: &str,
     ) -> Result<u32, KernelError> {
         let count = sqlx::query_scalar::<_, i64>(
@@ -637,7 +594,7 @@ impl PostgresWorldKernel {
         .bind(world.as_str())
         .bind(object_type)
         .bind(principal.as_str())
-        .bind(membership)
+        .bind(membership.as_str())
         .fetch_one(&self.pool)
         .await
         .map_err(|error| KernelError::Store(error.to_string()))?;
@@ -648,7 +605,7 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
-        membership: &str,
+        membership: &MembershipId,
         object_type: &str,
         after: Option<&str>,
     ) -> Result<Vec<KernelAuthorizedObject>, KernelError> {
@@ -670,7 +627,7 @@ impl PostgresWorldKernel {
             .bind(world.as_str())
             .bind(object_type)
             .bind(principal.as_str())
-            .bind(membership)
+            .bind(membership.as_str())
             .bind(after_id)
             .fetch_all(&self.pool)
             .await
@@ -691,7 +648,7 @@ impl PostgresWorldKernel {
             .bind(world.as_str())
             .bind(object_type)
             .bind(principal.as_str())
-            .bind(membership)
+            .bind(membership.as_str())
             .fetch_all(&self.pool)
             .await
         }
@@ -747,14 +704,34 @@ impl PostgresWorldKernel {
         &self,
         world: &WorldId,
         principal: &PrincipalId,
+        membership: &MembershipId,
         basis: &GovernedCatalogBasis,
         verb: PublicVerb,
-    ) -> Result<KernelPolicyDecision, KernelError> {
-        let _ = verb;
-        let operation = PolicyOperation::Discover;
-        if !(principal_may_publish(principal) || principal_may_activate(principal)) {
-            return Ok(KernelPolicyDecision::Deny);
-        }
+    ) -> Result<AuthorizedVerb, KernelError> {
+        let action = ActionId::parse(verb.action_id())
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        let resource = ResourceId::parse(WORLD_KERNEL_AUTHORITY_RESOURCE)
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        let tenant = TenantId::parse(world.as_str())
+            .map_err(|error| KernelError::Store(error.to_string()))?;
+        let context = self
+            .identity
+            .resolve_membership_authority(
+                membership,
+                &tenant,
+                principal,
+                &action,
+                &resource,
+                TimestampMicros::new(clock_micros()),
+            )
+            .await
+            .map_err(|_| {
+                KernelError::Denied(format!(
+                    "{} denied: Membership does not authorize {} in this World",
+                    verb.as_str(),
+                    verb.action_id(),
+                ))
+            })?;
         let catalogs = self
             .releases
             .get_catalogs(&basis.release_digest)
@@ -765,22 +742,15 @@ impl PostgresWorldKernel {
             })?;
         let evaluator = require_loadable_policy_catalog(catalogs.policy().bytes())
             .map_err(|error| KernelError::Conflict(error.to_string()))?;
-        let action = ActionId::parse("zoen.world.discover")
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let resource = ResourceId::parse("resource.world")
-            .map_err(|error| KernelError::Store(error.to_string()))?;
         let definition = DefinitionReference {
-            definition_id: DefinitionId::parse("definition.world")
+            definition_id: DefinitionId::parse(WORLD_KERNEL_AUTHORITY_DEFINITION)
                 .map_err(|error| KernelError::Store(error.to_string()))?,
-            digest: DefinitionDigest::parse(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
+            digest: DefinitionDigest::parse(WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST)
+                .map_err(|error| KernelError::Store(error.to_string()))?,
             revision: DefinitionRevisionNumber::new(1).ok_or_else(|| {
                 KernelError::Store("definition revision must be positive".to_owned())
             })?,
         };
-        let context = kernel_context(world, principal, &action, &resource)?;
         let projection = directory_projection(&context, &resource).map_err(KernelError::Store)?;
         match evaluator.evaluate_request(&PolicyRequest {
             action_id: &action,
@@ -789,22 +759,27 @@ impl PostgresWorldKernel {
             context: &context,
             definition: &definition,
             inputs: &[],
-            operation,
+            operation: kernel_policy_operation(verb),
             projection: Some(&projection),
             resource_id: &resource,
             written_classification: None,
         }) {
-            zoen_core::PolicyEvaluation::Permit(_) => Ok(KernelPolicyDecision::Permit),
-            zoen_core::PolicyEvaluation::Deny(_) => Ok(KernelPolicyDecision::Deny),
-            zoen_core::PolicyEvaluation::EvaluationError { message, .. } => {
-                Ok(KernelPolicyDecision::Error(message))
-            }
+            PolicyEvaluation::Permit(policy) => Ok(AuthorizedVerb { context, policy }),
+            PolicyEvaluation::Deny(_) => Err(KernelError::Denied(format!(
+                "{} denied by active-release policy",
+                verb.as_str(),
+            ))),
+            PolicyEvaluation::EvaluationError { message, .. } => Err(KernelError::Denied(format!(
+                "{} policy evaluation failed: {message}",
+                verb.as_str()
+            ))),
         }
     }
 
     async fn get_proposal(&self, proposal_id: &str) -> Result<Option<KernelProposal>, KernelError> {
         let row = sqlx::query(
-            "SELECT proposal_id, world_id, release_digest, principal_id, input_jcs, preview_hash
+            "SELECT proposal_id, world_id, release_digest, principal_id, membership_id,
+                    actor_id, workload_id, input_jcs, preview_hash
              FROM world_kernel_proposals WHERE proposal_id = $1",
         )
         .bind(proposal_id)
@@ -820,7 +795,8 @@ impl PostgresWorldKernel {
         preview_hash: &str,
     ) -> Result<Option<KernelProposal>, KernelError> {
         let row = sqlx::query(
-            "SELECT proposal_id, world_id, release_digest, principal_id, input_jcs, preview_hash
+            "SELECT proposal_id, world_id, release_digest, principal_id, membership_id,
+                    actor_id, workload_id, input_jcs, preview_hash
              FROM world_kernel_proposals
              WHERE world_id = $1 AND preview_hash = $2",
         )
@@ -834,7 +810,7 @@ impl PostgresWorldKernel {
 
     async fn get_decision(&self, proposal_id: &str) -> Result<Option<KernelDecision>, KernelError> {
         let row = sqlx::query(
-            "SELECT proposal_id, principal_id, outcome
+            "SELECT proposal_id, principal_id, membership_id, actor_id, workload_id, outcome
              FROM world_kernel_decisions WHERE proposal_id = $1",
         )
         .bind(proposal_id)
@@ -846,7 +822,8 @@ impl PostgresWorldKernel {
 
     async fn get_receipt(&self, proposal_id: &str) -> Result<Option<KernelReceipt>, KernelError> {
         let row = sqlx::query(
-            "SELECT proposal_id, receipt_id, release_digest, explanation_jcs
+            "SELECT proposal_id, receipt_id, release_digest, principal_id, membership_id,
+                    actor_id, workload_id, explanation_jcs
              FROM world_kernel_receipts WHERE proposal_id = $1",
         )
         .bind(proposal_id)
@@ -861,7 +838,8 @@ impl PostgresWorldKernel {
         receipt_id: &str,
     ) -> Result<Option<KernelReceipt>, KernelError> {
         let row = sqlx::query(
-            "SELECT proposal_id, receipt_id, release_digest, explanation_jcs
+            "SELECT proposal_id, receipt_id, release_digest, principal_id, membership_id,
+                    actor_id, workload_id, explanation_jcs
              FROM world_kernel_receipts WHERE receipt_id = $1",
         )
         .bind(receipt_id)
@@ -876,7 +854,8 @@ impl PostgresWorldKernel {
         receipt_id: &str,
     ) -> Result<Option<KernelExecution>, KernelError> {
         let row = sqlx::query(
-            "SELECT receipt_id, execution_id, release_digest
+            "SELECT receipt_id, execution_id, release_digest, principal_id, membership_id,
+                    actor_id, workload_id
              FROM world_kernel_executions WHERE receipt_id = $1",
         )
         .bind(receipt_id)
@@ -907,6 +886,21 @@ fn row_to_proposal(row: &PgRow) -> Result<KernelProposal, KernelError> {
                 .map_err(|error| KernelError::Store(error.to_string()))?,
         )
         .map_err(|error| KernelError::Store(error.to_string()))?,
+        membership: MembershipId::parse(
+            row.try_get::<String, _>("membership_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        actor: ActorId::parse(
+            row.try_get::<String, _>("actor_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        workload: WorkloadId::parse(
+            row.try_get::<String, _>("workload_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
         preview_hash: row
             .try_get::<String, _>("preview_hash")
             .map_err(|error| KernelError::Store(error.to_string()))?,
@@ -923,6 +917,21 @@ fn row_to_decision(row: &PgRow) -> Result<KernelDecision, KernelError> {
             .map_err(|error| KernelError::Store(error.to_string()))?,
         principal: PrincipalId::parse(
             row.try_get::<String, _>("principal_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        membership: MembershipId::parse(
+            row.try_get::<String, _>("membership_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        actor: ActorId::parse(
+            row.try_get::<String, _>("actor_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        workload: WorkloadId::parse(
+            row.try_get::<String, _>("workload_id")
                 .map_err(|error| KernelError::Store(error.to_string()))?,
         )
         .map_err(|error| KernelError::Store(error.to_string()))?,
@@ -947,6 +956,26 @@ fn row_to_receipt(row: &PgRow) -> Result<KernelReceipt, KernelError> {
                 .map_err(|error| KernelError::Store(error.to_string()))?,
         )
         .map_err(|error| KernelError::Store(error.to_string()))?,
+        principal: PrincipalId::parse(
+            row.try_get::<String, _>("principal_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        membership: MembershipId::parse(
+            row.try_get::<String, _>("membership_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        actor: ActorId::parse(
+            row.try_get::<String, _>("actor_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        workload: WorkloadId::parse(
+            row.try_get::<String, _>("workload_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
         explanation_jcs: row
             .try_get::<String, _>("explanation_jcs")
             .map_err(|error| KernelError::Store(error.to_string()))?,
@@ -966,6 +995,26 @@ fn row_to_execution(row: &PgRow) -> Result<KernelExecution, KernelError> {
                 .map_err(|error| KernelError::Store(error.to_string()))?,
         )
         .map_err(|error| KernelError::Store(error.to_string()))?,
+        principal: PrincipalId::parse(
+            row.try_get::<String, _>("principal_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        membership: MembershipId::parse(
+            row.try_get::<String, _>("membership_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        actor: ActorId::parse(
+            row.try_get::<String, _>("actor_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
+        workload: WorkloadId::parse(
+            row.try_get::<String, _>("workload_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        )
+        .map_err(|error| KernelError::Store(error.to_string()))?,
     })
 }
 
@@ -980,22 +1029,31 @@ fn preview_hash(release: &ReleaseDigest, input_jcs: &str) -> String {
 fn explanation_jcs(
     proposal: &KernelProposal,
     decision: &KernelDecision,
+    committed_by: &PrincipalId,
+    committed_membership: &MembershipId,
     receipt_id: &str,
     release: &ReleaseDigest,
-) -> String {
-    format!(
-        "{{\"decision\":\"{}\",\"principal\":{},\"proposalId\":{},\"receiptId\":{},\"releaseDigest\":{},\"schema\":\"zoen.kernel-explanation.v1\"}}",
-        decision.outcome.as_str(),
-        json_str(decision.principal.as_str()),
-        json_str(&proposal.proposal_id),
-        json_str(receipt_id),
-        json_str(release.as_str()),
-    )
-}
-
-fn json_str(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
+) -> Result<String, KernelError> {
+    serde_jcs::to_string(&serde_json::json!({
+        "commit": {
+            "membership": committed_membership.as_str(),
+            "principal": committed_by.as_str(),
+        },
+        "decision": {
+            "membership": decision.membership.as_str(),
+            "outcome": decision.outcome.as_str(),
+            "principal": decision.principal.as_str(),
+        },
+        "proposal": {
+            "membership": proposal.membership.as_str(),
+            "principal": proposal.principal.as_str(),
+            "proposalId": proposal.proposal_id.as_str(),
+        },
+        "receiptId": receipt_id,
+        "releaseDigest": release.as_str(),
+        "schema": "zoen.kernel-explanation.v2",
+    }))
+    .map_err(|error| KernelError::Store(error.to_string()))
 }
 
 fn map_release(error: impl std::fmt::Display) -> KernelError {
@@ -1012,31 +1070,19 @@ fn server_budgeted_compute(objects: &[KernelAuthorizedObject]) -> String {
     encode_hex(hasher.finalize().as_slice())
 }
 
-fn kernel_context(
-    world: &WorldId,
-    principal: &PrincipalId,
-    action: &ActionId,
-    resource: &ResourceId,
-) -> Result<TrustedExecutionContext, KernelError> {
-    let workload = WorkloadId::parse("workload.world-kernel")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let grant = DelegationGrant::new(
-        DelegationId::parse("delegation.world-kernel")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        std::collections::BTreeSet::from([action.clone()]),
-        std::collections::BTreeSet::from([resource.clone()]),
-        std::collections::BTreeSet::from([workload.clone()]),
-        zoen_core::TimestampMicros::new(0),
-        zoen_core::TimestampMicros::new(i64::MAX),
-    )
-    .map_err(|error| KernelError::Store(error.to_string()))?;
-    Ok(TrustedExecutionContext::new(
-        TenantId::parse(world.as_str()).map_err(|error| KernelError::Store(error.to_string()))?,
-        ActorId::parse("actor.world-kernel")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        principal.clone(),
-        workload,
-        DelegationChain::new(vec![grant]).map_err(|error| KernelError::Store(error.to_string()))?,
-        Clearance::personal_owner(),
-    ))
+fn kernel_policy_operation(verb: PublicVerb) -> PolicyOperation {
+    match verb {
+        PublicVerb::Discover => PolicyOperation::Discover,
+        PublicVerb::Query => PolicyOperation::Query,
+        PublicVerb::Propose => PolicyOperation::Propose,
+        PublicVerb::Decide => PolicyOperation::Decide,
+        PublicVerb::Commit => PolicyOperation::Commit,
+        PublicVerb::Explain => PolicyOperation::Explain,
+        PublicVerb::Execute => PolicyOperation::Execute,
+    }
+}
+
+fn policy_revision_i64(policy: &PolicyEvidence) -> Result<i64, KernelError> {
+    i64::try_from(policy.revision.revision.get())
+        .map_err(|_| KernelError::Store("policy revision exceeds PostgreSQL bigint".to_owned()))
 }

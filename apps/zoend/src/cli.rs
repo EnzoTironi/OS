@@ -550,7 +550,7 @@ pub enum Command {
     },
     /// Seven public verbs on the active `WorldRelease` catalog
     #[command(
-        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --surface cli"
+        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --membership membership.alpha.owner"
     )]
     Kernel {
         #[command(subcommand)]
@@ -610,15 +610,15 @@ pub enum WorldCommand {
 pub(crate) enum KernelCommand {
     /// Discover the seven public verbs on the active governed catalog
     #[command(
-        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --surface cli"
+        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --membership membership.alpha.owner"
     )]
     Discover {
         #[arg(long)]
         world: String,
         #[arg(long)]
         principal: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
+        #[arg(long)]
+        membership: String,
     },
     /// Query the active catalog basis, or page sealed entitled objects
     Query {
@@ -627,7 +627,7 @@ pub(crate) enum KernelCommand {
         #[arg(long)]
         principal: String,
         #[arg(long)]
-        membership: Option<String>,
+        membership: String,
         #[arg(long = "type")]
         object_type: Option<String>,
         #[arg(long)]
@@ -636,25 +636,6 @@ pub(crate) enum KernelCommand {
         limit: Option<u32>,
         #[arg(long = "budget-class")]
         budget_class: Option<String>,
-        #[arg(long, default_value = "cli")]
-        surface: String,
-    },
-    /// Plant an immutable governed object with principal:membership grants
-    PlantObject {
-        #[arg(long)]
-        world: String,
-        #[arg(long)]
-        principal: String,
-        #[arg(long = "type")]
-        object_type: String,
-        #[arg(long = "object-id")]
-        object_id: String,
-        #[arg(long)]
-        fields: String,
-        #[arg(long = "grant", num_args = 0..)]
-        grants: Vec<String>,
-        #[arg(long, default_value = "cli")]
-        surface: String,
     },
     /// Propose a catalog-bound operation
     Propose {
@@ -663,11 +644,11 @@ pub(crate) enum KernelCommand {
         #[arg(long)]
         principal: String,
         #[arg(long)]
+        membership: String,
+        #[arg(long)]
         proposal_id: String,
         #[arg(long)]
         input: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
     },
     /// Decide approve|reject on a proposal (own principal)
     Decide {
@@ -676,9 +657,9 @@ pub(crate) enum KernelCommand {
         #[arg(long)]
         principal: String,
         #[arg(long)]
+        membership: String,
+        #[arg(long)]
         decision: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
     },
     /// Commit an approved proposal
     Commit {
@@ -686,8 +667,8 @@ pub(crate) enum KernelCommand {
         proposal_id: String,
         #[arg(long)]
         principal: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
+        #[arg(long)]
+        membership: String,
     },
     /// Explain a commit receipt
     Explain {
@@ -695,8 +676,8 @@ pub(crate) enum KernelCommand {
         receipt_id: String,
         #[arg(long)]
         principal: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
+        #[arg(long)]
+        membership: String,
     },
     /// Execute after commit
     Execute {
@@ -704,8 +685,8 @@ pub(crate) enum KernelCommand {
         receipt_id: String,
         #[arg(long)]
         principal: String,
-        #[arg(long, default_value = "cli")]
-        surface: String,
+        #[arg(long)]
+        membership: String,
     },
 }
 
@@ -1577,27 +1558,21 @@ fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
 async fn run_kernel_command(
     command: KernelCommand,
 ) -> Result<crate::kernel_cli::KernelCliResult, Box<dyn Error + Send + Sync>> {
-    let (surface, inner) = map_kernel_command(command)?;
-    crate::kernel_cli::run(surface, inner).await
+    crate::kernel_cli::run(zoen_engine::KernelSurface::Cli, map_kernel_command(command)).await
 }
 
-fn map_kernel_command(
-    command: KernelCommand,
-) -> Result<
-    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
-    Box<dyn Error + Send + Sync>,
-> {
+fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelCommand {
     use crate::kernel_cli::KernelCommand as K;
-    use zoen_engine::KernelSurface;
-    Ok(match command {
+    match command {
         KernelCommand::Discover {
             world,
             principal,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Discover { world, principal },
-        ),
+            membership,
+        } => K::Discover {
+            world,
+            principal,
+            membership,
+        },
         KernelCommand::Query {
             world,
             principal,
@@ -1606,118 +1581,67 @@ fn map_kernel_command(
             cursor,
             limit,
             budget_class,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Query {
-                world,
-                principal,
-                membership,
-                object_type,
-                cursor,
-                limit,
-                budget_class,
-            },
-        ),
-        KernelCommand::PlantObject {
+        } => K::Query {
             world,
             principal,
+            membership,
             object_type,
-            object_id,
-            fields,
-            grants,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::PlantObject {
-                world,
-                principal,
-                object_type,
-                object_id,
-                fields,
-                grants,
-            },
-        ),
-        other => map_kernel_lifecycle_command(other)?,
-    })
-}
-
-fn map_kernel_lifecycle_command(
-    command: KernelCommand,
-) -> Result<
-    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
-    Box<dyn Error + Send + Sync>,
-> {
-    use crate::kernel_cli::KernelCommand as K;
-    use zoen_engine::KernelSurface;
-    Ok(match command {
+            cursor,
+            limit,
+            budget_class,
+        },
         KernelCommand::Propose {
             world,
             principal,
+            membership,
             proposal_id,
             input,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Propose {
-                world,
-                principal,
-                proposal_id,
-                input,
-            },
-        ),
+        } => K::Propose {
+            world,
+            principal,
+            membership,
+            proposal_id,
+            input,
+        },
         KernelCommand::Decide {
             proposal_id,
             principal,
+            membership,
             decision,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Decide {
-                proposal_id,
-                principal,
-                decision,
-            },
-        ),
+        } => K::Decide {
+            proposal_id,
+            principal,
+            membership,
+            decision,
+        },
         KernelCommand::Commit {
             proposal_id,
             principal,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Commit {
-                proposal_id,
-                principal,
-            },
-        ),
+            membership,
+        } => K::Commit {
+            proposal_id,
+            principal,
+            membership,
+        },
         KernelCommand::Explain {
             receipt_id,
             principal,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Explain {
-                receipt_id,
-                principal,
-            },
-        ),
+            membership,
+        } => K::Explain {
+            receipt_id,
+            principal,
+            membership,
+        },
         KernelCommand::Execute {
             receipt_id,
             principal,
-            surface,
-        } => (
-            KernelSurface::parse(&surface)?,
-            K::Execute {
-                receipt_id,
-                principal,
-            },
-        ),
-        KernelCommand::Discover { .. }
-        | KernelCommand::Query { .. }
-        | KernelCommand::PlantObject { .. } => {
-            return Err("internal: read verb reached lifecycle mapper".into());
-        }
-    })
+            membership,
+        } => K::Execute {
+            receipt_id,
+            principal,
+            membership,
+        },
+    }
 }
 
 fn map_kernel_result(result: &crate::kernel_cli::KernelCliResult) -> CommandResult {

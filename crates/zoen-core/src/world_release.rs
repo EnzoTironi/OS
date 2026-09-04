@@ -13,6 +13,11 @@ use crate::{
 pub const WORLD_RELEASE_SCHEMA: &str = "zoen.world-release.v1";
 pub const WORLD_RELEASE_PREVIEW_SCHEMA: &str = "zoen.world-release-preview.v1";
 pub const WORLD_POLICY_CATALOG_SCHEMA: &str = "zoen.policy-catalog.v1";
+pub const WORLD_KERNEL_AUTHORITY_DEFINITION: &str = "zoen.world.kernel.authority";
+/// SHA-256 of the stable authority domain `zoen.world-kernel-authority.v1`.
+pub const WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST: &str =
+    "3dfddf9c946656d9ce19ccaacecba5db3d284417c1c3f1f9d0ee710163e42dfc";
+pub const WORLD_KERNEL_AUTHORITY_RESOURCE: &str = "zoen.world.kernel";
 pub const WORLD_RELEASE_PUBLISH_ACTION: &str = "zoen.world.release.publish";
 pub const WORLD_RELEASE_PREVIEW_ACTION: &str = "zoen.world.release.preview";
 pub const WORLD_RELEASE_DECIDE_ACTION: &str = "zoen.world.release.decide";
@@ -937,6 +942,19 @@ impl PublicVerb {
             Self::Commit => "Commit",
             Self::Explain => "Explain",
             Self::Execute => "Execute",
+        }
+    }
+
+    #[must_use]
+    pub fn action_id(self) -> &'static str {
+        match self {
+            Self::Discover => "zoen.world.discover",
+            Self::Query => "zoen.world.query",
+            Self::Propose => "zoen.world.propose",
+            Self::Decide => "zoen.world.decide",
+            Self::Commit => "zoen.world.commit",
+            Self::Explain => "zoen.world.explain",
+            Self::Execute => "zoen.world.execute",
         }
     }
 
