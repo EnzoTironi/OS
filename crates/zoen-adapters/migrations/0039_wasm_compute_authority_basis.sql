@@ -29,7 +29,7 @@ ADD CONSTRAINT wasm_execution_authority_digests_are_sha256
             || release_digest::TEXT
             || policy_catalog_digest::TEXT
             || compute_policy_digest::TEXT
-        ) ~ '^[0-9a-f]{320}$'
+        ) ~ '^([0-9a-f]{64}){5}$'
     );
 
 CREATE OR REPLACE FUNCTION restrict_wasm_execution_mutation()
