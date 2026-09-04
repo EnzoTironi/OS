@@ -23,6 +23,13 @@ import {
   e2ePort,
   writeScenarioArtifact,
 } from "./host-env.js";
+import {
+  provisionWorldReleaseActors,
+  releaseAuthorityPolicies,
+  SEVEN_VERBS,
+  type ReleaseAuthorizationPolicy,
+  type WorldReleaseActors,
+} from "./kernel-world-support.js";
 import { gitHead } from "./scenario-evidence.js";
 
 const scenario = "one-fly-image";
@@ -43,8 +50,31 @@ const workerIdentity = {
 } as const;
 const assertions: Record<string, boolean> = {};
 const failureInjections: string[] = [];
+const worldReleaseFile = "/data/zoen/e2e/one-fly-world-release.json";
 
 type DefinitionClient = Client<typeof DefinitionService>;
+
+interface CommandResult {
+  status: number;
+  stderr: string;
+  stdout: string;
+}
+
+interface WorldReleaseFixture {
+  actors: WorldReleaseActors;
+  digest: string;
+  policyCatalogDigest: string;
+  previewDigest: string;
+}
+
+interface WorldReleaseState {
+  activeDigest: string | null;
+  authorizationCount: number;
+  decisionCount: number;
+  previewCount: number;
+  publicationCount: number;
+  releaseCount: number;
+}
 
 function observe(name: string, condition: boolean): void {
   assert.ok(condition, name);
@@ -86,6 +116,329 @@ function compose(args: readonly string[], input?: string): string {
 
 function containerExec(args: readonly string[], input?: string): string {
   return compose(["exec", "-T", "zoen", ...args], input);
+}
+
+function containerExecResult(
+  args: readonly string[],
+  input?: string,
+): CommandResult {
+  try {
+    return { status: 0, stderr: "", stdout: containerExec(args, input) };
+  } catch (error) {
+    const failure = error as {
+      status?: number | null;
+      stderr?: string | Buffer;
+      stdout?: string | Buffer;
+    };
+    return {
+      status: failure.status ?? 1,
+      stderr: String(failure.stderr ?? ""),
+      stdout: String(failure.stdout ?? ""),
+    };
+  }
+}
+
+function parseJsonObject(text: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(text) as unknown;
+  assert.ok(
+    typeof parsed === "object" && parsed !== null && !Array.isArray(parsed),
+    `${label} must be a JSON object`,
+  );
+  return parsed as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
+function runWorldReleaseCli(args: readonly string[]): Record<string, unknown> {
+  const result = containerExecResult([
+    "/usr/local/bin/zoen",
+    "world",
+    "release",
+    ...args,
+  ]);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return parseJsonObject(result.stdout, `zoen world release ${args[0] ?? ""}`);
+}
+
+function bootPolicyEntries(): ReleaseAuthorizationPolicy[] {
+  const manifest = parseJsonObject(
+    containerExec(["cat", "/etc/zoen/policies.json"]),
+    "one-Fly boot policy manifest",
+  );
+  assert.ok(Array.isArray(manifest.policies));
+  return manifest.policies.map((value, index) => {
+    assert.ok(
+      typeof value === "object" && value !== null && !Array.isArray(value),
+      `boot policy ${index} must be an object`,
+    );
+    const entry = value as Record<string, unknown>;
+    const source = requiredString(entry.source, `boot policy ${index} source`);
+    const digest = requiredString(entry.digest, `boot policy ${index} digest`);
+    assert.equal(digest, sha256(source), `boot policy ${index} digest`);
+    assert.equal(
+      Number.isSafeInteger(entry.revision) && Number(entry.revision) > 0,
+      true,
+      `boot policy ${index} revision`,
+    );
+    return {
+      actionId: requiredString(
+        entry.actionId,
+        `boot policy ${index} actionId`,
+      ),
+      definitionDigest: requiredString(
+        entry.definitionDigest,
+        `boot policy ${index} definitionDigest`,
+      ),
+      digest,
+      policyId: requiredString(
+        entry.policyId,
+        `boot policy ${index} policyId`,
+      ),
+      revision: Number(entry.revision),
+      source,
+    };
+  });
+}
+
+function worldReleaseDocument(bootPolicies: ReleaseAuthorizationPolicy[]): {
+  content: string;
+  policyCatalogDigest: string;
+} {
+  const policies = [...bootPolicies, ...releaseAuthorityPolicies()];
+  const keys = policies.map(
+    ({ actionId, definitionDigest }) => `${definitionDigest}:${actionId}`,
+  );
+  assert.equal(new Set(keys).size, keys.length, "policy bindings must be unique");
+  const policy = `${JSON.stringify({
+    schema: "zoen.policy-catalog.v1",
+    authorization: { policies },
+    membershipDelegation: [],
+    sourceAdmission: [],
+    computeBudgets: [],
+  })}\n`;
+  const content = `${JSON.stringify({
+    world: tenantA,
+    parent: null,
+    ontology: {
+      bytes: `${JSON.stringify({
+        label: "tenant.a.one-fly",
+        publicVerbs: [...SEVEN_VERBS],
+        schema: "zoen.ontology-catalog.v1",
+      })}\n`,
+    },
+    policy: { bytes: policy },
+    executors: { bytes: "one-Fly ExecutorCatalog v1\n" },
+    components: { bytes: "one-Fly ComponentCatalog v1\n" },
+  })}\n`;
+  return { content, policyCatalogDigest: sha256(policy) };
+}
+
+function writeWorldReleaseDocument(content: string): void {
+  containerExec(
+    [
+      "sh",
+      "-c",
+      `umask 077; mkdir -p /data/zoen/e2e; cat > ${worldReleaseFile}; chmod 600 ${worldReleaseFile}`,
+    ],
+    content,
+  );
+}
+
+async function worldReleaseState(
+  admin: PostgresClient,
+  world: string,
+): Promise<WorldReleaseState> {
+  const result = await admin.query<{
+    active_digest: string | null;
+    authorization_count: string;
+    decision_count: string;
+    preview_count: string;
+    publication_count: string;
+    release_count: string;
+  }>(
+    `SELECT
+       (SELECT digest FROM world_active_releases WHERE world_id = $1) AS active_digest,
+       (SELECT COUNT(*)::text FROM world_releases WHERE world_id = $1) AS release_count,
+       (SELECT COUNT(*)::text
+          FROM world_release_publications publication
+          JOIN world_releases release ON release.digest = publication.digest
+         WHERE release.world_id = $1) AS publication_count,
+       (SELECT COUNT(*)::text FROM world_release_previews WHERE world_id = $1) AS preview_count,
+       (SELECT COUNT(*)::text FROM world_release_decisions WHERE world_id = $1) AS decision_count,
+       (SELECT COUNT(*)::text FROM world_release_authorizations WHERE world_id = $1) AS authorization_count`,
+    [world],
+  );
+  const row = result.rows[0];
+  assert.ok(row);
+  return {
+    activeDigest: row.active_digest,
+    authorizationCount: Number(row.authorization_count),
+    decisionCount: Number(row.decision_count),
+    previewCount: Number(row.preview_count),
+    publicationCount: Number(row.publication_count),
+    releaseCount: Number(row.release_count),
+  };
+}
+
+async function plantActiveWorldRelease(
+  admin: PostgresClient,
+): Promise<WorldReleaseFixture> {
+  const bootPolicies = bootPolicyEntries();
+  const releasePolicies = releaseAuthorityPolicies();
+  const document = worldReleaseDocument(bootPolicies);
+  writeWorldReleaseDocument(document.content);
+  observe(
+    "worldReleasePolicyCatalogRetainsExactBootPolicies",
+    bootPolicies.length > 0 &&
+      bootPolicies.every((entry) => entry.digest === sha256(entry.source)),
+  );
+  observe(
+    "worldReleasePolicyCatalogAddsReleaseAuthority",
+    releasePolicies.length === 4 &&
+      releasePolicies.every((entry) => entry.digest === sha256(entry.source)),
+  );
+
+  const actors = await provisionWorldReleaseActors({
+    baseUrl,
+    subjectKey: "one-fly",
+    world: tenantA,
+  });
+  observe(
+    "worldReleaseUsesDistinctDurableBuilderAndOwnerMemberships",
+    actors.builder.membership !== actors.owner.membership &&
+      actors.builder.principal !== actors.owner.principal,
+  );
+
+  const constructed = runWorldReleaseCli(["construct", "--file", worldReleaseFile]);
+  const digest = requiredString(constructed.digest, "WorldRelease digest");
+  observe(
+    "worldReleaseDigestBindsFourCatalogs",
+    digest.length === 64 &&
+      [
+        constructed.ontology,
+        constructed.policy,
+        constructed.executors,
+        constructed.components,
+      ].every((catalogDigest) =>
+        /^[0-9a-f]{64}$/.test(requiredString(catalogDigest, "catalog digest")),
+      ) &&
+      constructed.policy === document.policyCatalogDigest,
+  );
+
+  const published = runWorldReleaseCli([
+    "publish",
+    "--file",
+    worldReleaseFile,
+    "--principal",
+    actors.builder.principal,
+    "--membership",
+    actors.builder.membership,
+  ]);
+  const publication = published.publication as Record<string, unknown> | undefined;
+  observe(
+    "worldReleasePublicationStoresBuilderPolicyEvidence",
+    published.digest === digest &&
+      published.replay === false &&
+      publication?.publishedBy === actors.builder.principal &&
+      typeof publication.policy === "object",
+  );
+
+  const previewed = runWorldReleaseCli([
+    "preview",
+    "--world",
+    tenantA,
+    "--digest",
+    digest,
+    "--principal",
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
+  ]);
+  const previewDigest = requiredString(
+    previewed.previewDigest,
+    "WorldRelease preview digest",
+  );
+  observe(
+    "worldReleaseOwnerPreviewsFirstActiveCandidate",
+    previewed.digest === digest &&
+      previewed.world === tenantA &&
+      previewed.currentActive === null &&
+      previewed.replay === false,
+  );
+
+  const decided = runWorldReleaseCli([
+    "decide",
+    "--preview-digest",
+    previewDigest,
+    "--principal",
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
+    "--decision",
+    "approve",
+  ]);
+  observe(
+    "worldReleaseOwnerApprovesPreview",
+    decided.decision === "approve" &&
+      decided.decidedBy === actors.owner.principal &&
+      decided.previewDigest === previewDigest &&
+      decided.replay === false,
+  );
+
+  const activated = runWorldReleaseCli([
+    "activate",
+    "--world",
+    tenantA,
+    "--digest",
+    digest,
+    "--preview-digest",
+    previewDigest,
+    "--principal",
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
+  ]);
+  observe(
+    "worldReleaseOwnerActivatesGovernedCandidate",
+    activated.activated === true &&
+      activated.digest === digest &&
+      activated.previousDigest === null &&
+      activated.replay === false &&
+      activated.world === tenantA,
+  );
+
+  const beforeReplay = await worldReleaseState(admin, tenantA);
+  const replayed = runWorldReleaseCli([
+    "activate",
+    "--world",
+    tenantA,
+    "--digest",
+    digest,
+    "--preview-digest",
+    previewDigest,
+    "--principal",
+    actors.owner.principal,
+    "--membership",
+    actors.owner.membership,
+  ]);
+  const afterReplay = await worldReleaseState(admin, tenantA);
+  observe(
+    "worldReleaseActivationReplayReturnsOriginalWithoutDuplicateState",
+    replayed.replay === true &&
+      replayed.digest === digest &&
+      JSON.stringify(afterReplay) === JSON.stringify(beforeReplay),
+  );
+  return {
+    actors,
+    digest,
+    policyCatalogDigest: document.policyCatalogDigest,
+    previewDigest,
+  };
 }
 
 async function waitFor(
@@ -275,7 +628,7 @@ async function main(): Promise<void> {
       tenantId: tenantA,
     });
     observe(
-      "commercialWorldReleaseActivated",
+      "commercialDefinitionRevisionActivated",
       commercialActive.definitionRevision?.digest === commercial.digest,
     );
     const personalActive = await agent.getActiveRevision({
@@ -283,7 +636,7 @@ async function main(): Promise<void> {
       tenantId: tenantA,
     });
     observe(
-      "personalWorldReleaseActivated",
+      "personalDefinitionRevisionActivated",
       personalActive.definitionRevision?.digest === personal.digest,
     );
 
@@ -300,7 +653,7 @@ async function main(): Promise<void> {
       [tenantA],
     );
     observe(
-      "candidatePublicationStoresPolicyEvidence",
+      "definitionPublicationStoresPolicyEvidence",
       stored.rows.length === 2 &&
         stored.rows.every(
           (row) =>
@@ -314,7 +667,7 @@ async function main(): Promise<void> {
       tenantId: tenantA,
     });
     observe(
-      "identicalCandidateReplayReturnsOriginal",
+      "identicalDefinitionCandidateReplayReturnsOriginal",
       replayed.publication?.revision?.digest === commercial.digest &&
         (await publicationCount(admin, tenantA)) === beforeReplay,
     );
@@ -336,7 +689,7 @@ async function main(): Promise<void> {
       "unboundCallerDeniedBeforeCommit",
       (await publicationCount(admin, tenantA)) === beforeReplay,
     );
-    inject("unbound membership publishes a WorldRelease");
+    inject("unbound membership publishes a DefinitionRevision");
 
     await expectConnectCode(
       () =>
@@ -368,10 +721,10 @@ async function main(): Promise<void> {
       Code.FailedPrecondition,
     );
     observe(
-      "missingPolicyFailsBeforeCommit",
+      "missingDefinitionPolicyFailsBeforeCommit",
       (await publicationCount(admin, tenantA)) === beforeReplay,
     );
-    inject("publish without matching Cedar evidence");
+    inject("publish DefinitionRevision without matching Cedar evidence");
 
     // Already-active digest is idempotent (#546); a stale expectedActiveDigest
     // must not move the pointer.
@@ -393,7 +746,17 @@ async function main(): Promise<void> {
       idempotent.activation?.active?.digest === commercial.digest &&
         stillActive.definitionRevision?.digest === commercial.digest,
     );
-    inject("stale expectedActiveDigest overwrites the pointer");
+    inject("stale expectedActiveDigest overwrites the DefinitionRevision pointer");
+
+    const readyBeforeRelease = await fetchText(`${baseUrl}/ready`);
+    observe(
+      "readyFailsClosedWithoutActiveWorldRelease",
+      readyBeforeRelease.status === 503 &&
+        readyBeforeRelease.body.includes("active WorldRelease is missing"),
+    );
+    inject("image reports ready without an active WorldRelease");
+
+    const worldRelease = await plantActiveWorldRelease(admin);
 
     const readyBeforeCredential = await fetchText(`${baseUrl}/ready`);
     observe(
@@ -401,9 +764,10 @@ async function main(): Promise<void> {
       readyBeforeCredential.status === 503 &&
         readyBeforeCredential.body.includes(
           "ZoenEffect handler registration is missing",
-        ),
+        ) &&
+        !readyBeforeCredential.body.includes("active WorldRelease is missing"),
     );
-    inject("empty volume reports ready before ZoenEffect registration");
+    inject("image reports ready before ZoenEffect registration");
 
     const apiKey = await issueWorkerCredential(agentToken);
     writeWorkerApiKey(apiKey);
@@ -483,6 +847,7 @@ async function main(): Promise<void> {
     );
 
     const publicationsBeforeRestart = await publicationCount(admin, tenantA);
+    const worldReleaseBeforeRestart = await worldReleaseState(admin, tenantA);
     await admin.end();
     compose(["restart", "zoen"]);
     await waitFor(async () => {
@@ -506,7 +871,7 @@ async function main(): Promise<void> {
         tenantId: tenantA,
       });
       observe(
-        "restartPreservesActiveRelease",
+        "restartPreservesActiveDefinitionRevision",
         recovered.definitionRevision?.digest === commercial.digest,
       );
       observe(
@@ -514,25 +879,123 @@ async function main(): Promise<void> {
         (await publicationCount(recoveredAdmin, tenantA)) ===
           publicationsBeforeRestart,
       );
+      const recoveredWorldRelease = runWorldReleaseCli([
+        "active",
+        "--world",
+        tenantA,
+      ]);
+      observe(
+        "restartPreservesActiveWorldReleaseAndFourCatalogBinding",
+        recoveredWorldRelease.digest === worldRelease.digest &&
+          recoveredWorldRelease.active === true &&
+          recoveredWorldRelease.policy === worldRelease.policyCatalogDigest,
+      );
+      const worldReleaseAfterRestart = await worldReleaseState(
+        recoveredAdmin,
+        tenantA,
+      );
+      observe(
+        "restartPreservesWorldReleaseAuthorityWithoutDuplicates",
+        JSON.stringify(worldReleaseAfterRestart) ===
+          JSON.stringify(worldReleaseBeforeRestart),
+      );
+      const replayAfterRestart = runWorldReleaseCli([
+        "activate",
+        "--world",
+        tenantA,
+        "--digest",
+        worldRelease.digest,
+        "--preview-digest",
+        worldRelease.previewDigest,
+        "--principal",
+        worldRelease.actors.owner.principal,
+        "--membership",
+        worldRelease.actors.owner.membership,
+      ]);
+      observe(
+        "restartReauthorizesWorldReleaseReplayWithoutMutation",
+        replayAfterRestart.replay === true &&
+          replayAfterRestart.digest === worldRelease.digest &&
+          JSON.stringify(await worldReleaseState(recoveredAdmin, tenantA)) ===
+            JSON.stringify(worldReleaseAfterRestart),
+      );
     } finally {
       await recoveredAdmin.end().catch(() => undefined);
     }
 
+    const canonicalJourneyVerdict = "NOT_EVALUATED" as const;
+    const journeyCoverage = {
+      J1: {
+        proofPending: [
+          "the RAT-04 atomic first-World bootstrap ceremony and one-shot capability removal",
+          "same-World non-builder, missing-candidate-policy, stale activation, and cross-World WorldRelease refusal in this production image",
+          "a crash between WorldRelease publication and activation followed by governed retry",
+        ],
+        proven: [
+          "distinct invited Builder and Owner Memberships govern production CLI publication, preview, decision, and activation",
+          "the active ReleaseDigest binds ontology, policy, executor, and component catalogs",
+          "identical activation reauthorizes the durable Owner Membership and creates no duplicate governed state",
+        ],
+        status: "SUBSTRATE_ONLY",
+      },
+      J8: {
+        proofPending: [
+          "broken Better Auth and a corrupt or stale active WorldRelease fail closed in this same image run",
+          "the complete J8 ceremony after W1-03, W1-04, and W1-06 canonical proof dependencies close",
+        ],
+        proven: [
+          "the image refuses readiness without an active WorldRelease and reaches readiness only after release, projection, Eve, and ZoenEffect authority are live",
+          "stopped projection, Eve, and ZoenEffect registration fail readiness closed and recover",
+          "application restart preserves the exact active four-catalog release, reauthorizes replay, and creates no duplicate release state",
+        ],
+        status: "SUBSTRATE_ONLY",
+      },
+    } as const;
+    observe(
+      "artifactDeclaresCanonicalJourneyBoundary",
+      canonicalJourneyVerdict === "NOT_EVALUATED" &&
+        journeyCoverage.J1.status === "SUBSTRATE_ONLY" &&
+        journeyCoverage.J8.status === "SUBSTRATE_ONLY" &&
+        journeyCoverage.J1.proofPending.length > 0 &&
+        journeyCoverage.J8.proofPending.length > 0,
+    );
+    const sourceCommit = gitHead(repositoryRoot);
     const artifactPath = await writeScenarioArtifact(
       repositoryRoot,
       scenario,
       {
         assertions,
+        canonicalJourneyVerdict,
+        dimensions: {
+          actors:
+            "a Better Auth-backed invited Builder Membership publishes; a distinct invited Owner Membership previews, decides, and activates through the production CLI",
+          isolation:
+            "the active release is bound to tenant.a while the projection process runs under a distinct least-privilege role without ambient authority credentials",
+          negative:
+            "missing active WorldRelease, stopped projection, missing Eve, and missing ZoenEffect registration fail readiness closed; DefinitionRevision policy and Membership denials remain covered separately",
+          path: "boot the production image from an empty volume → publish legacy lake DefinitionRevisions → publish, preview, approve, and activate one four-catalog WorldRelease → register ZoenEffect → /ready",
+          recovery:
+            "dependency processes recover, then an application restart returns /ready with the same active WorldRelease, DefinitionRevisions, and authority row counts",
+          replay:
+            "identical WorldRelease activation before and after restart reauthorizes the durable Owner Membership, reports replay, and leaves governed release state unchanged",
+        },
         failureInjections,
         finishedAt: new Date().toISOString(),
         image: process.env.ZOEN_ONE_FLY_IMAGE ?? "zoen:one-fly",
+        journeyCoverage,
         journeys: ["J1", "J8"],
         scenario,
+        sourceCommit,
         startedAt,
+        worldRelease: {
+          digest: worldRelease.digest,
+          policyCatalogDigest: worldRelease.policyCatalogDigest,
+          previewDigest: worldRelease.previewDigest,
+        },
       },
     );
     process.stdout.write(
-      `${scenario} PASS artifact=${artifactPath} head=${gitHead(repositoryRoot)}\n`,
+      `${scenario} PASS artifact=${artifactPath} head=${sourceCommit}\n`,
     );
   } finally {
     await admin.end().catch(() => undefined);
