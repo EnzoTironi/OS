@@ -1,15 +1,11 @@
 ALTER TABLE wasm_executions
-ADD COLUMN invocation_digest CHAR(64) NOT NULL
-    CHECK (invocation_digest ~ '^[0-9a-f]{64}$'),
+ADD COLUMN invocation_digest CHAR(64) NOT NULL,
 ADD COLUMN membership_id TEXT NOT NULL REFERENCES memberships (membership_id),
-ADD COLUMN compute_basis_digest CHAR(64) NOT NULL
-    CHECK (compute_basis_digest ~ '^[0-9a-f]{64}$'),
+ADD COLUMN compute_basis_digest CHAR(64) NOT NULL,
 ADD COLUMN compute_basis_jcs TEXT NOT NULL
     CHECK (compute_basis_jcs <> ''),
-ADD COLUMN release_digest CHAR(64) NOT NULL
-    CHECK (release_digest ~ '^[0-9a-f]{64}$'),
-ADD COLUMN policy_catalog_digest CHAR(64) NOT NULL
-    CHECK (policy_catalog_digest ~ '^[0-9a-f]{64}$'),
+ADD COLUMN release_digest CHAR(64) NOT NULL,
+ADD COLUMN policy_catalog_digest CHAR(64) NOT NULL,
 ADD COLUMN budget_class_id TEXT NOT NULL,
 ADD COLUMN budget_resource_id TEXT NOT NULL,
 ADD COLUMN execute_action_id TEXT NOT NULL
@@ -20,12 +16,21 @@ ADD COLUMN compute_approved BOOLEAN NOT NULL
     CHECK (compute_approved),
 ADD COLUMN authorized_at_micros BIGINT NOT NULL,
 ADD COLUMN compute_policy_id TEXT NOT NULL,
-ADD COLUMN compute_policy_digest CHAR(64) NOT NULL
-    CHECK (compute_policy_digest ~ '^[0-9a-f]{64}$'),
+ADD COLUMN compute_policy_digest CHAR(64) NOT NULL,
 ADD COLUMN compute_policy_revision BIGINT NOT NULL
     CHECK (compute_policy_revision > 0),
 ADD COLUMN compute_determining_policies TEXT[] NOT NULL
-    CHECK (cardinality(compute_determining_policies) > 0);
+    CHECK (cardinality(compute_determining_policies) > 0),
+ADD CONSTRAINT wasm_execution_authority_digests_are_sha256
+    CHECK (
+        (
+            invocation_digest::TEXT
+            || compute_basis_digest::TEXT
+            || release_digest::TEXT
+            || policy_catalog_digest::TEXT
+            || compute_policy_digest::TEXT
+        ) ~ '^[0-9a-f]{320}$'
+    );
 
 CREATE OR REPLACE FUNCTION restrict_wasm_execution_mutation()
 RETURNS TRIGGER

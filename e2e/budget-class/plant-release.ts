@@ -93,7 +93,9 @@ function computePolicy(
   budgets: BudgetClassSpec[],
 ): AuthorizationPolicy {
   const actionId = "zoen.world.execute";
-  const resources = [...new Set(budgets.map((budget) => budget.resourceId))].sort();
+  const resources = [...new Set(budgets.map((budget) => budget.resourceId))].sort(
+    (left, right) => left.localeCompare(right),
+  );
   assert.ok(resources.length > 0, "compute policy requires at least one BudgetClass resource");
   const resourcePredicate = resources
     .map((resource) => `resource == Zoen::Resource::${JSON.stringify(resource)}`)
