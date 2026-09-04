@@ -42,7 +42,7 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #676 | W2-03 | e7cfb16ba00e594bfb4543ad59474c6233881571 | 5d6134d4b0d4d97c8f493ed0c22fcf8416887da5 | 2026-09-04T03:58:36Z | journey-verified |
 | #678 | W2-04 | eb33b4162f061cdcee3858e164a9f834d54fd50d | 13395c50f2c4aa458497f01bb2350f49883a37e4 | 2026-09-04T05:04:46Z | journey-verified |
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04 with journey proof on main@4dc06a4, which is the recorded current main. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04. PRs #673–#678 completed W2-01 through W2-04 with journey proof on main@13395c50, which is the recorded current main. W1-06 and W1-07 remain queued for ledger rows. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

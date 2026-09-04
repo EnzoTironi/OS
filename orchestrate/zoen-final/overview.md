@@ -30,7 +30,7 @@ One active `WorldRelease` governs each World. Its content binds exactly four cat
 
 ## Program order
 
-W0-05 ratifies the governed-data contract. W1-03 is done through PR #625. W1-04 is journey-verified on main@`4dc06a4` after product PR #618. The remaining landing order is W1-06, then W2-01. W1-04 preserved `/live` and workload credential governance while it deleted Ontology Conversation and `whoCan`. W1-06 owns composite readiness; W2-01 then applies the private release contract across the combined runtime. Later units add typed identity, evidence selection, dense observation data, entitlements, the finance pack, and FIN-01 through FIN-09.
+W0-05 ratifies the governed-data contract. W1-03 is done through PR #625. W1-04 is journey-verified on main@`4dc06a4` after product PR #618. W2-01 through W2-04 are journey-verified and closed on main@`13395c50` after product PRs #673–#678. The remaining landing order is W2-05, W2-06, W2-07, W2-08, then W3-01. W1-06 and W1-07 stay queued until their own ledger rows exist. Later units add typed identity, evidence selection, dense observation data, entitlements, the finance pack, and FIN-01 through FIN-09.
 
 Do not accept semantic auto-merges in `workload_credential_store`, `identity_store`, the core library, or the Action engine. Review the combined invariants even when Git reports no text conflict.
 
