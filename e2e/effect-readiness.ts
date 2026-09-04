@@ -385,7 +385,6 @@ function eveNodeExecutable(): string {
     process.env.ZOEN_EVE_NODE,
     process.execPath,
     "/usr/local/node24/bin/node",
-    "/tmp/node24/node-v24.20.0-linux-x64/bin/node",
   ].filter((value): value is string => value !== undefined && value !== "");
   for (const candidate of candidates) {
     if (nodeMajor(candidate) >= eveNodeMajor) {
