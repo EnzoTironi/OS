@@ -21,6 +21,7 @@ mod evidence;
 mod evolution;
 mod history;
 mod human;
+mod kernel;
 pub mod metrics;
 mod migration;
 mod publication;
@@ -66,6 +67,11 @@ pub use human::{
     HumanPacketError, effect_payload_kind, encode_human_task_contract, is_human_executor_action,
     is_human_task_payload, mint_human_task_contract, mint_human_task_contract_payload,
     parse_human_task_contract, project_human_task_packet, request_digest_for_payload,
+};
+pub use kernel::{
+    GovernedCatalogBasis, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult, KernelError,
+    KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal, KernelReceipt,
+    KernelSurface,
 };
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,

@@ -37,6 +37,7 @@ use crate::{
 
 mod action_service;
 mod cli;
+mod kernel_cli;
 mod world_release_cli;
 mod session {
     pub use zoend::session::*;

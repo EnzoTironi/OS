@@ -32,6 +32,7 @@ scenario_table=(
   "governed-action:::live"
   "public-surface:::live"
   "world-release:::live"
+  "agent-parity:::live"
   "cli-dest:::live"
   "semantic-query:::live"
   "wasm-code-mode:::live"

@@ -8,7 +8,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 use zoen_adapters::{
     ActivatePut, DecisionPut, PostgresAuthorityStore, PostgresWorldReleaseStore, PreviewPut,
-    PublicationPut, require_loadable_policy_catalog,
+    PublicationPut, require_loadable_ontology_catalog, require_loadable_policy_catalog,
 };
 use zoen_core::{
     ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
@@ -136,6 +136,12 @@ async fn publish(
     let Some(catalogs) = parsed.catalogs else {
         return Ok(fail(2, "world release publish requires catalog bytes"));
     };
+    if let Err(error) = require_loadable_ontology_catalog(catalogs.ontology().bytes()) {
+        return Ok(fail(
+            1,
+            &format!("ontology catalog must declare the seven public verbs: {error}"),
+        ));
+    }
     if let Err(error) = require_loadable_policy_catalog(catalogs.policy().bytes()) {
         return Ok(fail(
             2,

@@ -25,6 +25,7 @@ mod history_store;
 mod identity_store;
 mod integrity;
 mod migration_store;
+mod ontology_catalog;
 mod pack_registry_store;
 mod pack_store;
 mod release_cedar;
@@ -36,6 +37,7 @@ mod value_store;
 mod wasm_store;
 mod wasmtime_adapter;
 mod workload_credential_store;
+mod world_kernel_store;
 mod world_release_store;
 
 pub use action_store::PostgresActionCommit;
@@ -56,6 +58,9 @@ pub use identity_store::{
     PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
 pub use integrity::{ActiveReleaseStatus, IntegrityError, ProjectionWatermarkStatus};
+pub use ontology_catalog::{
+    ParsedOntologyCatalog, require_loadable_ontology_catalog, seven_verb_ontology_catalog_bytes,
+};
 pub use pack_registry_store::{PostgresPackRegistryStore, PutObjectInput, RecordAttributionInput};
 pub use pack_store::{PostgresPackStore, admit_pack};
 pub use release_cedar::{ReleaseCedarEvaluator, require_loadable_policy_catalog};
@@ -67,6 +72,7 @@ pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};
 pub use workload_credential_store::{
     IssueWorkloadCredential, IssuedWorkloadCredential, PostgresWorkloadCredentialStore,
 };
+pub use world_kernel_store::PostgresWorldKernel;
 pub use world_release_store::{
     ActivatePut, DecisionPut, PostgresWorldReleaseStore, PreviewPut, PublicationPut,
 };

@@ -538,6 +538,14 @@ pub enum Command {
         #[command(subcommand)]
         command: HistoryCommand,
     },
+    /// Seven public verbs on the active `WorldRelease` catalog
+    #[command(
+        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --surface cli"
+    )]
+    Kernel {
+        #[command(subcommand)]
+        command: KernelCommand,
+    },
     /// Sign in at the Better Auth door
     #[command(
         after_help = "Examples:\n  zoen auth login --device\n  zoen auth login --email you@example.com --password-stdin"
@@ -585,6 +593,82 @@ pub enum WorldCommand {
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum KernelCommand {
+    /// Discover the seven public verbs on the active governed catalog
+    #[command(
+        after_help = "Examples:\n  zoen kernel discover --world world.alpha --principal principal.owner --surface cli"
+    )]
+    Discover {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Query the active catalog basis
+    Query {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Propose a catalog-bound operation
+    Propose {
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long)]
+        proposal_id: String,
+        #[arg(long)]
+        input: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Decide approve|reject on a proposal (own principal)
+    Decide {
+        #[arg(long)]
+        proposal_id: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long)]
+        decision: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Commit an approved proposal
+    Commit {
+        #[arg(long)]
+        proposal_id: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Explain a commit receipt
+    Explain {
+        #[arg(long)]
+        receipt_id: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
+    },
+    /// Execute after commit
+    Execute {
+        #[arg(long)]
+        receipt_id: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long, default_value = "cli")]
+        surface: String,
     },
 }
 
@@ -1090,6 +1174,10 @@ async fn dispatch(command: Command) -> Result<CommandResult, Box<dyn Error + Sen
             let result = crate::world_release_cli::run(command).await?;
             Ok(map_release_result(&result))
         }
+        Command::Kernel { command } => {
+            let result = run_kernel_command(command).await?;
+            Ok(map_kernel_result(&result))
+        }
         Command::World { command } => run_world(&parse_env()?, command).await,
         Command::Definition { command } => run_definition(&parse_env()?, command).await,
         Command::Source { command } => run_source(&parse_env()?, command).await,
@@ -1441,6 +1529,101 @@ fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
             }
         })
         .collect()
+}
+
+async fn run_kernel_command(
+    command: KernelCommand,
+) -> Result<crate::kernel_cli::KernelCliResult, Box<dyn Error + Send + Sync>> {
+    use crate::kernel_cli::KernelCommand as K;
+    use zoen_engine::KernelSurface;
+    let (surface, inner) = match command {
+        KernelCommand::Discover {
+            world,
+            principal,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Discover { world, principal },
+        ),
+        KernelCommand::Query {
+            world,
+            principal,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Query { world, principal },
+        ),
+        KernelCommand::Propose {
+            world,
+            principal,
+            proposal_id,
+            input,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Propose {
+                world,
+                principal,
+                proposal_id,
+                input,
+            },
+        ),
+        KernelCommand::Decide {
+            proposal_id,
+            principal,
+            decision,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Decide {
+                proposal_id,
+                principal,
+                decision,
+            },
+        ),
+        KernelCommand::Commit {
+            proposal_id,
+            principal,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Commit {
+                proposal_id,
+                principal,
+            },
+        ),
+        KernelCommand::Explain {
+            receipt_id,
+            principal,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Explain {
+                receipt_id,
+                principal,
+            },
+        ),
+        KernelCommand::Execute {
+            receipt_id,
+            principal,
+            surface,
+        } => (
+            KernelSurface::parse(&surface)?,
+            K::Execute {
+                receipt_id,
+                principal,
+            },
+        ),
+    };
+    crate::kernel_cli::run(surface, inner).await
+}
+
+fn map_kernel_result(result: &crate::kernel_cli::KernelCliResult) -> CommandResult {
+    if result.exit_code == 0 {
+        ok(&result.stdout)
+    } else {
+        fail(result.exit_code, &result.message)
+    }
 }
 
 fn map_release_result(result: &crate::world_release_cli::ReleaseCliResult) -> CommandResult {
