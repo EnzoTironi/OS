@@ -101,10 +101,12 @@ pub fn identity_error_response(error: &IdentityError) -> Response {
         | IdentityError::MembershipInactive => StatusCode::FORBIDDEN,
         IdentityError::AccountNotFound
         | IdentityError::BindingNotFound
-        | IdentityError::InviteNotFound => StatusCode::NOT_FOUND,
+        | IdentityError::InviteNotFound
+        | IdentityError::LinkIntentNotFound => StatusCode::NOT_FOUND,
         IdentityError::AlreadyBound
         | IdentityError::AlreadyConsumed
         | IdentityError::InviteExpired
+        | IdentityError::LinkIntentExpired
         | IdentityError::AccountMerged { .. }
         | IdentityError::InviteWorldMismatch
         | IdentityError::Conflict(_)

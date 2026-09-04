@@ -41,6 +41,8 @@ identity_id!(ChannelBindingId);
 identity_id!(MembershipId);
 identity_id!(InviteId);
 identity_id!(DelegationTemplateId);
+identity_id!(LinkIntentId);
+identity_id!(LinkReceiptId);
 
 pub const WORLD_FLOOR: &str = "zoen.world.floor";
 pub const WORLD_TOP: &str = "zoen.world.top";
@@ -592,11 +594,25 @@ impl InviteToken {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AccountMergePlan {
-    pub survivor: AccountId,
-    pub absorbed: AccountId,
-    /// Bindings may move; memberships and Personal worlds do NOT copy.
-    pub move_bindings: Vec<ChannelBindingId>,
+pub struct LinkIntentToken(String);
+
+impl LinkIntentToken {
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::InvalidLinkIntentToken`] when `value` is not a
+    /// bounded opaque `LinkIntent` token.
+    pub fn parse(value: impl Into<String>) -> Result<Self, IdentityError> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 200 || !value.starts_with("zli.") {
+            return Err(IdentityError::InvalidLinkIntentToken);
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -609,6 +625,7 @@ pub enum IdentityError {
     Conflict(String),
     IngressNotAllowed,
     InvalidInviteToken,
+    InvalidLinkIntentToken,
     InvalidProvider,
     InvalidRevocationReason,
     InvalidSubject,
@@ -618,6 +635,8 @@ pub enum IdentityError {
     InviteExpired,
     InviteNotFound,
     InviteWorldMismatch,
+    LinkIntentExpired,
+    LinkIntentNotFound,
     MembershipInactive,
     MembershipNotFound,
     MissingClearance,
@@ -645,6 +664,7 @@ impl Display for IdentityError {
             Self::Conflict(message) => write!(formatter, "identity conflict: {message}"),
             Self::IngressNotAllowed => formatter.write_str("ingress not allowed for credential"),
             Self::InvalidInviteToken => formatter.write_str("invalid invite token"),
+            Self::InvalidLinkIntentToken => formatter.write_str("invalid link intent token"),
             Self::InvalidProvider => formatter.write_str("invalid channel provider"),
             Self::InvalidRevocationReason => formatter.write_str("invalid revocation reason"),
             Self::InvalidSubject => formatter.write_str("invalid external subject"),
@@ -656,6 +676,8 @@ impl Display for IdentityError {
             Self::InviteWorldMismatch => {
                 formatter.write_str("invite cannot retarget another world")
             }
+            Self::LinkIntentExpired => formatter.write_str("link intent expired"),
+            Self::LinkIntentNotFound => formatter.write_str("link intent not found"),
             Self::MembershipInactive => formatter.write_str("membership is not active"),
             Self::MembershipNotFound => formatter.write_str("membership not found"),
             Self::MissingClearance => formatter.write_str("clearance is required"),

@@ -26,7 +26,6 @@ pub fn router() -> Result<Router, Box<dyn Error + Send + Sync>> {
         .route("/api/auth", any(proxy_door))
         .route("/api/auth/{*path}", any(proxy_door))
         .route("/device", any(proxy_door))
-        .route("/onboard/done", any(proxy_door))
         .with_state(DoorProxy {
             client: door_client(),
             origin,

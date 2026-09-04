@@ -55,7 +55,7 @@ Publish canonical JSON. Do not author `.zoen.ts` as the compiler. `@zoen/sdk` an
 
 ## Auth door
 
-Better Auth listens on `127.0.0.1:58704` and stores sessions in `zoen_auth`. zoend forwards `/api/auth`, `/device`, and `/onboard/done`. The `session_token` cookie is the zoend Bearer.
+Better Auth listens on `127.0.0.1:58704` and stores sessions in `zoen_auth`. zoend forwards `/api/auth` and `/device`. Browser channel linking stays on zoend at `/link`; confirmation reads the Better Auth `session_token` cookie directly.
 
 ```bash
 cd apps/auth
@@ -98,13 +98,9 @@ Production is one Fly app in `gru`. Volume `zoen_data` is `/data`. Public HTTPS 
 2. GitHub Actions `fly-deploy` builds `deploy/fly/Dockerfile` on the runner.
 3. It pushes `registry.fly.io/zoen:$GITHUB_SHA` and runs `fly deploy --image`.
 
-Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, `ZOEN_PROJECTION_PASSWORD`, `ZOEN_CONNECTOR_CALLER_TOKEN`, and `ZOEN_CONNECTOR_CREDENTIALS` are Fly secrets. `ZOEN_CONNECTOR_PROVIDER_URL` must use HTTPS outside loopback and name the real provider adapter. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role. After `/ready`:
+Do not `fly deploy` without `--image`. Do not add preview apps. Secrets stay on the Fly app. `BETTER_AUTH_SECRET`, `ZOEN_BA_AGENT_PASSWORD`, `ZOEN_PROJECTION_PASSWORD`, `ZOEN_CONNECTOR_CALLER_TOKEN`, and `ZOEN_CONNECTOR_CREDENTIALS` are Fly secrets. `ZOEN_CONNECTOR_PROVIDER_URL` must use HTTPS outside loopback and name the real provider adapter. The projection role is created only while PostgreSQL initializes an empty volume; recreate the disposable pre-launch development volume when adopting this role.
 
-```
-fly ssh console --app zoen -C "zoen-bind-inbox"
-```
-
-Bind uses `ZOEN_IDENTITY_ADMIN_TOKEN` for the person JID. Never the door.
+Channel edges mint one-time `/link#token=…` intents with `ZOEN_IDENTITY_ADMIN_TOKEN`. A real Better Auth browser session confirms the exact channel binding; no operator bind command exists.
 
 zoend boots `ProcessAuth::SessionDoor` and `ZOEN_AUTH_DATABASE_URL`. Remint writes the opaque session to `/data/zoen/agent.token`.
 

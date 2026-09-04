@@ -36,22 +36,17 @@ pub fn router(state: IdentityAdminState) -> Router {
     Router::new()
         .route("/identity/admin/provisional", post(ensure_provisional))
         .route("/identity/admin/verify-binding", post(verify_binding))
-        .route("/identity/admin/bind-verified", post(bind_verified))
         .route("/identity/admin/unbind", post(unbind))
         .route("/identity/admin/personal", post(ensure_personal))
         .route("/identity/admin/invites", post(create_invite))
         .route("/identity/admin/accept-invite", post(accept_invite))
         .route("/identity/admin/revoke", post(revoke_membership))
         .route("/identity/admin/leave", post(leave_membership))
-        .route("/identity/admin/plan-merge", post(plan_merge))
-        .route("/identity/admin/commit-merge", post(commit_merge))
         .route(
             "/identity/admin/accounts/{account_id}",
             get(snapshot_account),
         )
         .route("/identity/admin/resolve-subject", get(resolve_subject))
-        .route("/identity/admin/onboard-tokens", post(mint_onboard_token))
-        .route("/identity/admin/admit-whatsapp", post(admit_whatsapp))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
         .route("/identity/admin/resolve-ingress", get(resolve_ingress))
@@ -101,14 +96,6 @@ struct AccountBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BindBody {
-    account_id: String,
-    provider: String,
-    subject_key: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct UnbindBody {
     binding_id: String,
     reason: String,
@@ -145,21 +132,6 @@ struct RevokeBody {
 #[serde(rename_all = "camelCase")]
 struct LeaveBody {
     membership_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MergeBody {
-    survivor: String,
-    absorbed: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CommitMergeBody {
-    survivor: String,
-    absorbed: String,
-    move_bindings: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,14 +212,6 @@ struct InviteJson {
     principal: String,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MergePlanJson {
-    survivor: String,
-    absorbed: String,
-    move_bindings: Vec<String>,
-}
-
 async fn ensure_provisional(
     State(state): State<Arc<IdentityAdminState>>,
     Extension(actor): Extension<IdentityAdminActor>,
@@ -289,35 +253,6 @@ async fn verify_binding(
         return error;
     }
     match state.identity.verify_binding(account_id).await {
-        Ok(binding) => (StatusCode::OK, Json(binding_json(&binding))).into_response(),
-        Err(error) => identity_error(&error),
-    }
-}
-
-async fn bind_verified(
-    State(state): State<Arc<IdentityAdminState>>,
-    Extension(actor): Extension<IdentityAdminActor>,
-    Json(body): Json<BindBody>,
-) -> impl IntoResponse {
-    let account_id = match AccountId::parse(body.account_id) {
-        Ok(id) => id,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    if let Some(error) = require_machine(&actor) {
-        return error;
-    }
-    let subject = match parse_subject(&body.provider, &body.subject_key) {
-        Ok(subject) => subject,
-        Err(error) => return identity_error(&error),
-    };
-    if let Err(error) = reject_whatsapp_door(&subject) {
-        return identity_error(&error);
-    }
-    match state
-        .identity
-        .bind_verified_subject(account_id, subject)
-        .await
-    {
         Ok(binding) => (StatusCode::OK, Json(binding_json(&binding))).into_response(),
         Err(error) => identity_error(&error),
     }
@@ -500,79 +435,6 @@ async fn leave_membership(
     }
 }
 
-async fn plan_merge(
-    State(state): State<Arc<IdentityAdminState>>,
-    Extension(actor): Extension<IdentityAdminActor>,
-    Json(body): Json<MergeBody>,
-) -> impl IntoResponse {
-    if let Some(error) = require_machine(&actor) {
-        return error;
-    }
-    let survivor = match AccountId::parse(body.survivor) {
-        Ok(id) => id,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    let absorbed = match AccountId::parse(body.absorbed) {
-        Ok(id) => id,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    match state.identity.plan_merge(survivor, absorbed).await {
-        Ok(plan) => (
-            StatusCode::OK,
-            Json(MergePlanJson {
-                survivor: plan.survivor.to_string(),
-                absorbed: plan.absorbed.to_string(),
-                move_bindings: plan
-                    .move_bindings
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect(),
-            }),
-        )
-            .into_response(),
-        Err(error) => identity_error(&error),
-    }
-}
-
-async fn commit_merge(
-    State(state): State<Arc<IdentityAdminState>>,
-    Extension(actor): Extension<IdentityAdminActor>,
-    Json(body): Json<CommitMergeBody>,
-) -> impl IntoResponse {
-    if let Some(error) = require_machine(&actor) {
-        return error;
-    }
-    let survivor = match AccountId::parse(body.survivor) {
-        Ok(id) => id,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    let absorbed = match AccountId::parse(body.absorbed) {
-        Ok(id) => id,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    let move_bindings = match body
-        .move_bindings
-        .into_iter()
-        .map(zoen_core::ChannelBindingId::parse)
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(ids) => ids,
-        Err(error) => return bad_request(&error.to_string()),
-    };
-    match state
-        .identity
-        .commit_merge(zoen_core::AccountMergePlan {
-            survivor,
-            absorbed,
-            move_bindings,
-        })
-        .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => identity_error(&error),
-    }
-}
-
 async fn snapshot_account(
     State(state): State<Arc<IdentityAdminState>>,
     Extension(actor): Extension<IdentityAdminActor>,
@@ -611,76 +473,6 @@ async fn resolve_subject(
         }
         Err(error) => identity_error(&error),
     }
-}
-
-async fn admit_whatsapp(
-    State(state): State<Arc<IdentityAdminState>>,
-    Extension(actor): Extension<IdentityAdminActor>,
-    Json(body): Json<SubjectBody>,
-) -> impl IntoResponse {
-    if let Some(error) = require_machine(&actor) {
-        return error;
-    }
-    let subject = match parse_subject(&body.provider, &body.subject_key) {
-        Ok(subject) => subject,
-        Err(error) => return identity_error(&error),
-    };
-    if let Err(error) = reject_whatsapp_door(&subject) {
-        return identity_error(&error);
-    }
-    match state.identity.admit_whatsapp(subject).await {
-        Ok(snapshot) => (StatusCode::OK, Json(snapshot_json(&snapshot))).into_response(),
-        Err(error) => identity_error(&error),
-    }
-}
-
-async fn mint_onboard_token(
-    State(state): State<Arc<IdentityAdminState>>,
-    Extension(actor): Extension<IdentityAdminActor>,
-    Json(body): Json<SubjectBody>,
-) -> impl IntoResponse {
-    if let Some(error) = require_machine(&actor) {
-        return error;
-    }
-    let subject = match parse_subject(&body.provider, &body.subject_key) {
-        Ok(subject) => subject,
-        Err(error) => return identity_error(&error),
-    };
-    if let Err(error) = reject_whatsapp_door(&subject) {
-        return identity_error(&error);
-    }
-    let hours = std::env::var("ZOEN_ONBOARD_TTL_HOURS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0 && *value <= 168)
-        .unwrap_or(24);
-    match state
-        .identity
-        .mint_onboard_token(subject, std::time::Duration::from_secs(hours * 3600))
-        .await
-    {
-        Ok(minted) => {
-            let origin = public_origin();
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "token": minted.token,
-                    "href": format!("{origin}/onboard/{}", minted.token),
-                    "expiresAtMicros": minted.expires_at.get(),
-                })),
-            )
-                .into_response()
-        }
-        Err(error) => identity_error(&error),
-    }
-}
-
-fn public_origin() -> String {
-    std::env::var("ZOEN_PUBLIC_ORIGIN")
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_owned())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "https://app.zoen.local".to_owned())
 }
 
 async fn bootstrap_bound(

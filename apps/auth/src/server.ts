@@ -5,13 +5,7 @@ import {
 } from "node:http";
 import { toNodeHandler } from "better-auth/node";
 import { auth, config } from "./auth.ts";
-import {
-  devicePage,
-  homePage,
-  loginPage,
-  onboardDone,
-  onboardStart,
-} from "./html.ts";
+import { devicePage, homePage, loginPage } from "./html.ts";
 
 const handleAuth = toNodeHandler(auth);
 
@@ -63,23 +57,9 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/onboard/done") {
-    sendHtml(res, onboardDone());
-    return;
-  }
-
   if (pathname === "/device") {
     sendHtml(res, devicePage(config.google));
     return;
-  }
-
-  const onboardPrefix = "/onboard/";
-  if (pathname.startsWith(onboardPrefix)) {
-    const token = pathname.slice(onboardPrefix.length);
-    if (token.length > 0 && !token.includes("/")) {
-      sendHtml(res, onboardStart(config.google));
-      return;
-    }
   }
 
   sendText(res, 404, "not found");

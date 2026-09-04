@@ -5,16 +5,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
-    Account, AccountId, AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus,
-    ChannelBinding, ChannelBindingId, ChannelProvider, Clearance, DelegationChain, DelegationGrant,
-    DelegationId, ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership,
-    MembershipId, MembershipKind, MembershipStatus, PrincipalId, PublicVerb, ResourceId,
-    RevocationReason, TimestampMicros, TrustedExecutionContext, UnbindReason,
-    WORKLOAD_CREDENTIALS_RESOURCE, WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION,
-    WORLD_KERNEL_AUTHORITY_RESOURCE, WORLD_READ_ACTION, WORLD_RELEASE_ACTIVATE_ACTION,
-    WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION,
-    WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, WorldId,
-    encode_hex, trusted_context_from_membership,
+    Account, AccountId, AccountStatus, ActionId, ActorId, BindingStatus, ChannelBinding,
+    ChannelBindingId, ChannelProvider, Clearance, DelegationChain, DelegationGrant, DelegationId,
+    ExternalSubject, IdentityError, Invite, InviteId, InviteToken, LinkIntentId, LinkIntentToken,
+    LinkReceiptId, Membership, MembershipId, MembershipKind, MembershipStatus, PrincipalId,
+    PublicVerb, ResourceId, RevocationReason, TimestampMicros, TrustedExecutionContext,
+    UnbindReason, VerifiedSessionEvidence, WORKLOAD_CREDENTIALS_RESOURCE,
+    WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION, WORLD_KERNEL_AUTHORITY_RESOURCE,
+    WORLD_READ_ACTION, WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_RESOURCE,
+    WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION,
+    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, WorldId, encode_hex,
+    trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -126,56 +127,6 @@ impl PostgresIdentityStore {
         .await?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(verified)
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn bind_verified_subject(
-        &self,
-        account: AccountId,
-        subject: ExternalSubject,
-    ) -> Result<ChannelBinding, IdentityError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let account_row = load_account(&mut transaction, &account).await?;
-        reject_merged(&account_row)?;
-        if active_binding_for_subject(&mut transaction, &subject)
-            .await?
-            .is_some()
-        {
-            return Err(IdentityError::AlreadyBound);
-        }
-        let now = now_micros();
-        let binding_id = new_binding_id()?;
-        sqlx::query(
-            "INSERT INTO channel_bindings (
-                binding_id, account_id, provider, subject_key, status, verified_at
-             ) VALUES ($1, $2, $3, $4, 'verified', to_timestamp($5::double precision / 1000000.0))",
-        )
-        .bind(binding_id.as_str())
-        .bind(account.as_str())
-        .bind(subject.provider.as_str())
-        .bind(&subject.subject_key)
-        .bind(now.get())
-        .execute(&mut *transaction)
-        .await
-        .map_err(map_unique_subject)?;
-        if matches!(account_row.status, AccountStatus::Provisional) {
-            sqlx::query("UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1")
-                .bind(account.as_str())
-                .execute(&mut *transaction)
-                .await
-                .map_err(unavailable)?;
-        }
-        let binding = ChannelBinding {
-            id: binding_id,
-            account_id: account,
-            subject,
-            status: BindingStatus::Verified,
-            verified_at: Some(now),
-        };
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(binding)
     }
 
     /// # Errors
@@ -587,88 +538,120 @@ impl PostgresIdentityStore {
     /// # Errors
     ///
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn plan_merge(
+    pub async fn issue_link_intent(
         &self,
-        survivor: AccountId,
-        absorbed: AccountId,
-    ) -> Result<AccountMergePlan, IdentityError> {
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let survivor_row = load_account(&mut transaction, &survivor).await?;
-        let absorbed_row = load_account(&mut transaction, &absorbed).await?;
-        reject_merged(&survivor_row)?;
-        reject_merged(&absorbed_row)?;
-        if survivor == absorbed {
-            return Err(IdentityError::Conflict(
-                "cannot merge an account into itself".to_owned(),
-            ));
+        subject: ExternalSubject,
+        ttl: Duration,
+    ) -> Result<MintedLinkIntent, IdentityError> {
+        if subject.provider == ChannelProvider::AuthDoor {
+            return Err(IdentityError::InvalidProvider);
         }
-        let bindings = sqlx::query_scalar::<_, String>(
-            "SELECT binding_id FROM channel_bindings
-             WHERE account_id = $1 AND status IN ('provisional', 'verified')
-             ORDER BY binding_id",
-        )
-        .bind(absorbed.as_str())
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
-        let move_bindings = bindings
-            .into_iter()
-            .map(|id| {
-                ChannelBindingId::parse(id)
-                    .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        transaction.commit().await.map_err(unavailable)?;
-        Ok(AccountMergePlan {
-            survivor,
-            absorbed,
-            move_bindings,
-        })
-    }
+        match self.ensure_provisional(subject.clone()).await {
+            Ok(_) | Err(IdentityError::AlreadyBound) => {}
+            Err(error) => return Err(error),
+        }
 
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn commit_merge(&self, plan: AccountMergePlan) -> Result<(), IdentityError> {
+        let raw = random_link_intent_token()?;
+        let token = LinkIntentToken::parse(raw)?;
+        let token_hash = hash_link_intent_token(&token);
+        let intent_id = new_link_intent_id()?;
+        let now = now_micros();
+        let expires_at = TimestampMicros::new(now.get().saturating_add(duration_micros(ttl)?));
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let survivor_row = load_account(&mut transaction, &plan.survivor).await?;
-        let absorbed_row = load_account(&mut transaction, &plan.absorbed).await?;
-        reject_merged(&survivor_row)?;
-        reject_merged(&absorbed_row)?;
-        for binding_id in &plan.move_bindings {
-            let updated = sqlx::query(
-                "UPDATE channel_bindings
-                 SET account_id = $2
-                 WHERE binding_id = $1
-                   AND account_id = $3
-                   AND status IN ('provisional', 'verified')",
-            )
-            .bind(binding_id.as_str())
-            .bind(plan.survivor.as_str())
-            .bind(plan.absorbed.as_str())
-            .execute(&mut *transaction)
-            .await
-            .map_err(unavailable)?
-            .rows_affected();
-            if updated != 1 {
-                return Err(IdentityError::Conflict(format!(
-                    "binding {binding_id} not movable"
-                )));
-            }
-        }
+        let binding = active_binding_for_subject(&mut transaction, &subject)
+            .await?
+            .ok_or(IdentityError::BindingNotFound)?;
+
         sqlx::query(
-            "UPDATE zoen_accounts
-             SET status = 'merged_into', merged_into_account_id = $2
-             WHERE account_id = $1",
+            "UPDATE channel_link_intents
+             SET invalidated_at = clock_timestamp()
+             WHERE binding_id = $1
+               AND consumed_at IS NULL
+               AND invalidated_at IS NULL
+               AND expires_at <= clock_timestamp()",
         )
-        .bind(plan.absorbed.as_str())
-        .bind(plan.survivor.as_str())
+        .bind(binding.id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
-        // Memberships and personal Worlds intentionally stay on the absorbed Account.
+        let pending = sqlx::query_scalar::<_, bool>(
+            "SELECT true
+             FROM channel_link_intents
+             WHERE binding_id = $1
+               AND consumed_at IS NULL
+               AND invalidated_at IS NULL
+             FOR UPDATE",
+        )
+        .bind(binding.id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(unavailable)?
+        .is_some();
+        if pending {
+            return Err(IdentityError::Conflict(
+                "link intent already pending for binding".to_owned(),
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO channel_link_intents (
+                intent_id, token_hash, binding_id, expires_at
+             ) VALUES ($1, $2, $3, to_timestamp($4::double precision / 1000000.0))",
+        )
+        .bind(intent_id.as_str())
+        .bind(token_hash.as_slice())
+        .bind(binding.id.as_str())
+        .bind(expires_at.get())
+        .execute(&mut *transaction)
+        .await
+        .map_err(unavailable)?;
         transaction.commit().await.map_err(unavailable)?;
-        Ok(())
+        Ok(MintedLinkIntent {
+            binding_id: binding.id,
+            expires_at,
+            intent_id,
+            token,
+        })
+    }
+
+    /// Confirm one channel-possession `LinkIntent` against a verified Better Auth
+    /// session. The exact binding moves; Membership and World rows never do.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when the token is invalid, expired, consumed,
+    /// or the binding/session account cannot be changed atomically.
+    pub async fn confirm_link_intent(
+        &self,
+        token: &LinkIntentToken,
+        session: &VerifiedSessionEvidence,
+    ) -> Result<ConfirmedLinkIntent, IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let intent = lock_link_intent(&mut transaction, token).await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&session.door_user_key)
+            .execute(&mut *transaction)
+            .await
+            .map_err(unavailable)?;
+        let door_subject =
+            ExternalSubject::new(ChannelProvider::AuthDoor, session.door_user_key.clone())?;
+        let target_account_id =
+            ensure_verified_door_account(&mut transaction, &door_subject).await?;
+        let now = now_micros();
+        let source_preserved =
+            move_link_intent_binding(&mut transaction, &intent, &target_account_id, now).await?;
+        let receipt_id =
+            record_link_confirmation(&mut transaction, &intent, &target_account_id, session, now)
+                .await?;
+        transaction.commit().await.map_err(unavailable)?;
+        Ok(ConfirmedLinkIntent {
+            binding_id: intent.binding,
+            intent_id: intent.intent,
+            receipt_id,
+            source_account_id: intent.source_account,
+            source_preserved,
+            target_account_id,
+        })
     }
 
     /// # Errors
@@ -919,173 +902,6 @@ impl PostgresIdentityStore {
             personal_world,
         })
     }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn mint_onboard_token(
-        &self,
-        subject: ExternalSubject,
-        ttl: Duration,
-    ) -> Result<MintedOnboardToken, IdentityError> {
-        let raw = random_onboard_token()?;
-        let token_hash = hash_onboard_token(&raw);
-        let token_id = new_id_value("onboard")?;
-        let now = now_micros();
-        let expires_at = TimestampMicros::new(
-            now.get()
-                .saturating_add(i64::try_from(ttl.as_micros()).unwrap_or(i64::MAX)),
-        );
-        sqlx::query(
-            "INSERT INTO onboard_tokens (
-                token_id, token_hash, provider, subject_key, expires_at
-             ) VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000000.0))",
-        )
-        .bind(&token_id)
-        .bind(token_hash.as_slice())
-        .bind(subject.provider.as_str())
-        .bind(&subject.subject_key)
-        .bind(expires_at.get())
-        .execute(&self.pool)
-        .await
-        .map_err(unavailable)?;
-        Ok(MintedOnboardToken {
-            expires_at,
-            subject,
-            token: raw,
-        })
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn lookup_onboard_token(
-        &self,
-        token: &str,
-    ) -> Result<OnboardTokenRow, IdentityError> {
-        let token_hash = hash_onboard_token(token);
-        let row = sqlx::query(
-            "SELECT provider, subject_key,
-                    consumed_at IS NOT NULL AS consumed,
-                    expires_at <= clock_timestamp() AS expired
-             FROM onboard_tokens WHERE token_hash = $1",
-        )
-        .bind(token_hash.as_slice())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(unavailable)?
-        .ok_or(IdentityError::InviteNotFound)?;
-        let provider = ChannelProvider::parse(&row_text(&row, "provider")?)
-            .map_err(|_| IdentityError::InvalidProvider)?;
-        let subject_key = row_text(&row, "subject_key")?;
-        let subject = ExternalSubject::new(provider, subject_key)?;
-        Ok(OnboardTokenRow {
-            consumed: row.try_get("consumed").map_err(unavailable)?,
-            expired: row.try_get("expired").map_err(unavailable)?,
-            subject,
-        })
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn consume_onboard_token(&self, token: &str) -> Result<(), IdentityError> {
-        let token_hash = hash_onboard_token(token);
-        let now = now_micros();
-        let result = sqlx::query(
-            "UPDATE onboard_tokens
-             SET consumed_at = to_timestamp($2::double precision / 1000000.0)
-             WHERE token_hash = $1 AND consumed_at IS NULL",
-        )
-        .bind(token_hash.as_slice())
-        .bind(now.get())
-        .execute(&self.pool)
-        .await
-        .map_err(unavailable)?;
-        if result.rows_affected() == 0 {
-            return Err(IdentityError::AlreadyConsumed);
-        }
-        Ok(())
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn admit_whatsapp(
-        &self,
-        subject: ExternalSubject,
-    ) -> Result<AccountSnapshot, IdentityError> {
-        if subject.provider != ChannelProvider::WhatsApp {
-            return Err(IdentityError::InvalidProvider);
-        }
-        if self.subject_has_verified_personal(&subject).await? {
-            let (_, snapshot) = self.snapshot_for_verified_subject(&subject).await?;
-            return Ok(snapshot);
-        }
-        match self.complete_onboard(subject.clone()).await {
-            Ok(_) | Err(IdentityError::AlreadyConsumed) => {
-                let (_, snapshot) = self.snapshot_for_verified_subject(&subject).await?;
-                Ok(snapshot)
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
-    pub async fn complete_onboard(
-        &self,
-        subject: ExternalSubject,
-    ) -> Result<CompleteOnboard, IdentityError> {
-        if self.subject_has_verified_personal(&subject).await? {
-            return Err(IdentityError::AlreadyConsumed);
-        }
-        let account = self.ensure_provisional(subject.clone()).await?;
-        let snapshot = self.snapshot_account(&account.id).await?;
-        let verified = snapshot.bindings.iter().any(|binding| {
-            binding.subject == subject && matches!(binding.status, BindingStatus::Verified)
-        });
-        if !verified {
-            self.verify_binding(account.id.clone()).await?;
-        }
-        let personal = snapshot.memberships.iter().any(|membership| {
-            matches!(membership.kind, MembershipKind::Personal)
-                && matches!(membership.status, MembershipStatus::Active)
-        });
-        let membership = if personal {
-            snapshot
-                .memberships
-                .into_iter()
-                .find(|membership| {
-                    matches!(membership.kind, MembershipKind::Personal)
-                        && matches!(membership.status, MembershipStatus::Active)
-                })
-                .ok_or(IdentityError::MembershipNotFound)?
-        } else {
-            self.ensure_personal_workspace(account.id.clone()).await?
-        };
-        Ok(CompleteOnboard {
-            account: membership.account_id.clone(),
-            membership: membership.id.clone(),
-            principal: membership.principal_id.clone(),
-            world_id: membership.world_id.clone(),
-        })
-    }
-
-    async fn subject_has_verified_personal(
-        &self,
-        subject: &ExternalSubject,
-    ) -> Result<bool, IdentityError> {
-        match self.snapshot_for_verified_subject(subject).await {
-            Ok((_, snapshot)) => Ok(snapshot.memberships.iter().any(|membership| {
-                matches!(membership.kind, MembershipKind::Personal)
-                    && matches!(membership.status, MembershipStatus::Active)
-            })),
-            Err(IdentityError::SubjectUnbound) => Ok(false),
-            Err(error) => Err(error),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1105,23 +921,26 @@ pub struct AccountSnapshot {
     pub personal_world: Option<String>,
 }
 
-pub struct MintedOnboardToken {
+pub struct MintedLinkIntent {
+    pub binding_id: ChannelBindingId,
     pub expires_at: TimestampMicros,
-    pub subject: ExternalSubject,
-    pub token: String,
+    pub intent_id: LinkIntentId,
+    pub token: LinkIntentToken,
 }
 
-pub struct OnboardTokenRow {
-    pub consumed: bool,
-    pub expired: bool,
-    pub subject: ExternalSubject,
+pub struct ConfirmedLinkIntent {
+    pub binding_id: ChannelBindingId,
+    pub intent_id: LinkIntentId,
+    pub receipt_id: LinkReceiptId,
+    pub source_account_id: AccountId,
+    pub source_preserved: bool,
+    pub target_account_id: AccountId,
 }
 
-pub struct CompleteOnboard {
-    pub account: AccountId,
-    pub membership: MembershipId,
-    pub principal: PrincipalId,
-    pub world_id: WorldId,
+struct LockedLinkIntent {
+    binding: ChannelBindingId,
+    intent: LinkIntentId,
+    source_account: AccountId,
 }
 
 pub struct CreateInvite<'a> {
@@ -1191,6 +1010,162 @@ async fn insert_membership(
     Ok(())
 }
 
+async fn lock_link_intent(
+    transaction: &mut Transaction<'_, Postgres>,
+    token: &LinkIntentToken,
+) -> Result<LockedLinkIntent, IdentityError> {
+    let token_hash = hash_link_intent_token(token);
+    let row = sqlx::query(
+        "SELECT intent.intent_id, intent.binding_id,
+                intent.consumed_at IS NOT NULL AS consumed,
+                intent.invalidated_at IS NOT NULL AS invalidated,
+                intent.expires_at <= clock_timestamp() AS expired,
+                binding.account_id AS source_account_id,
+                binding.provider
+         FROM channel_link_intents AS intent
+         JOIN channel_bindings AS binding USING (binding_id)
+         WHERE intent.token_hash = $1
+         FOR UPDATE OF intent, binding",
+    )
+    .bind(token_hash.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(unavailable)?
+    .ok_or(IdentityError::LinkIntentNotFound)?;
+    if row.try_get::<bool, _>("consumed").map_err(unavailable)?
+        || row.try_get::<bool, _>("invalidated").map_err(unavailable)?
+    {
+        return Err(IdentityError::AlreadyConsumed);
+    }
+    if row.try_get::<bool, _>("expired").map_err(unavailable)? {
+        return Err(IdentityError::LinkIntentExpired);
+    }
+    if ChannelProvider::parse(&row_text(&row, "provider")?)? == ChannelProvider::AuthDoor {
+        return Err(IdentityError::InvalidProvider);
+    }
+    Ok(LockedLinkIntent {
+        binding: ChannelBindingId::parse(row_text(&row, "binding_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))?,
+        intent: LinkIntentId::parse(row_text(&row, "intent_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid link intent id".to_owned()))?,
+        source_account: AccountId::parse(row_text(&row, "source_account_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid source account".to_owned()))?,
+    })
+}
+
+async fn move_link_intent_binding(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent: &LockedLinkIntent,
+    target_account_id: &AccountId,
+    now: TimestampMicros,
+) -> Result<bool, IdentityError> {
+    let source = load_account(transaction, &intent.source_account).await?;
+    reject_merged(&source)?;
+    let moved = sqlx::query(
+        "UPDATE channel_bindings
+         SET account_id = $2,
+             status = 'verified',
+             verified_at = COALESCE(verified_at, to_timestamp($3::double precision / 1000000.0)),
+             unbound_at = NULL,
+             unbind_reason = NULL
+         WHERE binding_id = $1
+           AND account_id = $4
+           AND provider <> 'auth_door'
+           AND status IN ('provisional', 'verified')",
+    )
+    .bind(intent.binding.as_str())
+    .bind(target_account_id.as_str())
+    .bind(now.get())
+    .bind(intent.source_account.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(unavailable)?
+    .rows_affected();
+    if moved != 1 {
+        return Err(IdentityError::Conflict(
+            "link intent binding changed before confirmation".to_owned(),
+        ));
+    }
+    if intent.source_account == *target_account_id {
+        return Ok(true);
+    }
+    let has_other_state = sqlx::query_scalar::<_, bool>(
+        "SELECT
+            EXISTS (
+                SELECT 1 FROM channel_bindings
+                WHERE account_id = $1
+                  AND status IN ('provisional', 'verified')
+            )
+            OR EXISTS (SELECT 1 FROM memberships WHERE account_id = $1)
+            OR EXISTS (SELECT 1 FROM personal_worlds WHERE account_id = $1)",
+    )
+    .bind(intent.source_account.as_str())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    if !has_other_state {
+        sqlx::query(
+            "UPDATE zoen_accounts
+             SET status = 'merged_into', merged_into_account_id = $2
+             WHERE account_id = $1",
+        )
+        .bind(intent.source_account.as_str())
+        .bind(target_account_id.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(unavailable)?;
+    }
+    Ok(has_other_state)
+}
+
+async fn record_link_confirmation(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent: &LockedLinkIntent,
+    target_account_id: &AccountId,
+    session: &VerifiedSessionEvidence,
+    now: TimestampMicros,
+) -> Result<LinkReceiptId, IdentityError> {
+    let receipt_id = new_link_receipt_id()?;
+    sqlx::query(
+        "INSERT INTO channel_link_receipts (
+            receipt_id, intent_id, binding_id, source_account_id,
+            target_account_id, door_session_id, confirmed_at
+         ) VALUES (
+            $1, $2, $3, $4, $5, $6,
+            to_timestamp($7::double precision / 1000000.0)
+         )",
+    )
+    .bind(receipt_id.as_str())
+    .bind(intent.intent.as_str())
+    .bind(intent.binding.as_str())
+    .bind(intent.source_account.as_str())
+    .bind(target_account_id.as_str())
+    .bind(session.session_id.as_str())
+    .bind(now.get())
+    .execute(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    let consumed = sqlx::query(
+        "UPDATE channel_link_intents
+         SET consumed_at = to_timestamp($2::double precision / 1000000.0)
+         WHERE intent_id = $1
+           AND consumed_at IS NULL
+           AND invalidated_at IS NULL",
+    )
+    .bind(intent.intent.as_str())
+    .bind(now.get())
+    .execute(&mut **transaction)
+    .await
+    .map_err(unavailable)?
+    .rows_affected();
+    if consumed != 1 {
+        return Err(IdentityError::Conflict(
+            "link intent changed before consumption".to_owned(),
+        ));
+    }
+    Ok(receipt_id)
+}
+
 async fn active_binding_for_subject(
     transaction: &mut Transaction<'_, Postgres>,
     subject: &ExternalSubject,
@@ -1208,6 +1183,69 @@ async fn active_binding_for_subject(
     .await
     .map_err(unavailable)?;
     row.map(|row| row_to_binding(&row)).transpose()
+}
+
+async fn ensure_verified_door_account(
+    transaction: &mut Transaction<'_, Postgres>,
+    subject: &ExternalSubject,
+) -> Result<AccountId, IdentityError> {
+    if subject.provider != ChannelProvider::AuthDoor {
+        return Err(IdentityError::InvalidProvider);
+    }
+    let now = now_micros();
+    if let Some(binding) = active_binding_for_subject(transaction, subject).await? {
+        let account = load_account(transaction, &binding.account_id).await?;
+        reject_merged(&account)?;
+        if matches!(binding.status, BindingStatus::Provisional) {
+            sqlx::query(
+                "UPDATE channel_bindings
+                 SET status = 'verified',
+                     verified_at = to_timestamp($2::double precision / 1000000.0)
+                 WHERE binding_id = $1 AND status = 'provisional'",
+            )
+            .bind(binding.id.as_str())
+            .bind(now.get())
+            .execute(&mut **transaction)
+            .await
+            .map_err(unavailable)?;
+        }
+        if matches!(account.status, AccountStatus::Provisional) {
+            sqlx::query("UPDATE zoen_accounts SET status = 'verified' WHERE account_id = $1")
+                .bind(account.id.as_str())
+                .execute(&mut **transaction)
+                .await
+                .map_err(unavailable)?;
+        }
+        return Ok(account.id);
+    }
+
+    let account_id = new_account_id()?;
+    let binding_id = new_binding_id()?;
+    sqlx::query(
+        "INSERT INTO zoen_accounts (account_id, status, created_at)
+         VALUES ($1, 'verified', to_timestamp($2::double precision / 1000000.0))",
+    )
+    .bind(account_id.as_str())
+    .bind(now.get())
+    .execute(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    sqlx::query(
+        "INSERT INTO channel_bindings (
+            binding_id, account_id, provider, subject_key, status, verified_at
+         ) VALUES (
+            $1, $2, 'auth_door', $3, 'verified',
+            to_timestamp($4::double precision / 1000000.0)
+         )",
+    )
+    .bind(binding_id.as_str())
+    .bind(account_id.as_str())
+    .bind(&subject.subject_key)
+    .bind(now.get())
+    .execute(&mut **transaction)
+    .await
+    .map_err(map_unique_subject)?;
+    Ok(account_id)
 }
 
 async fn load_binding(
@@ -1471,21 +1509,25 @@ pub fn dest_invitee_delegation(
 }
 
 fn hash_token(token: &InviteToken) -> [u8; 32] {
-    hash_onboard_token(token.as_str())
+    hash_bytes(token.as_str())
 }
 
-fn hash_onboard_token(token: &str) -> [u8; 32] {
+fn hash_link_intent_token(token: &LinkIntentToken) -> [u8; 32] {
+    hash_bytes(token.as_str())
+}
+
+fn hash_bytes(token: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     hasher.finalize().into()
 }
 
-fn random_onboard_token() -> Result<String, IdentityError> {
+fn random_link_intent_token() -> Result<String, IdentityError> {
     let mut bytes = [0u8; 32];
     File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut bytes))
         .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
+    Ok(format!("zli.{}", URL_SAFE_NO_PAD.encode(bytes)))
 }
 
 fn new_id_value(prefix: &str) -> Result<String, IdentityError> {
@@ -1502,6 +1544,16 @@ fn new_account_id() -> Result<AccountId, IdentityError> {
 }
 fn new_binding_id() -> Result<ChannelBindingId, IdentityError> {
     ChannelBindingId::parse(new_id_value("binding")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
+}
+
+fn new_link_intent_id() -> Result<LinkIntentId, IdentityError> {
+    LinkIntentId::parse(new_id_value("link-intent")?)
+        .map_err(|error| IdentityError::Conflict(error.to_string()))
+}
+
+fn new_link_receipt_id() -> Result<LinkReceiptId, IdentityError> {
+    LinkReceiptId::parse(new_id_value("link-receipt")?)
         .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
 
@@ -1560,6 +1612,11 @@ fn new_principal_id() -> Result<PrincipalId, IdentityError> {
 
 fn now_micros() -> TimestampMicros {
     TimestampMicros::new(crate::clock_micros())
+}
+
+fn duration_micros(duration: Duration) -> Result<i64, IdentityError> {
+    i64::try_from(duration.as_micros())
+        .map_err(|_| IdentityError::Conflict("link intent TTL is too large".to_owned()))
 }
 
 fn unavailable(error: impl std::fmt::Display) -> IdentityError {
