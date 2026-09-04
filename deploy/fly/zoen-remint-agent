@@ -9,6 +9,7 @@ out="${ZOEN_AGENT_BEARER_TOKEN_FILE:-/data/zoen/agent.token}"
 mkdir -p "$(dirname "$out")"
 signup_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"],"name":"zoen agent"}))')"
 signin_json="$(ZOEN_BA_AGENT_EMAIL="$email" ZOEN_BA_AGENT_PASSWORD="$password" python3 -c 'import json,os; print(json.dumps({"email":os.environ["ZOEN_BA_AGENT_EMAIL"],"password":os.environ["ZOEN_BA_AGENT_PASSWORD"]}))')"
+backoff=1
 while true; do
   jar="$(mktemp)"
   curl -sS -o /dev/null -c "$jar" -b "$jar" \
@@ -43,7 +44,14 @@ open(out, "w").write(token)
 PY
   then
     chmod 600 "$out"
+    rm -f "$jar"
+    backoff=1
+    sleep 200
+  else
+    rm -f "$jar"
+    sleep "$backoff"
+    if [ "$backoff" -lt 5 ]; then
+      backoff=$((backoff + 1))
+    fi
   fi
-  rm -f "$jar"
-  sleep 200
 done
