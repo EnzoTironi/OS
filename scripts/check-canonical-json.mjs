@@ -26,7 +26,7 @@ const files = [];
 for (const root of roots) {
   files.push(...(await walk(root)));
 }
-files.sort();
+files.sort((a, b) => a.localeCompare(b));
 const canonical = files.filter((file) => file.endsWith(".canonical.json"));
 const errors = [];
 
