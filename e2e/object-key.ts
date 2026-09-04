@@ -42,6 +42,10 @@ const owner: Actor = {
   principal: "principal.owner",
   membership: "membership.clinic.owner",
 };
+const replacementOwner: Actor = {
+  principal: owner.principal,
+  membership: "membership.clinic.owner.replacement",
+};
 const builder: Actor = {
   principal: "principal.builder",
   membership: "membership.clinic.builder",
@@ -168,6 +172,13 @@ async function seedMemberships(): Promise<void> {
       resources: [kernelResource],
     },
     {
+      ...replacementOwner,
+      account: "account.owner.replacement",
+      actions: allKernelActions,
+      kind: "invite" as const,
+      resources: [kernelResource],
+    },
+    {
       ...human,
       account: "account.clinic.human",
       actions: ["zoen.world.query"],
@@ -242,25 +253,16 @@ async function scalarCount(sql: string, values: unknown[]): Promise<number> {
   }
 }
 
-async function setMembershipStatus(status: "active" | "revoked"): Promise<void> {
+async function revokeOwnerMembership(): Promise<void> {
   const client = new PostgresClient({ connectionString: databaseUrl });
   await client.connect();
   try {
-    if (status === "active") {
-      await client.query(
-        `UPDATE memberships
-         SET status = 'active', ended_at = NULL, ended_reason = NULL
-         WHERE membership_id = $1`,
-        [owner.membership],
-      );
-    } else {
-      await client.query(
-        `UPDATE memberships
-         SET status = 'revoked', ended_at = clock_timestamp(), ended_reason = 'security'
-         WHERE membership_id = $1`,
-        [owner.membership],
-      );
-    }
+    await client.query(
+      `UPDATE memberships
+       SET status = 'revoked', ended_at = clock_timestamp(), ended_reason = 'security'
+       WHERE membership_id = $1`,
+      [owner.membership],
+    );
   } finally {
     await client.end();
   }
@@ -541,18 +543,17 @@ async function main(): Promise<void> {
     0,
   );
   assert.equal(decide(owner, recoveryProposal).status, 0);
-  await setMembershipStatus("revoked");
+  await revokeOwnerMembership();
   const deniedCommit = commit(owner, recoveryProposal);
   record(
     "revoked_commit_membership_denies_before_materialization",
     deniedCommit.status !== 0 && deniedCommit.stderr.toLowerCase().includes("denied"),
   );
   await assertNoMaterialization(recoveryProposal, recoveryEntity, recoveryAssignment);
-  await setMembershipStatus("active");
-  const recoveredCommit = commit(owner, recoveryProposal);
+  const recoveredCommit = commit(replacementOwner, recoveryProposal);
   assert.equal(recoveredCommit.status, 0, recoveredCommit.stderr);
   record(
-    "reactivated_membership_recovers_same_proposal_once",
+    "replacement_membership_recovers_same_proposal_once",
     (await scalarCount(
       "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE assignment_id = $1",
       [recoveryAssignment],
@@ -573,8 +574,8 @@ async function main(): Promise<void> {
     ).status,
     0,
   );
-  assert.equal(decide(owner, collisionProposal).status, 0);
-  const collision = commit(owner, collisionProposal);
+  assert.equal(decide(replacementOwner, collisionProposal).status, 0);
+  const collision = commit(replacementOwner, collisionProposal);
   record(
     "immutable_assignment_collision_is_rejected",
     collision.status !== 0 && collision.stderr.toLowerCase().includes("assignment"),
@@ -610,8 +611,8 @@ async function main(): Promise<void> {
     ).status,
     0,
   );
-  assert.equal(decide(owner, secondProposal).status, 0);
-  assert.equal(commit(owner, secondProposal).status, 0);
+  assert.equal(decide(replacementOwner, secondProposal).status, 0);
+  assert.equal(commit(replacementOwner, secondProposal).status, 0);
   record(
     "one_object_key_supports_multiple_temporal_type_assignments",
     (await scalarCount(
@@ -719,8 +720,8 @@ async function main(): Promise<void> {
 
   for (const invalid of invalidCases) {
     assert.equal(propose(builder, invalid.proposal, invalid.draft).status, 0);
-    assert.equal(decide(owner, invalid.proposal).status, 0);
-    const rejected = commit(owner, invalid.proposal);
+    assert.equal(decide(replacementOwner, invalid.proposal).status, 0);
+    const rejected = commit(replacementOwner, invalid.proposal);
     record(`${invalid.name}_is_rejected`, rejected.status !== 0);
     await assertNoMaterialization(invalid.proposal, invalid.entity, invalid.assignment);
   }
@@ -738,7 +739,7 @@ async function main(): Promise<void> {
       isolation:
         "World is part of every ObjectKey and composite TypeAssignment/grant foreign key; a cross-World draft creates no receipt or object state",
       recovery:
-        "a Commit denied while the owner Membership is revoked leaves no materialization; reactivation commits that same proposal exactly once",
+        "a Commit denied while the owner Membership is revoked leaves no materialization; an authorized replacement Membership commits that same proposal exactly once",
     },
     finishedAt: new Date().toISOString(),
     interfacesProven: ["cli"],
