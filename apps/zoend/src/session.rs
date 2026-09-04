@@ -19,8 +19,8 @@ use connectrpc::{ConnectError, ErrorCode, RequestContext};
 use zoen_adapters::{PostgresIdentityStore, PostgresWorkloadCredentialStore, SessionDoor};
 use zoen_core::{
     ChannelProvider, ExternalSubject, IdentityError, MachineToken, Membership, OpaqueSessionToken,
-    SessionCredential, TenantId, TimestampMicros, TrustedExecutionContext, VerifiedSessionEvidence,
-    WorkloadCredentialId, WorkloadExchangeToken, trusted_context_from_workload_credential,
+    SessionCredential, TimestampMicros, TrustedExecutionContext, VerifiedSessionEvidence,
+    WorkloadCredentialId, WorkloadExchangeToken, WorldId, trusted_context_from_workload_credential,
 };
 
 #[derive(Clone)]
@@ -65,12 +65,12 @@ impl SessionExchange {
     /// not a valid tenant id.
     pub fn tenant_from_header(
         request_context: &RequestContext,
-    ) -> Result<Option<TenantId>, ConnectError> {
+    ) -> Result<Option<WorldId>, ConnectError> {
         match request_context
             .header("x-zoen-tenant")
             .and_then(|value| value.to_str().ok())
         {
-            Some(raw) => Ok(Some(TenantId::parse(raw).map_err(|error| {
+            Some(raw) => Ok(Some(WorldId::parse(raw).map_err(|error| {
                 ConnectError::new(ErrorCode::InvalidArgument, error.to_string())
             })?)),
             None => Ok(None),
@@ -141,11 +141,11 @@ impl SessionExchange {
     pub async fn resolve(
         &self,
         authorization: Option<&str>,
-        tenant_hint: Option<&TenantId>,
+        world_hint: Option<&WorldId>,
     ) -> Result<TrustedExecutionContext, ConnectError> {
         let credential =
             SessionCredential::from_authorization(authorization).map_err(map_identity_error)?;
-        self.resolve_credential(credential, tenant_hint)
+        self.resolve_credential(credential, world_hint)
             .await
             .map_err(map_identity_error)
     }
@@ -159,11 +159,11 @@ impl SessionExchange {
     pub async fn resolve_membership(
         &self,
         authorization: Option<&str>,
-        tenant_hint: Option<&TenantId>,
+        world_hint: Option<&WorldId>,
     ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
         let credential = SessionCredential::from_authorization(authorization)?;
         match credential {
-            SessionCredential::Door(token) => self.membership_for_door(&token, tenant_hint).await,
+            SessionCredential::Door(token) => self.membership_for_door(&token, world_hint).await,
             SessionCredential::Workload(_) | SessionCredential::Channel { .. } => {
                 Err(IdentityError::Unauthenticated)
             }
@@ -173,16 +173,16 @@ impl SessionExchange {
     async fn resolve_credential(
         &self,
         credential: SessionCredential,
-        tenant_hint: Option<&TenantId>,
+        world_hint: Option<&WorldId>,
     ) -> Result<TrustedExecutionContext, IdentityError> {
         match credential {
             SessionCredential::Door(token) => {
-                let (_, context) = self.membership_for_door(&token, tenant_hint).await?;
+                let (_, context) = self.membership_for_door(&token, world_hint).await?;
                 Ok(context)
             }
             SessionCredential::Workload(token) => self.resolve_workload(&token).await,
             SessionCredential::Channel { machine, subject } => {
-                self.resolve_channel(machine, subject, tenant_hint).await
+                self.resolve_channel(machine, subject, world_hint).await
             }
         }
     }
@@ -190,11 +190,11 @@ impl SessionExchange {
     async fn membership_for_door(
         &self,
         token: &OpaqueSessionToken,
-        tenant_hint: Option<&TenantId>,
+        world_hint: Option<&WorldId>,
     ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
         let evidence = self.door.verify(token).await?;
         let subject = ExternalSubject::new(ChannelProvider::AuthDoor, evidence.door_user_key)?;
-        let tenant = tenant_hint.ok_or(IdentityError::MembershipNotFound)?;
+        let tenant = world_hint.ok_or(IdentityError::MembershipNotFound)?;
         self.directory.resolve_for_subject(&subject, tenant).await
     }
 
@@ -260,7 +260,7 @@ impl SessionExchange {
         &self,
         machine: MachineToken,
         subject: ExternalSubject,
-        tenant_hint: Option<&TenantId>,
+        world_hint: Option<&WorldId>,
     ) -> Result<TrustedExecutionContext, IdentityError> {
         let expected = self
             .machine
@@ -269,7 +269,7 @@ impl SessionExchange {
         if !constant_time_eq(expected.as_str().as_bytes(), machine.as_str().as_bytes()) {
             return Err(IdentityError::Unauthenticated);
         }
-        let tenant = tenant_hint.ok_or(IdentityError::MembershipNotFound)?;
+        let tenant = world_hint.ok_or(IdentityError::MembershipNotFound)?;
         Ok(self
             .directory
             .resolve_for_subject(&subject, tenant)
@@ -319,7 +319,7 @@ pub fn map_identity_error(error: IdentityError) -> ConnectError {
         | IdentityError::MembershipNotFound
         | IdentityError::MembershipInactive
         | IdentityError::AccountMerged { .. }
-        | IdentityError::InviteTenantMismatch => {
+        | IdentityError::InviteWorldMismatch => {
             ConnectError::new(ErrorCode::PermissionDenied, error.to_string())
         }
         other => ConnectError::new(ErrorCode::Internal, other.to_string()),

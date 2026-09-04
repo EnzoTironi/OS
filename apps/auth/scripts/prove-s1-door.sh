@@ -12,7 +12,8 @@ fi
 base="http://127.0.0.1:58704"
 ok_url="${base}/api/auth/ok"
 zoend_base="http://127.0.0.1:58705"
-proof="/workspace/ship/s1-door-proof.md"
+zoend_live="${zoend_base}/live"
+proof="${ZOEN_S1_DOOR_PROOF_PATH:-/workspace/ship/s1-door-proof.md}"
 work="$(mktemp -d)"
 trap 'cleanup' EXIT
 draft="${work}/proof.md"
@@ -108,7 +109,7 @@ membership_count() {
 
 binding_count() {
   docker exec "$zoend_pg_name" psql -U postgres -d zoen -tAc \
-    "SELECT count(*) FROM external_bindings WHERE provider = 'auth_door'"
+    "SELECT count(*) FROM channel_bindings WHERE provider = 'auth_door'"
 }
 
 if [[ ! -d node_modules ]]; then
@@ -251,8 +252,7 @@ zoend_pid="$!"
 
 zoend_ready=0
 for _ in $(seq 1 120); do
-  if curl -sf --connect-timeout 1 "${zoend_base}/ready" >/dev/null 2>&1 \
-    || curl -sf --connect-timeout 1 "${zoend_base}/health" >/dev/null 2>&1; then
+  if curl -sf --connect-timeout 1 "$zoend_live" >/dev/null 2>&1; then
     zoend_ready=1
     break
   fi
@@ -264,7 +264,7 @@ for _ in $(seq 1 120); do
 done
 if [[ "$zoend_ready" -ne 1 ]]; then
   cat "$zoend_log" >&2 || true
-  fail "zoend /ready did not answer"
+  fail "zoend /live did not answer"
 fi
 
 none_email="s1-door-none-$(date +%s)@example.invalid"
@@ -292,7 +292,7 @@ none_token="$(session_token_from_jar "$none_jar")"
 
 before_memberships="$(membership_count)"
 before_bindings="$(binding_count)"
-url="${zoend_base}/identity/admin/resolve-context?tenant=tenant.none"
+url="${zoend_base}/identity/admin/resolve-context?world=tenant.none"
 command="curl -sS -o body -w %{http_code} -H Authorization:Bearer <planted-session> ${url}"
 body="${work}/none-resolve"
 status="$(
@@ -346,9 +346,9 @@ status="$(
     "$url"
 )"
 ts="$(stamp)"
-tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tenantId"])' < "$body")"
+tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["worldId"])' < "$body")"
 membership_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["membershipId"])' < "$body")"
-[[ -n "$tenant_id" ]] || fail "bootstrap missing tenantId"
+[[ -n "$tenant_id" ]] || fail "bootstrap missing worldId"
 [[ -n "$membership_id" ]] || fail "bootstrap missing membershipId"
 excerpt="bootstrap_write=yes tenant=${tenant_id} membership=${membership_id}"
 record "POST /identity/admin/bootstrap-bound (Door, first Personal)" "$command" "$url" "$status" "$excerpt" "$ts"
@@ -359,7 +359,7 @@ record "POST /identity/admin/bootstrap-bound (Door, first Personal)" "$command" 
 }
 after_bootstrap="$(membership_count)"
 
-url="${zoend_base}/identity/admin/resolve-context?tenant=${tenant_id}"
+url="${zoend_base}/identity/admin/resolve-context?world=${tenant_id}"
 command="curl -sS -o body -w %{http_code} -H Authorization:Bearer <planted-session> ${url}"
 body="${work}/active-resolve"
 status="$(
@@ -379,10 +379,11 @@ record "GET /identity/admin/resolve-context (Active membership)" "$command" "$ur
   fail "active resolve status ${status}"
 }
 [[ "$resolved_membership" == "$membership_id" ]] || fail "resolve membership ${resolved_membership} != bootstrap ${membership_id}"
-[[ "$resolved_clearance" == "zoen.world.floor" ]] || fail "clearance ${resolved_clearance}, want zoen.world.floor"
+[[ "$resolved_clearance" == "zoen.world.floor,zoen.world.top" ]] \
+  || fail "clearance ${resolved_clearance}, want personal owner clearance"
 [[ "$after_resolve" == "$after_bootstrap" ]] || fail "resolve INSERT after bootstrap ${after_bootstrap} -> ${after_resolve}"
 
-url="${zoend_base}/identity/admin/resolve-context?tenant=tenant.none"
+url="${zoend_base}/identity/admin/resolve-context?world=tenant.none"
 command="curl -sS -o body -w %{http_code} -H Authorization:Bearer not-a-jwt ${url}"
 body="${work}/garbage"
 status="$(

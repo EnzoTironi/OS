@@ -24,7 +24,7 @@ use zoen_core::{
     MigrationProgress as CoreMigrationProgress, MigrationRecipe as CoreMigrationRecipe,
     MigrationRecord as CoreMigrationRecord, MigrationRule as CoreMigrationRule,
     MigrationRuleKind as CoreMigrationRuleKind, MigrationStatus as CoreMigrationStatus,
-    OperationId, TenantId, TimestampMicros,
+    OperationId, TimestampMicros, WorldId,
 };
 use zoen_engine::{
     ActivateRevisionError, DefinitionEngine, GetRevisionError, MigrationError, PlanEvolutionError,
@@ -69,9 +69,9 @@ impl DefinitionServiceImpl {
     async fn resolve_for_payload(
         &self,
         request_context: &RequestContext,
-        tenant_id: &str,
+        world_id: &str,
     ) -> Result<ExecutionContext, ConnectError> {
-        let claimed = TenantId::parse(tenant_id)
+        let claimed = WorldId::parse(world_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let context = self
             .sessions
@@ -80,7 +80,7 @@ impl DefinitionServiceImpl {
                 Some(&claimed),
             )
             .await?;
-        if context.tenant_id() != &claimed {
+        if context.world_id() != &claimed {
             return Err(ConnectError::new(
                 ErrorCode::PermissionDenied,
                 "payload tenant does not match the trusted session",

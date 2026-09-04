@@ -1,8 +1,7 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
-    ActionProposal, ActorId, CommitReceipt, ExactValue, ExecutionContext, IdentityError,
+    AccountId, ActionProposal, ActorId, CommitReceipt, ExactValue, ExecutionContext, IdentityError,
     InviteToken, PrincipalId, ResourceId, StateBasis, WORLD_INVITE_ACTION, WorkloadId,
-    ZoenAccountId,
 };
 use zoen_engine::{
     ActionCommitTransaction, CommitPlan, CommitPreparation, CommitStoreOutcome, StoreError,
@@ -38,14 +37,10 @@ pub(crate) async fn begin_action_commit(
     proposal: &ActionProposal,
 ) -> Result<CommitPreparation<PostgresActionCommit>, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     reach(CommitStage::BeforeLock).await?;
-    if let Some(receipt) = load_operation(
-        &mut transaction,
-        context.tenant_id(),
-        &proposal.operation_id,
-    )
-    .await?
+    if let Some(receipt) =
+        load_operation(&mut transaction, context.world_id(), &proposal.operation_id).await?
     {
         transaction.commit().await.map_err(store_unavailable)?;
         return Ok(preparation_from_receipt(receipt, proposal));
@@ -53,12 +48,8 @@ pub(crate) async fn begin_action_commit(
 
     let head = initialize_and_lock_head(&mut transaction, context).await?;
     reach(CommitStage::AfterLock).await?;
-    if let Some(receipt) = load_operation(
-        &mut transaction,
-        context.tenant_id(),
-        &proposal.operation_id,
-    )
-    .await?
+    if let Some(receipt) =
+        load_operation(&mut transaction, context.world_id(), &proposal.operation_id).await?
     {
         transaction.commit().await.map_err(store_unavailable)?;
         return Ok(preparation_from_receipt(receipt, proposal));
@@ -95,7 +86,7 @@ impl ActionCommitTransaction for PostgresActionCommit {
             return Ok(CommitStoreOutcome::Stale(current_basis));
         }
         if let Some(kind) =
-            find_identity_collision(&mut transaction, context.tenant_id(), plan).await?
+            find_identity_collision(&mut transaction, context.world_id(), plan).await?
         {
             transaction.commit().await.map_err(store_unavailable)?;
             return Ok(CommitStoreOutcome::IdentityCollision(kind));
@@ -125,7 +116,7 @@ impl ActionCommitTransaction for PostgresActionCommit {
              SET commit_sequence = $2
              WHERE tenant_id = $1",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(next_sequence)
         .execute(&mut *transaction)
         .await
@@ -169,7 +160,7 @@ async fn persist_committed_action(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, 'action')",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .execute(&mut **transaction)
     .await
@@ -196,7 +187,7 @@ async fn persist_committed_action(
             .map(|effect| effect.evidence.draft().claim_id.clone())
             .collect(),
     };
-    if let Err(error) = insert_operation(transaction, context.tenant_id(), &receipt).await {
+    if let Err(error) = insert_operation(transaction, context.world_id(), &receipt).await {
         return match error {
             OperationInsertError::OperationId => Ok(PersistAction::RollbackAndReplay),
             OperationInsertError::ProposalId => {
@@ -229,18 +220,18 @@ async fn insert_action_records(
     for effect in &plan.effects {
         insert_semantic_record(
             transaction,
-            context.tenant_id(),
+            context.world_id(),
             next_sequence,
             &effect.evidence,
         )
         .await?;
     }
-    insert_operation_records(transaction, context.tenant_id(), receipt).await?;
+    insert_operation_records(transaction, context.world_id(), receipt).await?;
     reach(CommitStage::AfterSemanticRecords).await?;
     for (ordinal, effect) in plan.effects.iter().enumerate() {
         insert_effect_request(
             transaction,
-            context.tenant_id(),
+            context.world_id(),
             next_sequence,
             ordinal,
             &plan.proposal.operation_id,
@@ -262,7 +253,7 @@ async fn initialize_and_lock_head(
          VALUES ($1, 0)
          ON CONFLICT (tenant_id) DO NOTHING",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .execute(&mut **transaction)
     .await
     .map_err(store_unavailable)?;
@@ -272,7 +263,7 @@ async fn initialize_and_lock_head(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_one(&mut **transaction)
     .await
     .map_err(store_unavailable)?
@@ -328,7 +319,7 @@ async fn apply_world_invite(pool: &PgPool, proposal: &ActionProposal) -> Result<
 }
 
 fn world_invite_from_proposal(proposal: &ActionProposal) -> Result<WorldInvite, StoreError> {
-    let account_id = ZoenAccountId::parse(text_input(proposal, "accountId")?)
+    let account_id = AccountId::parse(text_input(proposal, "accountId")?)
         .map_err(|error| StoreError::Corrupt(error.to_string()))?;
     let actor_id = ActorId::parse(text_input(proposal, "actorId")?)
         .map_err(|error| StoreError::Corrupt(error.to_string()))?;
@@ -348,7 +339,7 @@ fn world_invite_from_proposal(proposal: &ActionProposal) -> Result<WorldInvite, 
         delegation,
         expires_at: proposal.expires_at,
         principal_id,
-        tenant_id: proposal.proposed_by.tenant_id().clone(),
+        world_id: proposal.proposed_by.world_id().clone(),
         token,
         workload_id,
     })

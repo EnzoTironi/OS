@@ -11,15 +11,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use zoen_adapters::{CreateInvite, PostgresIdentityStore};
 use zoen_core::{
-    ActionId, ActorId, ChannelProvider, DelegationChain, DelegationGrant, DelegationId,
+    AccountId, ActionId, ActorId, ChannelProvider, DelegationChain, DelegationGrant, DelegationId,
     ExternalSubject, IdentityError, InviteToken, MembershipId, PrincipalId, ResourceId,
-    RevocationReason, TenantId, TimestampMicros, UnbindReason, WorkloadId, ZoenAccountId,
+    RevocationReason, TimestampMicros, UnbindReason, WorkloadId, WorldId,
 };
 
 use crate::{
     identity_admin_auth::{
-        IdentityAdminActor, authenticate_identity_admin, identity_error_response, require_account,
-        require_machine,
+        IdentityAdminActor, authenticate_identity_admin, forbidden, identity_error_response,
+        require_account, require_machine,
     },
     session::SessionExchange,
 };
@@ -54,6 +54,7 @@ pub fn router(state: IdentityAdminState) -> Router {
         .route("/identity/admin/admit-whatsapp", post(admit_whatsapp))
         .route("/identity/admin/bootstrap-bound", post(bootstrap_bound))
         .route("/identity/admin/resolve-context", get(resolve_context))
+        .route("/identity/admin/resolve-ingress", get(resolve_ingress))
         .layer(middleware::from_fn_with_state(
             shared.clone(),
             require_identity_admin_auth,
@@ -116,7 +117,7 @@ struct UnbindBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InviteBody {
-    tenant_id: String,
+    world_id: String,
     principal_id: String,
     token: String,
     expires_at_micros: i64,
@@ -163,7 +164,7 @@ struct CommitMergeBody {
 
 #[derive(Debug, Deserialize)]
 struct ResolveQuery {
-    tenant: String,
+    world: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,7 +197,7 @@ struct BindingJson {
 struct MembershipJson {
     membership_id: String,
     account_id: String,
-    tenant_id: String,
+    world_id: String,
     principal_id: String,
     status: String,
     kind: String,
@@ -214,7 +215,7 @@ struct SnapshotJson {
     account: AccountJson,
     bindings: Vec<BindingJson>,
     memberships: Vec<MembershipJson>,
-    personal_tenant: Option<String>,
+    personal_world: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -222,7 +223,7 @@ struct SnapshotJson {
 struct ContextJson {
     membership_id: String,
     clearance: Vec<String>,
-    tenant_id: String,
+    world_id: String,
     principal_id: String,
     actor_id: String,
     workload_id: String,
@@ -233,8 +234,8 @@ struct ContextJson {
 struct InviteJson {
     #[serde(rename = "inviteId")]
     invite: String,
-    #[serde(rename = "tenantId")]
-    tenant: String,
+    #[serde(rename = "worldId")]
+    world_id: String,
     #[serde(rename = "principalId")]
     principal: String,
 }
@@ -280,11 +281,11 @@ async fn verify_binding(
     Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AccountBody>,
 ) -> impl IntoResponse {
-    let account_id = match ZoenAccountId::parse(body.account_id) {
+    let account_id = match AccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
-    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+    if let Some(error) = require_machine(&actor) {
         return error;
     }
     match state.identity.verify_binding(account_id).await {
@@ -298,11 +299,11 @@ async fn bind_verified(
     Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<BindBody>,
 ) -> impl IntoResponse {
-    let account_id = match ZoenAccountId::parse(body.account_id) {
+    let account_id = match AccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
-    if let Some(error) = require_account(&state.identity, &actor, &account_id).await {
+    if let Some(error) = require_machine(&actor) {
         return error;
     }
     let subject = match parse_subject(&body.provider, &body.subject_key) {
@@ -327,7 +328,7 @@ async fn unbind(
     Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<UnbindBody>,
 ) -> impl IntoResponse {
-    let binding_id = match zoen_core::ExternalBindingId::parse(body.binding_id) {
+    let binding_id = match zoen_core::ChannelBindingId::parse(body.binding_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -353,7 +354,7 @@ async fn ensure_personal(
     Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AccountBody>,
 ) -> impl IntoResponse {
-    let account_id = match ZoenAccountId::parse(body.account_id) {
+    let account_id = match AccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -374,7 +375,7 @@ async fn create_invite(
     if let Some(error) = require_machine(&actor) {
         return error;
     }
-    let tenant_id = match TenantId::parse(body.tenant_id) {
+    let world_id = match WorldId::parse(body.world_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -406,7 +407,7 @@ async fn create_invite(
             delegation,
             expires_at: TimestampMicros::new(body.expires_at_micros),
             principal_id,
-            tenant_id,
+            world_id,
             token: &token,
             workload_id,
         })
@@ -416,7 +417,7 @@ async fn create_invite(
             StatusCode::OK,
             Json(InviteJson {
                 invite: invite.id.to_string(),
-                tenant: invite.tenant_id.to_string(),
+                world_id: invite.world_id.to_string(),
                 principal: invite.principal_id.to_string(),
             }),
         )
@@ -430,7 +431,7 @@ async fn accept_invite(
     Extension(actor): Extension<IdentityAdminActor>,
     Json(body): Json<AcceptInviteBody>,
 ) -> impl IntoResponse {
-    let account_id = match ZoenAccountId::parse(body.account_id) {
+    let account_id = match AccountId::parse(body.account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -507,11 +508,11 @@ async fn plan_merge(
     if let Some(error) = require_machine(&actor) {
         return error;
     }
-    let survivor = match ZoenAccountId::parse(body.survivor) {
+    let survivor = match AccountId::parse(body.survivor) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
-    let absorbed = match ZoenAccountId::parse(body.absorbed) {
+    let absorbed = match AccountId::parse(body.absorbed) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -541,18 +542,18 @@ async fn commit_merge(
     if let Some(error) = require_machine(&actor) {
         return error;
     }
-    let survivor = match ZoenAccountId::parse(body.survivor) {
+    let survivor = match AccountId::parse(body.survivor) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
-    let absorbed = match ZoenAccountId::parse(body.absorbed) {
+    let absorbed = match AccountId::parse(body.absorbed) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
     let move_bindings = match body
         .move_bindings
         .into_iter()
-        .map(zoen_core::ExternalBindingId::parse)
+        .map(zoen_core::ChannelBindingId::parse)
         .collect::<Result<Vec<_>, _>>()
     {
         Ok(ids) => ids,
@@ -577,7 +578,7 @@ async fn snapshot_account(
     Extension(actor): Extension<IdentityAdminActor>,
     Path(account_id): Path<String>,
 ) -> impl IntoResponse {
-    let account_id = match ZoenAccountId::parse(account_id) {
+    let account_id = match AccountId::parse(account_id) {
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
@@ -732,7 +733,7 @@ async fn bootstrap_bound(
         Json(serde_json::json!({
             "accountId": account.id.as_str(),
             "membershipId": membership.id.as_str(),
-            "tenantId": membership.tenant_id.as_str(),
+            "worldId": membership.world_id.as_str(),
             "principalId": membership.principal_id.as_str(),
             "doorUserKey": verified.door_user_key,
         })),
@@ -748,13 +749,13 @@ async fn resolve_context(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
-    let tenant = match TenantId::parse(query.tenant) {
+    let world = match WorldId::parse(query.world) {
         Ok(tenant) => tenant,
         Err(error) => return bad_request(&error.to_string()),
     };
     match state
         .sessions
-        .resolve_membership(authorization, Some(&tenant))
+        .resolve_membership(authorization, Some(&world))
         .await
     {
         Ok((membership, context)) => (
@@ -762,11 +763,72 @@ async fn resolve_context(
             Json(ContextJson {
                 membership_id: membership.id.to_string(),
                 clearance: context.clearance().to_token_strings(),
-                tenant_id: context.tenant_id().to_string(),
+                world_id: context.world_id().to_string(),
                 principal_id: context.principal_id().to_string(),
                 actor_id: context.actor_id().to_string(),
                 workload_id: context.workload_id().to_string(),
             }),
+        )
+            .into_response(),
+        Err(error) => identity_error(&error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ResolveIngressQuery {
+    provider: Option<String>,
+    #[serde(rename = "subjectKey")]
+    subject_key: Option<String>,
+    world: String,
+}
+
+async fn resolve_ingress(
+    State(state): State<Arc<IdentityAdminState>>,
+    Extension(actor): Extension<IdentityAdminActor>,
+    Query(query): Query<ResolveIngressQuery>,
+) -> impl IntoResponse {
+    let world = match WorldId::parse(query.world) {
+        Ok(world) => world,
+        Err(error) => return bad_request(&error.to_string()),
+    };
+    if query.provider.is_some() != query.subject_key.is_some() {
+        return bad_request("provider and subjectKey must be provided together");
+    }
+    let result = if let (Some(provider), Some(subject_key)) =
+        (query.provider.as_deref(), query.subject_key.as_deref())
+    {
+        if let Some(error) = require_machine(&actor) {
+            return error;
+        }
+        let subject = match parse_subject(provider, subject_key) {
+            Ok(subject) => subject,
+            Err(error) => return identity_error(&error),
+        };
+        state.identity.resolve_bound_ingress(&subject, &world).await
+    } else {
+        let IdentityAdminActor::Door(verified) = &actor else {
+            return forbidden();
+        };
+        let subject =
+            match ExternalSubject::new(ChannelProvider::AuthDoor, verified.door_user_key.clone()) {
+                Ok(subject) => subject,
+                Err(error) => return identity_error(&error),
+            };
+        state.identity.resolve_bound_ingress(&subject, &world).await
+    };
+    match result {
+        Ok(ingress) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "accountId": ingress.account.id.as_str(),
+                "accountStatus": account_status(&ingress.account.status),
+                "bindingId": ingress.binding.id.as_str(),
+                "bindingProvider": ingress.binding.subject.provider.as_str(),
+                "membershipId": ingress.membership.id.as_str(),
+                "worldId": ingress.world_id.as_str(),
+                "principalId": ingress.membership.principal_id.as_str(),
+                "activeReleaseDigest": ingress.active_release_digest,
+            })),
         )
             .into_response(),
         Err(error) => identity_error(&error),
@@ -831,11 +893,11 @@ fn snapshot_json(snapshot: &zoen_adapters::AccountSnapshot) -> SnapshotJson {
         },
         bindings: snapshot.bindings.iter().map(binding_json).collect(),
         memberships: snapshot.memberships.iter().map(membership_json).collect(),
-        personal_tenant: snapshot.personal_tenant.clone(),
+        personal_world: snapshot.personal_world.clone(),
     }
 }
 
-fn binding_json(binding: &zoen_core::ExternalBinding) -> BindingJson {
+fn binding_json(binding: &zoen_core::ChannelBinding) -> BindingJson {
     BindingJson {
         binding_id: binding.id.to_string(),
         account_id: binding.account_id.to_string(),
@@ -855,7 +917,7 @@ fn membership_json(membership: &zoen_core::Membership) -> MembershipJson {
     MembershipJson {
         membership_id: membership.id.to_string(),
         account_id: membership.account_id.to_string(),
-        tenant_id: membership.tenant_id.to_string(),
+        world_id: membership.world_id.to_string(),
         principal_id: membership.principal_id.to_string(),
         status: match membership.status {
             zoen_core::MembershipStatus::Active => "active",

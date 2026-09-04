@@ -28,7 +28,7 @@ pub(crate) async fn publish(
         .begin()
         .await
         .map_err(|error| zoen_engine::ComponentAdmissionError::Store(error.to_string()))?;
-    set_tenant(&mut transaction, context.tenant_id())
+    set_tenant(&mut transaction, context.world_id())
         .await
         .map_err(|error| zoen_engine::ComponentAdmissionError::Store(error.to_string()))?;
     let existing = sqlx::query(
@@ -36,7 +36,7 @@ pub(crate) async fn publish(
          FROM wasm_components
          WHERE tenant_id = $1 AND component_digest = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(artifact.claimed_digest.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -69,7 +69,7 @@ pub(crate) async fn publish(
             published_actor_id, published_principal_id, published_workload_id
          ) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(artifact.claimed_digest.as_str())
     .bind(artifact.interface.as_str())
     .bind(&artifact.bytes)
@@ -99,7 +99,7 @@ pub(crate) async fn load_component(
         .begin()
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
-    set_tenant(&mut transaction, context.tenant_id())
+    set_tenant(&mut transaction, context.world_id())
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
     let row = sqlx::query(
@@ -107,7 +107,7 @@ pub(crate) async fn load_component(
          FROM wasm_components
          WHERE tenant_id = $1 AND component_digest = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(digest.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -137,7 +137,7 @@ pub(crate) async fn begin_execution(
         .begin()
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
-    set_tenant(&mut transaction, context.tenant_id())
+    set_tenant(&mut transaction, context.world_id())
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
     let existing = sqlx::query(
@@ -146,7 +146,7 @@ pub(crate) async fn begin_execution(
          FROM wasm_executions
          WHERE tenant_id = $1 AND execution_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(request.execution_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -182,7 +182,7 @@ pub(crate) async fn begin_execution(
             $19, 'running'
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(request.execution_id.as_str())
     .bind(request.request_digest().as_str())
     .bind(request.component_digest.as_str())
@@ -283,7 +283,7 @@ pub(crate) async fn finish_execution(
         .begin()
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
-    set_tenant(&mut transaction, context.tenant_id())
+    set_tenant(&mut transaction, context.world_id())
         .await
         .map_err(|error| ComputationError::Store(error.to_string()))?;
     let stored = StoredOutcome::from(outcome);
@@ -304,7 +304,7 @@ pub(crate) async fn finish_execution(
            AND execution_id = $2
            AND status = 'running'",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(request.execution_id.as_str())
     .bind(outcome_kind(outcome))
     .bind(value)

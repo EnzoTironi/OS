@@ -61,7 +61,7 @@ pub struct IdentityConfig {
     /// Principal the credential must authenticate as.
     pub principal_id: String,
     /// Tenant the worker serves.
-    pub tenant_id: String,
+    pub world_id: String,
     /// Always [`EFFECT_WORKER_WORKLOAD_ID`].
     pub workload_id: String,
 }
@@ -117,8 +117,8 @@ fn load_config_from(
     let connector = parse_connector(environment)?;
     let listen = parse_listen(environment, node_env)?;
     let registration = parse_registration(environment)?;
-    let tenant_id = semantic(environment, "ZOEN_TENANT_ID")?;
-    let identity = parse_identity(environment, &tenant_id)?;
+    let world_id = semantic(environment, "ZOEN_TENANT_ID")?;
+    let identity = parse_identity(environment, &world_id)?;
     let zoend_url = local_url(&required(environment, "ZOEN_ZOEND")?, "ZOEN_ZOEND", "/")?;
     let service_timeout_ms = ranged_u64(
         environment,
@@ -129,7 +129,7 @@ fn load_config_from(
     )?;
     let credential_ref = single_credential_ref(
         &required(environment, "ZOEN_CONNECTOR_CREDENTIAL_REFS")?,
-        &tenant_id,
+        &world_id,
     )?;
     read_api_key(&identity.api_key_file)?;
 
@@ -148,7 +148,7 @@ fn load_config_from(
             actor_id: identity.actor_id,
             api_key_file: identity.api_key_file,
             principal_id: identity.principal_id,
-            tenant_id,
+            world_id,
             workload_id: identity.workload_id,
         },
         listen,
@@ -232,7 +232,7 @@ fn parse_registration(
 
 fn parse_identity(
     environment: &BTreeMap<String, String>,
-    tenant_id: &str,
+    world_id: &str,
 ) -> Result<IdentityConfig, ConfigError> {
     let workload_id = environment
         .get("ZOEN_EFFECT_WORKER_WORKLOAD_ID")
@@ -246,7 +246,7 @@ fn parse_identity(
         actor_id: semantic(environment, "ZOEN_EFFECT_WORKER_ACTOR_ID")?,
         api_key_file: absolute_path(environment, "ZOEN_EFFECT_WORKER_API_KEY_FILE")?,
         principal_id: semantic(environment, "ZOEN_EFFECT_WORKER_PRINCIPAL_ID")?,
-        tenant_id: tenant_id.to_owned(),
+        world_id: world_id.to_owned(),
         workload_id: workload_id.to_owned(),
     })
 }
@@ -433,7 +433,7 @@ fn local_url(value: &str, name: &str, expected_path: &str) -> Result<String, Con
     Ok(value.to_owned())
 }
 
-fn single_credential_ref(refs: &str, tenant_id: &str) -> Result<String, ConfigError> {
+fn single_credential_ref(refs: &str, world_id: &str) -> Result<String, ConfigError> {
     let document: serde_json::Value = serde_json::from_str(refs)
         .map_err(|_| invalid("ZOEN_CONNECTOR_CREDENTIAL_REFS must be JSON"))?;
     let object = document
@@ -445,13 +445,13 @@ fn single_credential_ref(refs: &str, tenant_id: &str) -> Result<String, ConfigEr
     {
         return Err(invalid("ZOEN_CONNECTOR_CREDENTIAL_REFS is malformed"));
     }
-    if object.len() != 1 || !object.contains_key(tenant_id) {
+    if object.len() != 1 || !object.contains_key(world_id) {
         return Err(invalid(
             "ZOEN_CONNECTOR_CREDENTIAL_REFS must contain only the configured tenant",
         ));
     }
     object
-        .get(tenant_id)
+        .get(world_id)
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| invalid("ZOEN_CONNECTOR_CREDENTIAL_REFS omits the configured tenant"))

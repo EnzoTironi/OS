@@ -2,7 +2,7 @@ use zoen_core::{
     ActionId, ActivationPrecondition, CanonicalDefinition, DefinitionActivation,
     DefinitionActivationKind, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevision, EvolutionClassification, EvolutionPlan, ExecutionContext, OperationId,
-    PolicyEvaluation, PolicyEvidence, ResourceId, TenantId, TimestampMicros,
+    PolicyEvaluation, PolicyEvidence, ResourceId, TimestampMicros, WorldId,
 };
 
 use super::{plan, reference};
@@ -38,14 +38,14 @@ where
     ) -> Result<DefinitionActivation, ActivateRevisionError> {
         let target = self
             .store
-            .get_revision(context.tenant_id(), definition_id, digest)
+            .get_revision(context.world_id(), definition_id, digest)
             .await
             .map_err(ActivateRevisionError::Store)?;
         let target_definition =
             decode_revision(&target).map_err(ActivateRevisionError::InvalidRevision)?;
         let previous = self
             .store
-            .get_active_revision(context.tenant_id(), definition_id)
+            .get_active_revision(context.world_id(), definition_id)
             .await
             .map_err(ActivateRevisionError::Store)?;
         if previous
@@ -54,7 +54,7 @@ where
         {
             return already_active_activation(
                 &self.store,
-                context.tenant_id(),
+                context.world_id(),
                 definition_id,
                 digest,
             )
@@ -129,13 +129,13 @@ where
     ) -> Result<DefinitionActivation, ActivateRevisionError> {
         let target = self
             .store
-            .get_revision(context.tenant_id(), definition_id, digest)
+            .get_revision(context.world_id(), definition_id, digest)
             .await
             .map_err(ActivateRevisionError::Store)?;
         decode_revision(&target).map_err(ActivateRevisionError::InvalidRevision)?;
         let previous = self
             .store
-            .get_active_revision(context.tenant_id(), definition_id)
+            .get_active_revision(context.world_id(), definition_id)
             .await
             .map_err(ActivateRevisionError::Store)?;
         if !precondition_matches(precondition, previous.as_ref()) {
@@ -147,7 +147,7 @@ where
             .is_none_or(|current| current.digest == target.digest)
             || !self
                 .store
-                .revision_was_active(context.tenant_id(), &target_reference)
+                .revision_was_active(context.world_id(), &target_reference)
                 .await
                 .map_err(ActivateRevisionError::Store)?
         {
@@ -203,12 +203,12 @@ where
     ) -> Result<EvolutionPlan, PlanEvolutionError> {
         let from_revision = self
             .store
-            .get_revision(context.tenant_id(), definition_id, from_digest)
+            .get_revision(context.world_id(), definition_id, from_digest)
             .await
             .map_err(PlanEvolutionError::Store)?;
         let to_revision = self
             .store
-            .get_revision(context.tenant_id(), definition_id, to_digest)
+            .get_revision(context.world_id(), definition_id, to_digest)
             .await
             .map_err(PlanEvolutionError::Store)?;
         let from = decode_revision(&from_revision).map_err(PlanEvolutionError::InvalidRevision)?;
@@ -235,7 +235,7 @@ where
                     .ok_or(ActivateRevisionError::MigrationIncomplete)?;
                 self.store
                     .get_completed_migration(
-                        context.tenant_id(),
+                        context.world_id(),
                         &previous_reference,
                         &reference(target),
                     )
@@ -311,12 +311,12 @@ fn decode_revision(revision: &DefinitionRevision) -> Result<CanonicalDefinition,
 
 async fn already_active_activation<S: AuthorityStore>(
     store: &S,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     definition_id: &DefinitionId,
     digest: &DefinitionDigest,
 ) -> Result<DefinitionActivation, ActivateRevisionError> {
     let activation = store
-        .get_active_activation(tenant_id, definition_id)
+        .get_active_activation(world_id, definition_id)
         .await
         .map_err(ActivateRevisionError::Store)?
         .ok_or_else(|| {

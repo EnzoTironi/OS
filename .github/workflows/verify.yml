@@ -141,6 +141,7 @@ jobs:
           - governed-clinic
           - messaging-boundary
           - object-key
+          - bound-conversation
           - public-surface
           - world-release
           - agent-parity
@@ -152,7 +153,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           cache: npm
-          node-version: ${{ matrix.scenario == 'effect-runtime' && '24' || '22' }}
+          node-version: ${{ contains(fromJSON('["effect-runtime", "bound-conversation"]'), matrix.scenario) && '24' || '22' }}
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.0"

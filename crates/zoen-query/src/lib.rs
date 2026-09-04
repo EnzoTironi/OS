@@ -22,7 +22,7 @@ use zoen_core::{
     EntityId, EvidenceDigest, ExactDecimal, ExactInteger, ExactValue, ExecutionContext, Expression,
     LineageDependency, LineageRole, MigrationOrigin, MigrationRuleId, MigrationRuleKind,
     OperationId, RelationId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection,
-    SemanticValue, SourceId, TenantId, TimestampMicros, TypeId, UnitId, encode_hex,
+    SemanticValue, SourceId, TimestampMicros, TypeId, UnitId, WorldId, encode_hex,
     expression_relations,
 };
 use zoen_engine::{
@@ -141,12 +141,10 @@ impl QueryRuntime {
                 .map_err(adapter_error)?;
             consistency = Consistency::Snapshot(base);
         }
-        let source = self
-            .select_source(context.tenant_id(), &consistency)
-            .await?;
+        let source = self.select_source(context.world_id(), &consistency).await?;
         let cut = source.cut();
         let canonical_json = self
-            .load_definition(context.tenant_id(), query.definition(), cut)
+            .load_definition(context.world_id(), query.definition(), cut)
             .await?;
         let definition = decode_canonical_definition(&canonical_json)
             .map_err(|error| QueryError::Corrupt(error.to_string()))?;
@@ -257,7 +255,7 @@ impl QueryRuntime {
             );
         }
         let mut migration_origins = self
-            .load_migration_origins(context.tenant_id(), &claims, cut)
+            .load_migration_origins(context.world_id(), &claims, cut)
             .await?;
         for claim in &mut claims {
             claim.dependency.migration =
@@ -394,10 +392,10 @@ impl QueryRuntime {
 
     async fn select_source(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         consistency: &Consistency,
     ) -> Result<SourcePlan, QueryError> {
-        let state = load_source_state(&self.pool, tenant_id).await?;
+        let state = load_source_state(&self.pool, world_id).await?;
         match consistency {
             Consistency::Strong => {
                 if state.authority_head == 0 {
@@ -454,7 +452,7 @@ impl QueryRuntime {
 
     async fn load_migration_origins(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         claims: &[SemanticClaim],
         cut: i64,
     ) -> Result<BTreeMap<String, MigrationOrigin>, QueryError> {
@@ -466,7 +464,7 @@ impl QueryRuntime {
             .map(|claim| claim.dependency.claim_id.as_str().to_owned())
             .collect::<Vec<_>>();
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let rows = sqlx::query(
             "SELECT record.target_claim_id, record.operation_id, record.rule_id,
                     record.rule_kind, lineage.source_claim_id
@@ -484,7 +482,7 @@ impl QueryRuntime {
                AND batch.commit_sequence <= $3
              ORDER BY record.target_claim_id, lineage.source_claim_id",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(claim_ids)
         .bind(cut)
         .fetch_all(&mut *transaction)
@@ -539,18 +537,18 @@ impl QueryRuntime {
 
     async fn load_definition(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         reference: &DefinitionReference,
         cut: i64,
     ) -> Result<CanonicalJson, QueryError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT canonical_json, revision, commit_sequence
              FROM definition_revisions
              WHERE tenant_id = $1 AND definition_id = $2 AND digest = $3",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(reference.definition_id.as_str())
         .bind(reference.digest.as_str())
         .fetch_optional(&mut *transaction)
@@ -663,7 +661,7 @@ impl QueryRuntime {
                     .and(col("valid_to_micros").gt(lit(valid_at))),
             ));
         let mut filter = col("tenant_id")
-            .eq(lit(scan.context.tenant_id().as_str()))
+            .eq(lit(scan.context.world_id().as_str()))
             .and(col("definition_id").eq(lit(scan.definition.definition_id.as_str())))
             .and(col("definition_digest").eq(lit(scan.definition.digest.as_str())))
             .and(col("definition_revision").eq(lit(u64_to_i64(
@@ -765,7 +763,7 @@ fn parse_claim(
     entity_id: &EntityId,
     valid_at: TimestampMicros,
 ) -> Result<SemanticClaim, QueryError> {
-    if physical.tenant_id != context.tenant_id().as_str()
+    if physical.world_id != context.world_id().as_str()
         || physical.definition_id != definition.definition_id.as_str()
         || physical.definition_digest != definition.digest.as_str()
         || physical.definition_revision
@@ -994,10 +992,10 @@ fn parse_value(physical: &PhysicalClaim) -> Result<ExactValue, QueryError> {
 
 async fn set_tenant(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<(), QueryError> {
     sqlx::query("SELECT set_config('zoen.tenant_id', $1, true)")
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .execute(&mut **transaction)
         .await
         .map_err(unavailable)?;

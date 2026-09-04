@@ -357,7 +357,7 @@ status="$(
     -H "Authorization: Bearer ${owner_token}" \
     "$url"
 )"
-tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tenantId"])' < "$body")"
+tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["worldId"])' < "$body")"
 owner_membership="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["membershipId"])' < "$body")"
 owner_account="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["accountId"])' < "$body")"
 record "POST /identity/admin/bootstrap-bound (owner Personal)" \
@@ -433,7 +433,7 @@ status="$(
     -H "Authorization: Bearer ${admin_token}" \
     -H 'content-type: application/json' \
     -d "$(python3 -c 'import json,sys; print(json.dumps({
-      "tenantId":sys.argv[1],
+      "worldId":sys.argv[1],
       "principalId":"principal.reception",
       "token":sys.argv[2],
       "expiresAtMicros": 4102444800000000,
@@ -444,7 +444,7 @@ status="$(
     }))' "$tenant_id" "$invite_token")" \
     "$url"
 )"
-record "POST /identity/admin/invites (reception into owner tenant)" \
+record "POST /identity/admin/invites (reception into owner World)" \
   "curl -sS -X POST -H Authorization:Bearer <admin> ${url}" \
   "$url" "$status" "$(excerpt_file "$body")" "$(stamp)"
 [[ "$status" == "200" ]] || fail "create invite status ${status}"
@@ -465,7 +465,7 @@ record "POST /identity/admin/accept-invite (reception Door)" \
   "$url" "$status" "membership=${reception_membership}" "$(stamp)"
 [[ "$status" == "200" ]] || fail "accept-invite status ${status}"
 
-memberships="$(docker exec "$zoend_pg_name" psql -U postgres -d zoen -tAc "SELECT count(*) FROM memberships WHERE tenant_id = '${tenant_id}' AND status = 'active'")"
+memberships="$(docker exec "$zoend_pg_name" psql -U postgres -d zoen -tAc "SELECT count(*) FROM memberships WHERE world_id = '${tenant_id}' AND status = 'active'")"
 [[ "$memberships" == "2" ]] || fail "want 2 active memberships, got ${memberships}"
 
 canon_b64="$(python3 -c 'import base64,sys; print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$canon")"

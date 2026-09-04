@@ -109,7 +109,7 @@ fn fingerprint(context: &ExecutionContext, query: &SemanticQuery) -> Result<Stri
         ));
     };
     let mut hasher = Sha256::new();
-    hash_field(&mut hasher, context.tenant_id().as_str());
+    hash_field(&mut hasher, context.world_id().as_str());
     hash_field(&mut hasher, context.principal_id().as_str());
     hash_field(&mut hasher, context.actor_id().as_str());
     hash_field(&mut hasher, context.workload_id().as_str());
@@ -158,8 +158,8 @@ mod tests {
     use zoen_core::{
         ActionId, ActorId, Consistency, DefinitionDigest, DefinitionId, DefinitionReference,
         DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, EntityId,
-        PrincipalId, ResourceId, SemanticQuery, TenantId, TimestampMicros, TrustedExecutionContext,
-        TypeId, WorkloadId,
+        PrincipalId, ResourceId, SemanticQuery, TimestampMicros, TrustedExecutionContext, TypeId,
+        WorkloadId, WorldId,
     };
 
     use super::{bind_type_page, next_page_token};
@@ -223,7 +223,7 @@ mod tests {
         )
         .expect("grant");
         TrustedExecutionContext::new(
-            TenantId::parse("tenant.test").expect("tenant"),
+            WorldId::parse("tenant.test").expect("tenant"),
             ActorId::parse("actor.test").expect("actor"),
             PrincipalId::parse("principal.test").expect("principal"),
             workload,

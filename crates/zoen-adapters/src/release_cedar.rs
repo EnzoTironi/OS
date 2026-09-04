@@ -155,7 +155,7 @@ impl ReleaseCedarEvaluator {
 
 impl PolicyEvaluator for ReleaseCedarEvaluator {
     async fn evaluate(&self, request: &PolicyRequest<'_>) -> PolicyEvaluation {
-        let Ok(world) = WorldId::parse(request.context.tenant_id().as_str()) else {
+        let Ok(world) = WorldId::parse(request.context.world_id().as_str()) else {
             return self.boot.evaluate(request).await;
         };
         match self.store.get_active(&world).await {

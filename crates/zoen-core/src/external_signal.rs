@@ -1,5 +1,5 @@
 use crate::{
-    PrincipalId, TenantId, TimestampMicros, WorkloadId,
+    PrincipalId, TimestampMicros, WorkloadId, WorldId,
     identity::{
         AudienceClass, DurableEventId, ExternalSignalId, SourceClass, WorkloadCredentialId,
     },
@@ -15,7 +15,7 @@ pub struct ExternalSignal {
     pub source_digest_ref: DigestRef,
     pub received_at: TimestampMicros,
     pub workload_credential_id: WorkloadCredentialId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub workload_id: WorkloadId,
     pub principal_id: PrincipalId,
     pub trust_disposition: SignalTrustDisposition,
@@ -101,7 +101,7 @@ pub struct ExternalSignalDraft {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvidenceCandidateOffer {
     pub signal_id: ExternalSignalId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub payload_digest_ref: DigestRef,
     pub source_digest_ref: DigestRef,
     pub workload_credential_id: WorkloadCredentialId,
@@ -117,7 +117,7 @@ pub fn offer_external_signal_as_evidence_candidate(
     match signal.trust_disposition {
         SignalTrustDisposition::EvidenceCandidate => Ok(EvidenceCandidateOffer {
             signal_id: signal.id.clone(),
-            tenant_id: signal.tenant_id.clone(),
+            world_id: signal.world_id.clone(),
             payload_digest_ref: signal.payload_digest_ref.clone(),
             source_digest_ref: signal.source_digest_ref.clone(),
             workload_credential_id: signal.workload_credential_id.clone(),

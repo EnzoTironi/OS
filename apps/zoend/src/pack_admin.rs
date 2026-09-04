@@ -13,8 +13,8 @@ use zoen_adapters::{PostgresAuthorityStore, PostgresPackStore, ReleaseCedarEvalu
 use zoen_core::{
     ActivatedDefinitionRef, ActivationPrecondition, DefinitionDigest, DefinitionId,
     EvolutionAckDigest, ExecutionContext, FirstSuccessEval, GrantId, GrantStatus, InstallId,
-    InstallPhase, Necessity, PackDigest, PackError, PackManifest, PreviewDigest, TenantId,
-    TimestampMicros,
+    InstallPhase, Necessity, PackDigest, PackError, PackManifest, PreviewDigest, TimestampMicros,
+    WorldId,
 };
 use zoen_engine::DefinitionEngine;
 
@@ -45,7 +45,7 @@ pub fn router(state: PackAdminState) -> Router {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct VerifyBody {
-    tenant_id: String,
+    world_id: String,
     manifest_jcs: String,
     expected_digest: Option<String>,
     ontology_artifacts: Vec<OntologyArtifactBody>,
@@ -62,14 +62,14 @@ struct OntologyArtifactBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DigestBody {
-    tenant_id: String,
+    world_id: String,
     pack_digest: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallBody {
-    tenant_id: String,
+    world_id: String,
     pack_digest: String,
     preview_digest: String,
     prior_install_id: Option<String>,
@@ -78,14 +78,14 @@ struct InstallBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InstallIdBody {
-    tenant_id: String,
+    world_id: String,
     install_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DecideBody {
-    tenant_id: String,
+    world_id: String,
     install_id: String,
     decisions: Vec<GrantDecisionBody>,
 }
@@ -100,7 +100,7 @@ struct GrantDecisionBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ActivateBody {
-    tenant_id: String,
+    world_id: String,
     install_id: String,
     evolution_ack_digest: String,
 }
@@ -108,7 +108,7 @@ struct ActivateBody {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdatePreviewBody {
-    tenant_id: String,
+    world_id: String,
     from_pack_digest: String,
     to_pack_digest: String,
 }
@@ -118,7 +118,7 @@ async fn verify_and_stage(
     headers: HeaderMap,
     Json(body): Json<VerifyBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -141,7 +141,7 @@ async fn verify_and_stage(
     match state
         .packs
         .verify_and_stage(
-            context.tenant_id(),
+            context.world_id(),
             context.principal_id().as_str(),
             body.manifest_jcs.as_bytes(),
             expected.as_ref(),
@@ -168,7 +168,7 @@ async fn preview_install(
     headers: HeaderMap,
     Json(body): Json<DigestBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -178,7 +178,7 @@ async fn preview_install(
     };
     match state
         .packs
-        .derive_preview(context.tenant_id(), &digest)
+        .derive_preview(context.world_id(), &digest)
         .await
     {
         Ok((preview, preview_digest)) => (
@@ -210,7 +210,7 @@ async fn install(
     headers: HeaderMap,
     Json(body): Json<InstallBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -229,7 +229,7 @@ async fn install(
     match state
         .packs
         .install(
-            context.tenant_id(),
+            context.world_id(),
             &pack_digest,
             &preview_digest,
             prior.as_ref(),
@@ -247,7 +247,7 @@ async fn get_install(
     headers: HeaderMap,
     Json(body): Json<InstallIdBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -257,7 +257,7 @@ async fn get_install(
     };
     match state
         .packs
-        .get_install(context.tenant_id(), &install_id)
+        .get_install(context.world_id(), &install_id)
         .await
     {
         Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
@@ -270,7 +270,7 @@ async fn decide_grants(
     headers: HeaderMap,
     Json(body): Json<DecideBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -289,7 +289,7 @@ async fn decide_grants(
     match state
         .packs
         .decide_grants(
-            context.tenant_id(),
+            context.world_id(),
             &install_id,
             &decisions,
             context.principal_id().as_str(),
@@ -306,7 +306,7 @@ async fn activate_installed(
     headers: HeaderMap,
     Json(body): Json<ActivateBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -320,7 +320,7 @@ async fn activate_installed(
     };
     let receipt = match state
         .packs
-        .mark_activating(context.tenant_id(), &install_id, &evolution_ack)
+        .mark_activating(context.world_id(), &install_id, &evolution_ack)
         .await
     {
         Ok(receipt) => receipt,
@@ -331,7 +331,7 @@ async fn activate_installed(
     }
     let manifest = match state
         .packs
-        .load_manifest(context.tenant_id(), &receipt.pack_digest)
+        .load_manifest(context.world_id(), &receipt.pack_digest)
         .await
     {
         Ok(manifest) => manifest,
@@ -343,7 +343,7 @@ async fn activate_installed(
     };
     match state
         .packs
-        .mark_active(context.tenant_id(), &install_id, activated)
+        .mark_active(context.world_id(), &install_id, activated)
         .await
     {
         Ok(receipt) => (StatusCode::OK, Json(receipt_json(&receipt))).into_response(),
@@ -423,7 +423,7 @@ async fn preview_update(
     headers: HeaderMap,
     Json(body): Json<UpdatePreviewBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -437,7 +437,7 @@ async fn preview_update(
     };
     match state
         .packs
-        .permission_diff(context.tenant_id(), &from, &to)
+        .permission_diff(context.world_id(), &from, &to)
         .await
     {
         Ok(diff) => (
@@ -457,7 +457,7 @@ async fn evaluate_first_success(
     headers: HeaderMap,
     Json(body): Json<InstallIdBody>,
 ) -> impl IntoResponse {
-    let context = match require_context(&state, &headers, &body.tenant_id).await {
+    let context = match require_context(&state, &headers, &body.world_id).await {
         Ok(context) => context,
         Err(error) => return context_error(error),
     };
@@ -467,7 +467,7 @@ async fn evaluate_first_success(
     };
     match state
         .packs
-        .evaluate_first_success(context.tenant_id(), &install_id)
+        .evaluate_first_success(context.world_id(), &install_id)
         .await
     {
         Ok(FirstSuccessEval::NotReady) => (
@@ -505,19 +505,19 @@ enum ContextError {
 async fn require_context(
     state: &PackAdminState,
     headers: &HeaderMap,
-    tenant_id: &str,
+    world_id: &str,
 ) -> Result<ExecutionContext, ContextError> {
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok());
     let claimed =
-        TenantId::parse(tenant_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
+        WorldId::parse(world_id).map_err(|error| ContextError::BadRequest(error.to_string()))?;
     let context = state
         .sessions
         .resolve(authorization, Some(&claimed))
         .await
         .map_err(|error| map_resolve_error(&error))?;
-    if context.tenant_id() != &claimed {
+    if context.world_id() != &claimed {
         return Err(ContextError::Forbidden(
             "payload tenant does not match the trusted session".to_owned(),
         ));

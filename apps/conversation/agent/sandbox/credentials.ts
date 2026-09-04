@@ -3,8 +3,8 @@ import {
   type DoorToken as DoorTokenBrand,
   MembershipId,
   type MembershipId as MembershipIdBrand,
-  TenantId,
-  type TenantId as TenantIdBrand,
+  WorldId,
+  type WorldId as WorldIdBrand,
 } from "./membership";
 
 export interface HostCredential {
@@ -12,8 +12,8 @@ export interface HostCredential {
   readonly definitionId: string;
   readonly doorToken: DoorTokenBrand;
   readonly membershipId: MembershipIdBrand;
-  readonly tenantId: TenantIdBrand;
   readonly validAt: string;
+  readonly worldId: WorldIdBrand;
 }
 
 const vault = new Map<string, HostCredential>();
@@ -34,7 +34,7 @@ export function deleteHostCredential(membershipId: MembershipIdBrand): void {
 
 export function hostCredentialFromRaw(input: {
   readonly membershipId: string;
-  readonly tenantId: string;
+  readonly worldId: string;
   readonly doorToken: string;
   readonly definitionId: string;
   readonly definitionDigest: string;
@@ -45,7 +45,7 @@ export function hostCredentialFromRaw(input: {
     definitionId: input.definitionId,
     doorToken: DoorToken(input.doorToken),
     membershipId: MembershipId(input.membershipId),
-    tenantId: TenantId(input.tenantId),
     validAt: input.validAt,
+    worldId: WorldId(input.worldId),
   };
 }

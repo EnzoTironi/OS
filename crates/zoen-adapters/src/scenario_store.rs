@@ -1,7 +1,7 @@
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use zoen_core::{
     ActionProposal, CommitSequence, EvidenceDraft, ExecutionContext, ProposalId, ScenarioId,
-    TenantId,
+    WorldId,
 };
 use zoen_engine::{
     Scenario, ScenarioProposalPlan, ScenarioStatus, StoreError, state_basis_digest_matches,
@@ -25,13 +25,13 @@ pub(crate) async fn current_head(
     context: &ExecutionContext,
 ) -> Result<CommitSequence, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let head = sqlx::query_scalar::<_, i64>(
         "SELECT commit_sequence
          FROM authority_heads
          WHERE tenant_id = $1",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_optional(&mut *transaction)
     .await
     .map_err(store_unavailable)?
@@ -50,14 +50,14 @@ pub(crate) async fn insert_open_scenario(
     base: CommitSequence,
 ) -> Result<Scenario, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let result = sqlx::query(
         "INSERT INTO world_scenarios (
             tenant_id, scenario_id, base_commit_sequence, status, created_principal_id
          ) VALUES ($1, $2, $3, 'open', $4)
          ON CONFLICT (tenant_id, scenario_id) DO NOTHING",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .bind(u64_to_i64(base.get(), "base commit sequence")?)
     .bind(context.principal_id().as_str())
@@ -91,14 +91,14 @@ pub(crate) async fn get_scenario(
     scenario_id: &ScenarioId,
 ) -> Result<Scenario, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let row = sqlx::query(
         "SELECT scenario_id, base_commit_sequence, status, created_principal_id,
                 applied_commit_sequence
          FROM world_scenarios
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -110,7 +110,7 @@ pub(crate) async fn get_scenario(
          WHERE tenant_id = $1 AND scenario_id = $2
          ORDER BY ordinal",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_all(&mut *transaction)
     .await
@@ -175,14 +175,14 @@ pub(crate) async fn save_proposal_in_scenario(
         .as_ref()
         .ok_or_else(|| StoreError::Corrupt("scenario proposal missing scenario_id".to_owned()))?;
     let mut guard = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut guard, context.tenant_id()).await?;
+    set_tenant(&mut guard, context.world_id()).await?;
     let status = sqlx::query_scalar::<_, String>(
         "SELECT status
          FROM world_scenarios
          WHERE tenant_id = $1 AND scenario_id = $2
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_optional(&mut *guard)
     .await
@@ -196,14 +196,14 @@ pub(crate) async fn save_proposal_in_scenario(
     let saved = action_store::save_proposal(pool, context, proposal).await?;
 
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let status = sqlx::query_scalar::<_, String>(
         "SELECT status
          FROM world_scenarios
          WHERE tenant_id = $1 AND scenario_id = $2
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -217,7 +217,7 @@ pub(crate) async fn save_proposal_in_scenario(
          FROM world_scenario_proposals
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_one(&mut *transaction)
     .await
@@ -227,7 +227,7 @@ pub(crate) async fn save_proposal_in_scenario(
             tenant_id, scenario_id, ordinal, proposal_id
          ) VALUES ($1, $2, $3, $4)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .bind(ordinal)
     .bind(proposal.proposal_id.as_str())
@@ -239,7 +239,7 @@ pub(crate) async fn save_proposal_in_scenario(
          FROM overlay_claims
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .fetch_one(&mut *transaction)
     .await
@@ -247,7 +247,7 @@ pub(crate) async fn save_proposal_in_scenario(
     for (offset, draft) in overlay_drafts.iter().enumerate() {
         insert_overlay_draft(
             &mut transaction,
-            context.tenant_id(),
+            context.world_id(),
             scenario_id,
             &proposal.proposal_id,
             base_overlay
@@ -267,13 +267,13 @@ pub(crate) async fn mark_scenario_discarded(
     scenario_id: &ScenarioId,
 ) -> Result<(), StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let updated = sqlx::query(
         "UPDATE world_scenarios
          SET status = 'discarded'
          WHERE tenant_id = $1 AND scenario_id = $2 AND status = 'open'",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .execute(&mut *transaction)
     .await
@@ -285,7 +285,7 @@ pub(crate) async fn mark_scenario_discarded(
         "DELETE FROM overlay_claims
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario_id.as_str())
     .execute(&mut *transaction)
     .await
@@ -301,13 +301,13 @@ pub(crate) async fn commit_scenario_package(
     plans: &[ScenarioProposalPlan],
 ) -> Result<CommitSequence, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     sqlx::query(
         "INSERT INTO authority_heads (tenant_id, commit_sequence)
          VALUES ($1, 0)
          ON CONFLICT (tenant_id) DO NOTHING",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .execute(&mut *transaction)
     .await
     .map_err(store_unavailable)?;
@@ -317,7 +317,7 @@ pub(crate) async fn commit_scenario_package(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_one(&mut *transaction)
     .await
     .map_err(store_unavailable)?;
@@ -335,7 +335,7 @@ pub(crate) async fn commit_scenario_package(
          WHERE tenant_id = $1 AND scenario_id = $2
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario.id.as_str())
     .fetch_one(&mut *transaction)
     .await
@@ -350,7 +350,7 @@ pub(crate) async fn commit_scenario_package(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, 'scenario')",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .execute(&mut *transaction)
     .await
@@ -381,7 +381,7 @@ async fn finalize_scenario_commit(
          SET commit_sequence = $2
          WHERE tenant_id = $1",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .execute(&mut **transaction)
     .await
@@ -396,7 +396,7 @@ async fn finalize_scenario_commit(
          SET status = 'applied', applied_commit_sequence = $3
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario.id.as_str())
     .bind(next_sequence)
     .execute(&mut **transaction)
@@ -406,7 +406,7 @@ async fn finalize_scenario_commit(
         "DELETE FROM overlay_claims
          WHERE tenant_id = $1 AND scenario_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(scenario.id.as_str())
     .execute(&mut **transaction)
     .await
@@ -455,7 +455,7 @@ async fn apply_scenario_plans(
                 .map(|effect| effect.evidence.draft().claim_id.clone())
                 .collect(),
         };
-        insert_operation(transaction, context.tenant_id(), &receipt)
+        insert_operation(transaction, context.world_id(), &receipt)
             .await
             .map_err(|error| match error {
                 OperationInsertError::Store(error) => error,
@@ -470,17 +470,17 @@ async fn apply_scenario_plans(
         for effect in &plan.effects {
             insert_semantic_record(
                 transaction,
-                context.tenant_id(),
+                context.world_id(),
                 next_sequence,
                 &effect.evidence,
             )
             .await?;
         }
-        insert_operation_records(transaction, context.tenant_id(), &receipt).await?;
+        insert_operation_records(transaction, context.world_id(), &receipt).await?;
         for (ordinal, effect) in plan.effects.iter().enumerate() {
             insert_effect_request(
                 transaction,
-                context.tenant_id(),
+                context.world_id(),
                 next_sequence,
                 ordinal,
                 &plan.proposal.operation_id,
@@ -495,7 +495,7 @@ async fn apply_scenario_plans(
 
 async fn insert_overlay_draft(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     scenario_id: &ScenarioId,
     proposal_id: &ProposalId,
     overlay_seq: i64,
@@ -519,7 +519,7 @@ async fn insert_overlay_draft(
             $20, $21
          )",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(scenario_id.as_str())
     .bind(draft.claim_id.as_str())
     .bind(draft.definition.definition_id.as_str())

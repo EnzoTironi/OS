@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    ActorId, DelegationChain, IdentifierError, PrincipalId, TenantId, TimestampMicros,
-    TrustedExecutionContext, WorkloadId,
+    ActorId, DelegationChain, IdentifierError, PrincipalId, TimestampMicros,
+    TrustedExecutionContext, WorkloadId, WorldId,
 };
 
 macro_rules! identity_id {
@@ -36,8 +36,8 @@ macro_rules! identity_id {
     };
 }
 
-identity_id!(ZoenAccountId);
-identity_id!(ExternalBindingId);
+identity_id!(AccountId);
+identity_id!(ChannelBindingId);
 identity_id!(MembershipId);
 identity_id!(InviteId);
 identity_id!(DelegationTemplateId);
@@ -309,8 +309,8 @@ pub struct VerifiedSessionEvidence {
 
 /// Cross-channel logical person. Never equal to a channel subject.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ZoenAccount {
-    pub id: ZoenAccountId,
+pub struct Account {
+    pub id: AccountId,
     pub status: AccountStatus,
     pub created_at: TimestampMicros,
 }
@@ -321,7 +321,7 @@ pub enum AccountStatus {
     Verified,
     /// Survivor keeps bindings; loser retains historical id for explainability.
     MergedInto {
-        survivor: ZoenAccountId,
+        survivor: AccountId,
     },
 }
 
@@ -482,9 +482,9 @@ impl UnbindReason {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExternalBinding {
-    pub id: ExternalBindingId,
-    pub account_id: ZoenAccountId,
+pub struct ChannelBinding {
+    pub id: ChannelBindingId,
+    pub account_id: AccountId,
     pub subject: ExternalSubject,
     pub status: BindingStatus,
     pub verified_at: Option<TimestampMicros>,
@@ -533,12 +533,12 @@ impl RevocationReason {
     }
 }
 
-/// Explicit account ↔ workspace relation. Source of tenant/principal for TEC.
+/// Explicit account ↔ workspace relation. Source of world/principal for TEC.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Membership {
     pub id: MembershipId,
-    pub account_id: ZoenAccountId,
-    pub tenant_id: TenantId,
+    pub account_id: AccountId,
+    pub world_id: WorldId,
     pub principal_id: PrincipalId,
     pub status: MembershipStatus,
     pub kind: MembershipKind,
@@ -558,7 +558,7 @@ pub enum MembershipKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invite {
     pub id: InviteId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub principal_id: PrincipalId,
     pub token_hash: [u8; 32],
     pub expires_at: TimestampMicros,
@@ -593,15 +593,15 @@ impl InviteToken {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountMergePlan {
-    pub survivor: ZoenAccountId,
-    pub absorbed: ZoenAccountId,
-    /// Bindings may move; memberships and Personal tenants do NOT copy.
-    pub move_bindings: Vec<ExternalBindingId>,
+    pub survivor: AccountId,
+    pub absorbed: AccountId,
+    /// Bindings may move; memberships and Personal worlds do NOT copy.
+    pub move_bindings: Vec<ChannelBindingId>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IdentityError {
-    AccountMerged { survivor: ZoenAccountId },
+    AccountMerged { survivor: AccountId },
     AccountNotFound,
     AlreadyBound,
     AlreadyConsumed,
@@ -617,7 +617,7 @@ pub enum IdentityError {
     InvalidSessionToken,
     InviteExpired,
     InviteNotFound,
-    InviteTenantMismatch,
+    InviteWorldMismatch,
     MembershipInactive,
     MembershipNotFound,
     MissingClearance,
@@ -653,8 +653,8 @@ impl Display for IdentityError {
             Self::InvalidSessionToken => formatter.write_str("invalid session token"),
             Self::InviteExpired => formatter.write_str("invite expired"),
             Self::InviteNotFound => formatter.write_str("invite not found"),
-            Self::InviteTenantMismatch => {
-                formatter.write_str("invite cannot retarget another tenant")
+            Self::InviteWorldMismatch => {
+                formatter.write_str("invite cannot retarget another world")
             }
             Self::MembershipInactive => formatter.write_str("membership is not active"),
             Self::MembershipNotFound => formatter.write_str("membership not found"),
@@ -691,7 +691,7 @@ pub fn trusted_context_from_membership(
 ) -> Result<TrustedExecutionContext, IdentityError> {
     match membership.status {
         MembershipStatus::Active => Ok(TrustedExecutionContext::new(
-            membership.tenant_id.clone(),
+            membership.world_id.clone(),
             membership.actor_id.clone(),
             membership.principal_id.clone(),
             membership.workload_id.clone(),
@@ -713,7 +713,7 @@ identity_id!(DurableEventId);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorkloadCredential {
     pub id: WorkloadCredentialId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub principal_id: PrincipalId,
     pub workload_id: WorkloadId,
     pub actor_id: ActorId,
@@ -909,7 +909,7 @@ pub struct VerifiedWorkloadEvidence {
     pub credential_lookup_key: WorkloadCredentialLookupKey,
     pub evidence_kind: WorkloadEvidenceKind,
     pub expires_at: TimestampMicros,
-    pub requested_tenant_hint: Option<TenantId>,
+    pub requested_world_hint: Option<WorldId>,
     pub principal_hint: Option<PrincipalId>,
     pub workload_hint: Option<WorkloadId>,
 }
@@ -948,7 +948,7 @@ pub fn trusted_context_from_workload_credential(
     }
     match &credential.status {
         WorkloadCredentialStatus::Active => Ok(TrustedExecutionContext::new(
-            credential.tenant_id.clone(),
+            credential.world_id.clone(),
             credential.actor_id.clone(),
             credential.principal_id.clone(),
             credential.workload_id.clone(),

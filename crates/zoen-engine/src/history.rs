@@ -742,15 +742,15 @@ fn ensure_snapshot_tenant(
     let HistorySnapshot::Action(snapshot) = snapshot else {
         return Ok(());
     };
-    let tenant_matches = snapshot.proposal.proposed_by.tenant_id() == request.tenant_id()
+    let tenant_matches = snapshot.proposal.proposed_by.world_id() == request.world_id()
         && snapshot
             .approval
             .as_ref()
-            .is_none_or(|approval| approval.approved_by.tenant_id() == request.tenant_id())
+            .is_none_or(|approval| approval.approved_by.world_id() == request.world_id())
         && snapshot
             .commit
             .as_ref()
-            .is_none_or(|receipt| receipt.committed_by.tenant_id() == request.tenant_id());
+            .is_none_or(|receipt| receipt.committed_by.world_id() == request.world_id());
     if tenant_matches {
         Ok(())
     } else {

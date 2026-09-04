@@ -6,7 +6,7 @@ use zoen_adapters::{
     EffectDispatchOutcome, EffectDispatchResult, PostgresAuthorityStore, PostgresEffectDispatcher,
     RestateEffectScheduler,
 };
-use zoen_core::TenantId;
+use zoen_core::WorldId;
 
 const DEFAULT_DISPATCH_INTERVAL_MS: u64 = 250;
 const DEFAULT_GATE_BACKOFF_MIN_MS: u64 = 250;
@@ -20,14 +20,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     require_loopback_http_url(&restate_ingress, "RESTATE_INGRESS", "/")?;
     let scheduler = RestateEffectScheduler::new(restate_ingress);
     let dispatcher = PostgresEffectDispatcher::new(store.pool(), scheduler);
-    let tenant_id = TenantId::parse(env::var("ZOEN_TENANT_ID")?)?;
+    let world_id = WorldId::parse(env::var("ZOEN_TENANT_ID")?)?;
     let limit = env::var("ZOEN_EFFECT_DISPATCH_BATCH_SIZE")
         .unwrap_or_else(|_| "64".to_owned())
         .parse::<u32>()?;
     let gate = RegistrationGate::from_env()?;
     let mut shutdown = Shutdown::new()?;
     if env::var("ZOEN_EFFECT_DISPATCH_ONCE").as_deref() == Ok("true") {
-        return dispatch_once_when_registered(&dispatcher, &tenant_id, limit, &gate, &mut shutdown)
+        return dispatch_once_when_registered(&dispatcher, &world_id, limit, &gate, &mut shutdown)
             .await;
     }
     let interval = duration_from_env(
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
 
         let results = tokio::select! {
-            results = dispatcher.dispatch_once(&tenant_id, limit) => results?,
+            results = dispatcher.dispatch_once(&world_id, limit) => results?,
             signal = shutdown.wait() => {
                 signal?;
                 return Ok(());
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
 async fn dispatch_once_when_registered(
     dispatcher: &PostgresEffectDispatcher<RestateEffectScheduler>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     limit: u32,
     gate: &RegistrationGate,
     shutdown: &mut Shutdown,
@@ -119,7 +119,7 @@ async fn dispatch_once_when_registered(
     }
 
     let results = tokio::select! {
-        results = dispatcher.dispatch_once(tenant_id, limit) => results?,
+        results = dispatcher.dispatch_once(world_id, limit) => results?,
         signal = shutdown.wait() => {
             signal?;
             return Ok(());

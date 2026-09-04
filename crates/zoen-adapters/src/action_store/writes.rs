@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 use zoen_core::{
-    CommitIdentityKind, CommitReceipt, IntentDigest, OperationId, StateBasis, TenantId,
+    CommitIdentityKind, CommitReceipt, IntentDigest, OperationId, StateBasis, WorldId,
 };
 use zoen_engine::{ActionCommitEffect, AdmittedEvidence, CommitPlan, StoreError};
 
@@ -21,7 +21,7 @@ pub(crate) enum OperationInsertError {
 
 pub(crate) async fn find_identity_collision(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     plan: &CommitPlan,
 ) -> Result<Option<CommitIdentityKind>, StoreError> {
     let record_ids = plan
@@ -44,7 +44,7 @@ pub(crate) async fn find_identity_collision(
               )
          )",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(record_ids)
     .bind(plan.proposal.operation_id.as_str())
     .fetch_one(&mut **transaction)
@@ -72,7 +72,7 @@ pub(crate) async fn find_identity_collision(
               AND effect_request_id = ANY($2::text[])
          )",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(effect_request_ids)
     .fetch_one(&mut **transaction)
     .await
@@ -86,13 +86,13 @@ pub(crate) async fn find_identity_collision(
 
 pub(crate) async fn insert_semantic_record(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     evidence: &AdmittedEvidence,
 ) -> Result<(), StoreError> {
     semantic_claim_store::insert(
         transaction,
-        tenant_id,
+        world_id,
         commit_sequence,
         evidence,
         RevisionRequirement::Active,
@@ -102,7 +102,7 @@ pub(crate) async fn insert_semantic_record(
 
 pub(crate) async fn insert_effect_request(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     ordinal: usize,
     operation_id: &OperationId,
@@ -113,7 +113,7 @@ pub(crate) async fn insert_effect_request(
     let request_digest = zoen_core::encode_hex(&Sha256::digest(&effect.request_payload));
     let idempotency_key = format!(
         "idempotency.{}.{}",
-        tenant_id.as_str(),
+        world_id.as_str(),
         effect.effect_request_id.as_str()
     );
     sqlx::query(
@@ -123,7 +123,7 @@ pub(crate) async fn insert_effect_request(
             knowledge_state, last_commit_sequence
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'not_attempted', $4)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(effect.effect_request_id.as_str())
     .bind(operation_id.as_str())
     .bind(commit_sequence)
@@ -141,7 +141,7 @@ pub(crate) async fn insert_effect_request(
              effect_request_id)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(commit_sequence)
     .bind(ordinal_i32(ordinal)?)
     .bind(event.event_type())
@@ -175,10 +175,10 @@ fn map_effect_request_insert(error: sqlx::Error) -> StoreError {
 
 pub(crate) async fn insert_operation(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     receipt: &CommitReceipt,
 ) -> Result<(), OperationInsertError> {
-    ensure_context_tenant(tenant_id, &receipt.committed_by).map_err(OperationInsertError::Store)?;
+    ensure_context_tenant(world_id, &receipt.committed_by).map_err(OperationInsertError::Store)?;
     let state_basis = receipt.commit_state_basis.as_ref().ok_or_else(|| {
         OperationInsertError::Store(StoreError::Corrupt(
             "new Action operation has no commit StateBasis".to_owned(),
@@ -197,7 +197,7 @@ pub(crate) async fn insert_operation(
             $13, $14
          )",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(receipt.operation_id.as_str())
     .bind(receipt.proposal_id.as_str())
     .bind(receipt.intent_digest.as_str())
@@ -228,7 +228,7 @@ pub(crate) async fn insert_operation(
     .map_err(map_operation_insert)?;
     insert_grants(
         transaction,
-        tenant_id,
+        world_id,
         GrantOwner::Operation(&receipt.operation_id),
         &receipt.committed_by,
     )
@@ -236,20 +236,20 @@ pub(crate) async fn insert_operation(
     .map_err(OperationInsertError::Store)?;
     insert_operation_dependencies(
         transaction,
-        tenant_id,
+        world_id,
         receipt.operation_id.as_str(),
         state_basis,
     )
     .await
     .map_err(OperationInsertError::Store)?;
-    insert_operation_effect_requests(transaction, tenant_id, receipt)
+    insert_operation_effect_requests(transaction, world_id, receipt)
         .await
         .map_err(OperationInsertError::Store)
 }
 
 async fn insert_operation_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &str,
     state_basis: &StateBasis,
 ) -> Result<(), StoreError> {
@@ -260,7 +260,7 @@ async fn insert_operation_dependencies(
                 entity_id, relation_id, role, source_digest, source_id, source_ref
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(operation_id)
         .bind(ordinal_i32(ordinal)?)
         .bind(dependency.claim_id.as_str())
@@ -283,7 +283,7 @@ async fn insert_operation_dependencies(
 
 async fn insert_operation_effect_requests(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     receipt: &CommitReceipt,
 ) -> Result<(), StoreError> {
     for (ordinal, effect_request_id) in receipt.effect_request_ids.iter().enumerate() {
@@ -292,7 +292,7 @@ async fn insert_operation_effect_requests(
                 (tenant_id, operation_id, ordinal, effect_request_id)
              VALUES ($1, $2, $3, $4)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(receipt.operation_id.as_str())
         .bind(ordinal_i32(ordinal)?)
         .bind(effect_request_id.as_str())
@@ -305,7 +305,7 @@ async fn insert_operation_effect_requests(
 
 pub(crate) async fn insert_operation_records(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     receipt: &CommitReceipt,
 ) -> Result<(), StoreError> {
     for (ordinal, claim_id) in receipt.record_ids.iter().enumerate() {
@@ -314,7 +314,7 @@ pub(crate) async fn insert_operation_records(
                 (tenant_id, operation_id, ordinal, claim_id)
              VALUES ($1, $2, $3, $4)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(receipt.operation_id.as_str())
         .bind(ordinal_i32(ordinal)?)
         .bind(claim_id.as_str())

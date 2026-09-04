@@ -1,5 +1,5 @@
 use sqlx::{Postgres, Transaction};
-use zoen_core::{CommitIdentityKind, TenantId};
+use zoen_core::{CommitIdentityKind, WorldId};
 use zoen_engine::{AdmittedEvidence, StoreError};
 
 use crate::{
@@ -14,14 +14,14 @@ pub(crate) enum RevisionRequirement {
 
 pub(crate) async fn insert(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     evidence: &AdmittedEvidence,
     requirement: RevisionRequirement,
 ) -> Result<(), StoreError> {
     let draft = evidence.draft();
     if matches!(requirement, RevisionRequirement::Active) {
-        require_active_revision(transaction, tenant_id, &draft.definition).await?;
+        require_active_revision(transaction, world_id, &draft.definition).await?;
     }
     let (value_kind, value_text, value_unit) = value_columns(&draft.value);
     let (valid_time_kind, valid_from_micros, valid_to_micros) =
@@ -45,7 +45,7 @@ pub(crate) async fn insert(
             $18, $19
          )",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(draft.claim_id.as_str())
     .bind(draft.definition.definition_id.as_str())
     .bind(draft.definition.digest.as_str())

@@ -246,7 +246,7 @@ where
         Ok(PolicyWorldProjection {
             membership: PolicyMembershipProjection {
                 principal_id: context.principal_id().clone(),
-                tenant_id: context.tenant_id().clone(),
+                world_id: context.world_id().clone(),
             },
             neighbors: Vec::new(),
             resource: PolicyObjectProjection {

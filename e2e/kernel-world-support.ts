@@ -483,12 +483,12 @@ export async function provisionWorldMembership(input: {
     expiresAtMicros: Date.now() * 1000 + 3_600_000_000,
     principalId: input.principal,
     resourceIds: [...resourceIds],
-    tenantId: input.world,
+    worldId: input.world,
     token,
     workloadId: input.workload,
   });
   assert.equal(invited.status, 200, JSON.stringify(invited.body));
-  assert.equal(invited.body.tenantId, input.world, JSON.stringify(invited.body));
+  assert.equal(invited.body.worldId, input.world, JSON.stringify(invited.body));
   assert.equal(invited.body.principalId, input.principal, JSON.stringify(invited.body));
   const accepted = await releaseIdentityPost(input.baseUrl, "/identity/admin/accept-invite", {
     accountId,
@@ -497,7 +497,7 @@ export async function provisionWorldMembership(input: {
   assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
   assert.equal(accepted.body.kind, "invite", JSON.stringify(accepted.body));
   assert.equal(accepted.body.status, "active", JSON.stringify(accepted.body));
-  assert.equal(accepted.body.tenantId, input.world, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.worldId, input.world, JSON.stringify(accepted.body));
   assert.equal(accepted.body.principalId, input.principal, JSON.stringify(accepted.body));
   assert.deepEqual(
     new Set(accepted.body.delegatedActionIds as string[]),

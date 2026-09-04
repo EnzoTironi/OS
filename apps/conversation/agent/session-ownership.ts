@@ -21,7 +21,7 @@ const SESSION_OWNERS_DIRECTORY = resolve(
 export interface SessionOwner {
   readonly membershipId: string;
   readonly principalId: string;
-  readonly tenantId: string;
+  readonly worldId: string;
 }
 
 type ResolveSessionOwner = (
@@ -54,22 +54,22 @@ function sessionOwner(value: unknown): SessionOwner | undefined {
   }
   const membershipId = nonEmptyString(value.membershipId);
   const principalId = nonEmptyString(value.principalId);
-  const tenantId = nonEmptyString(value.tenantId);
+  const worldId = nonEmptyString(value.worldId);
   if (
     membershipId === undefined ||
     principalId === undefined ||
-    tenantId === undefined
+    worldId === undefined
   ) {
     return undefined;
   }
-  return { membershipId, principalId, tenantId };
+  return { membershipId, principalId, worldId };
 }
 
 function sameOwner(left: SessionOwner, right: SessionOwner): boolean {
   return (
     left.membershipId === right.membershipId &&
     left.principalId === right.principalId &&
-    left.tenantId === right.tenantId
+    left.worldId === right.worldId
   );
 }
 

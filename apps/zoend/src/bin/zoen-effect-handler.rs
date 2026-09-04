@@ -44,17 +44,17 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         eprintln!("effect handler failed to start: {error}");
         error
     })?;
-    let connector = connector::ConnectorClient::new(&config.connector, &config.identity.tenant_id)
+    let connector = connector::ConnectorClient::new(&config.connector, &config.identity.world_id)
         .map_err(|error| {
-            eprintln!("effect handler failed to start: {error}");
-            error
-        })?;
+        eprintln!("effect handler failed to start: {error}");
+        error
+    })?;
     let lease = lease::RegistrationLease::new(&config.registration).map_err(|error| {
         eprintln!("effect handler failed to start: {error}");
         error
     })?;
     let handler = service::ZoenEffect::new(
-        config.identity.tenant_id.clone(),
+        config.identity.world_id.clone(),
         artifact.revision.clone(),
         connector,
         effect_service,

@@ -14,8 +14,8 @@ use zoen_core::{
     DefinitionReference as CoreDefinitionReference, DefinitionRevisionNumber, EntityId,
     EvidenceDigest, EvidenceDraft, EvidenceProvenance, ExactDecimal, ExactInteger,
     ExactValue as CoreExactValue, ExecutionContext, LineageRole as CoreLineageRole, OperationId,
-    RelationId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SourceId, TenantId,
-    TimestampMicros, TypeId, UnitId, ValidTime,
+    RelationId, ScenarioId, SemanticQuery, SemanticResult, SemanticSelection, SourceId,
+    TimestampMicros, TypeId, UnitId, ValidTime, WorldId,
 };
 use zoen_engine::{
     ApplyOutcome, QueryPortError, ReadEngine, ReadError, RecordEvidenceError, ScenarioEngine,
@@ -61,9 +61,9 @@ impl WorldServiceImpl {
     async fn resolve_for_payload(
         &self,
         request_context: &RequestContext,
-        tenant_id: &str,
+        world_id: &str,
     ) -> Result<ExecutionContext, ConnectError> {
-        let claimed = TenantId::parse(tenant_id)
+        let claimed = WorldId::parse(world_id)
             .map_err(|error| ConnectError::new(ErrorCode::InvalidArgument, error.to_string()))?;
         let context = self
             .sessions
@@ -72,7 +72,7 @@ impl WorldServiceImpl {
                 Some(&claimed),
             )
             .await?;
-        if context.tenant_id() != &claimed {
+        if context.world_id() != &claimed {
             return Err(ConnectError::new(
                 ErrorCode::PermissionDenied,
                 "payload tenant does not match the trusted session",

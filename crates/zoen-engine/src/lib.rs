@@ -9,7 +9,7 @@ use zoen_core::{
     CommitSequence, DefinitionActivation, DefinitionDigest, DefinitionId, DefinitionPublication,
     DefinitionReference, DefinitionRevision, EffectRequestId, EffectSnapshot, EvidenceClaim,
     EvidenceDraft, EvolutionClassification, ExecutionContext, ExplanationTarget, IntentDigest,
-    OperationId, PolicyEvidence, ProposalId, TenantId, TimestampMicros,
+    OperationId, PolicyEvidence, ProposalId, TimestampMicros, WorldId,
 };
 
 mod action;
@@ -618,25 +618,25 @@ pub trait AuthorityStore: Send + Sync {
 
     fn get_active_revision(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
     ) -> impl std::future::Future<Output = Result<Option<DefinitionRevision>, StoreError>> + Send;
 
     fn get_active_activation(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
     ) -> impl std::future::Future<Output = Result<Option<DefinitionActivation>, StoreError>> + Send;
 
     fn get_migration(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         operation_id: &OperationId,
     ) -> impl std::future::Future<Output = Result<zoen_core::MigrationProgress, StoreError>> + Send;
 
     fn get_completed_migration(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         from: &DefinitionReference,
         to: &DefinitionReference,
     ) -> impl std::future::Future<Output = Result<Option<zoen_core::MigrationProgress>, StoreError>> + Send;
@@ -683,7 +683,7 @@ pub trait AuthorityStore: Send + Sync {
 
     fn preflight_migration_batch(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         operation_id: &OperationId,
         batch_index: u32,
         intent_digest: &IntentDigest,
@@ -691,7 +691,7 @@ pub trait AuthorityStore: Send + Sync {
 
     fn get_revision(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         definition_id: &DefinitionId,
         digest: &DefinitionDigest,
     ) -> impl std::future::Future<Output = Result<DefinitionRevision, StoreError>> + Send;
@@ -768,7 +768,7 @@ pub trait AuthorityStore: Send + Sync {
 
     fn revision_was_active(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         revision: &DefinitionReference,
     ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
 }
@@ -830,7 +830,7 @@ where
         }
         let intent = operation_id
             .map(|_| {
-                evidence::evidence_intent_digest(context.tenant_id(), &drafts)
+                evidence::evidence_intent_digest(context.world_id(), &drafts)
                     .map_err(RecordEvidenceError::EventEncoding)
             })
             .transpose()?;
@@ -855,7 +855,7 @@ where
             let revision = self
                 .store
                 .get_revision(
-                    context.tenant_id(),
+                    context.world_id(),
                     &draft.definition.definition_id,
                     &draft.definition.digest,
                 )
@@ -892,7 +892,7 @@ where
     ) -> Result<Option<DefinitionRevision>, GetRevisionError> {
         let revision = self
             .store
-            .get_active_revision(context.tenant_id(), definition_id)
+            .get_active_revision(context.world_id(), definition_id)
             .await
             .map_err(GetRevisionError::Store)?;
         revision
@@ -917,7 +917,7 @@ where
     ) -> Result<DefinitionRevision, GetRevisionError> {
         let revision = self
             .store
-            .get_revision(context.tenant_id(), definition_id, digest)
+            .get_revision(context.world_id(), definition_id, digest)
             .await
             .map_err(GetRevisionError::Store)?;
         verify_digest(&revision.canonical_json, &revision.digest)

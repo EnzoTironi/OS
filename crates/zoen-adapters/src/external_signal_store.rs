@@ -4,8 +4,8 @@ use sqlx::{PgPool, Row, postgres::PgRow};
 use zoen_core::{
     AudienceClass, DigestRef, DurableEventId, ExternalSignal, ExternalSignalDraft,
     ExternalSignalId, IdentityError, IngressAllowance, PrincipalId, SignalSourceIdentity,
-    SignalTrustDisposition, SourceClass, TenantId, TimestampMicros, TrustedExecutionContext,
-    WorkloadCredential, WorkloadCredentialId, WorkloadId,
+    SignalTrustDisposition, SourceClass, TimestampMicros, TrustedExecutionContext,
+    WorkloadCredential, WorkloadCredentialId, WorkloadId, WorldId,
 };
 
 #[derive(Clone)]
@@ -19,7 +19,7 @@ impl PostgresExternalSignalStore {
         Self { pool }
     }
 
-    /// Idempotent on (`tenant_id`, `durable_event_id`). Replay returns prior row.
+    /// Idempotent on (`world_id`, `durable_event_id`). Replay returns prior row.
     ///
     /// # Errors
     ///
@@ -31,7 +31,7 @@ impl PostgresExternalSignalStore {
         credential: &WorkloadCredential,
         draft: ExternalSignalDraft,
     ) -> Result<(ExternalSignal, bool), IdentityError> {
-        if tec.tenant_id() != &credential.tenant_id {
+        if tec.world_id() != &credential.world_id {
             return Err(IdentityError::Conflict(
                 "TEC tenant does not match credential".to_owned(),
             ));
@@ -57,7 +57,7 @@ impl PostgresExternalSignalStore {
              WHERE tenant_id = $1 AND durable_event_id = $2
              FOR UPDATE",
         )
-        .bind(credential.tenant_id.as_str())
+        .bind(credential.world_id.as_str())
         .bind(draft.durable_event_id.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -82,7 +82,7 @@ impl PostgresExternalSignalStore {
              )",
         )
         .bind(signal_id.as_str())
-        .bind(credential.tenant_id.as_str())
+        .bind(credential.world_id.as_str())
         .bind(draft.durable_event_id.as_str())
         .bind(draft.source.class.as_str())
         .bind(&draft.source.external_id)
@@ -112,7 +112,7 @@ impl PostgresExternalSignalStore {
             source_digest_ref: draft.source_digest_ref,
             received_at: now,
             workload_credential_id: credential.id.clone(),
-            tenant_id: credential.tenant_id.clone(),
+            world_id: credential.world_id.clone(),
             workload_id: credential.workload_id.clone(),
             principal_id: credential.principal_id.clone(),
             trust_disposition: draft.trust_disposition,
@@ -148,7 +148,7 @@ fn row_to_signal(row: &PgRow) -> Result<ExternalSignal, IdentityError> {
             "workload_credential_id",
         )?)
         .map_err(|_| IdentityError::Conflict("invalid credential id".to_owned()))?,
-        tenant_id: TenantId::parse(row_text(row, "tenant_id")?)
+        world_id: WorldId::parse(row_text(row, "tenant_id")?)
             .map_err(|_| IdentityError::Conflict("invalid tenant".to_owned()))?,
         workload_id: WorkloadId::parse(row_text(row, "workload_id")?)
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?,

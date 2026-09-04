@@ -686,7 +686,7 @@ async function issueWorkerCredential(operatorToken: string): Promise<string> {
         maxAcceptsPerMinute: 120,
         maxCommitsPerHour: 120,
       },
-      tenantId: workerIdentity.tenantId,
+      worldId: workerIdentity.tenantId,
       workloadId: workerIdentity.workloadId,
     }),
     headers: {

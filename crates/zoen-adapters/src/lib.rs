@@ -2,7 +2,7 @@ use sqlx::{Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     CanonicalJson, ClaimId, CommitSequence, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevision, DefinitionRevisionNumber, EntityId, EvidenceClaim, EvidenceDigest,
-    EvidenceDraft, EvidenceProvenance, RelationId, SourceId, TenantId, TimestampMicros,
+    EvidenceDraft, EvidenceProvenance, RelationId, SourceId, TimestampMicros, WorldId,
 };
 use zoen_engine::StoreError;
 
@@ -55,8 +55,8 @@ pub use effect_dispatcher::{
 pub use effect_store::PostgresEffectUpdate;
 pub use external_signal_store::PostgresExternalSignalStore;
 pub use identity_store::{
-    AccountSnapshot, CompleteOnboard, CreateInvite, MintedOnboardToken, OnboardTokenRow,
-    PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
+    AccountSnapshot, BoundIngress, CompleteOnboard, CreateInvite, MintedOnboardToken,
+    OnboardTokenRow, PostgresIdentityStore, WorldInvite, dest_invitee_delegation,
 };
 pub use integrity::{IntegrityError, ProjectionWatermarkStatus};
 pub use ontology_catalog::{
@@ -81,10 +81,10 @@ pub use world_release_store::{
 
 pub(crate) async fn set_tenant(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<(), StoreError> {
     sqlx::query("SELECT set_config('zoen.tenant_id', $1, true)")
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .execute(&mut **transaction)
         .await
         .map_err(store_unavailable)?;
@@ -93,7 +93,7 @@ pub(crate) async fn set_tenant(
 
 async fn require_active_revision(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     definition: &DefinitionReference,
 ) -> Result<(), StoreError> {
     let active = sqlx::query_scalar::<_, bool>(
@@ -105,7 +105,7 @@ async fn require_active_revision(
            AND revision = $4
          FOR SHARE",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(definition.definition_id.as_str())
     .bind(definition.digest.as_str())
     .bind(u64_to_i64(

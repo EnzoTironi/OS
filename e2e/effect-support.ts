@@ -449,7 +449,7 @@ export function requestWorkloadCredential(
         maxAcceptsPerMinute: 120,
         maxCommitsPerHour: 120,
       },
-      tenantId: identity.tenantId,
+      worldId: identity.tenantId,
       workloadId: identity.workloadId,
     }),
     headers: {
@@ -468,7 +468,7 @@ export async function revokeWorkloadCredential(
   const response = await fetch(
     `${zoenBaseUrl}/workload/admin/credentials/${encodeURIComponent(credentialId)}`,
     {
-      body: JSON.stringify({ reason: "rotation", tenantId }),
+      body: JSON.stringify({ reason: "rotation", worldId: tenantId }),
       headers: {
         authorization: `Bearer ${operatorToken}`,
         "content-type": "application/json",

@@ -74,7 +74,7 @@ export function runIsolateZoen(input: {
       ZOEN_DEFINITION_ID: input.credential.definitionId,
       ZOEN_ISOLATE: "1",
       ZOEN_SOURCE_HOME: join(input.workspace, ".zoen"),
-      ZOEN_TENANT: input.credential.tenantId,
+      ZOEN_TENANT: input.credential.worldId,
       ZOEN_VALID_AT: input.credential.validAt,
       ZOEN_ZOEND: input.zoendBaseUrl.replace(TRAILING_SLASHES, ""),
     },

@@ -38,13 +38,13 @@ pub(crate) async fn record_batch(
         return Ok(Vec::new());
     }
     let mut transaction = store.pool().begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     sqlx::query(
         "INSERT INTO authority_heads (tenant_id, commit_sequence)
          VALUES ($1, 0)
          ON CONFLICT (tenant_id) DO NOTHING",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .execute(&mut *transaction)
     .await
     .map_err(store_unavailable)?;
@@ -55,7 +55,7 @@ pub(crate) async fn record_batch(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .fetch_one(&mut *transaction)
     .await
     .map_err(store_unavailable)?
@@ -89,7 +89,7 @@ pub(crate) async fn record_batch(
          SET commit_sequence = $2
          WHERE tenant_id = $1",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(head)
     .execute(&mut *transaction)
     .await
@@ -109,7 +109,7 @@ pub(crate) async fn get_operation(
     operation_id: &OperationId,
 ) -> Result<Option<EvidenceOperation>, StoreError> {
     let mut transaction = store.pool().begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let operation = load_operation(&mut transaction, context, operation_id).await?;
     transaction.commit().await.map_err(store_unavailable)?;
     Ok(operation)
@@ -140,7 +140,7 @@ async fn load_operation(
          FROM evidence_operations
          WHERE tenant_id = $1 AND operation_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(operation_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -167,7 +167,7 @@ async fn load_operation(
          WHERE record.tenant_id = $1 AND record.operation_id = $2
          ORDER BY record.ordinal",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -200,7 +200,7 @@ async fn insert_operation(
             tenant_id, operation_id, intent_digest, commit_sequence, recorded_count
          ) VALUES ($1, $2, $3, $4, $5)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(operation_id.as_str())
         .bind(intent_digest.as_str())
         .bind(i64::try_from(commit_sequence).map_err(|_| {
@@ -220,7 +220,7 @@ async fn insert_operation(
                 tenant_id, operation_id, ordinal, claim_id
              ) VALUES ($1, $2, $3, $4)",
         )
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(operation_id.as_str())
         .bind(i32::try_from(ordinal).map_err(|_| {
             StoreError::Corrupt("evidence operation ordinal exceeds INTEGER".to_owned())
@@ -250,7 +250,7 @@ async fn write_claim(
     head: &mut i64,
 ) -> Result<EvidenceClaim, StoreError> {
     let existing = sqlx::query(EXISTING_CLAIM_SQL)
-        .bind(context.tenant_id().as_str())
+        .bind(context.world_id().as_str())
         .bind(evidence.draft().claim_id.as_str())
         .fetch_optional(&mut **transaction)
         .await
@@ -271,7 +271,7 @@ async fn write_claim(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, 'evidence')",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .execute(&mut **transaction)
     .await
@@ -279,7 +279,7 @@ async fn write_claim(
 
     semantic_claim_store::insert(
         transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         evidence,
         semantic_claim_store::RevisionRequirement::Active,
@@ -292,7 +292,7 @@ async fn write_claim(
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
          VALUES ($1, $2, 0, $3, $4, $5::jsonb)",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(next_sequence)
     .bind(event.event_type())
     .bind(i32::from(event.event_version()))

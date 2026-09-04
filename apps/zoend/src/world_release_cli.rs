@@ -15,10 +15,10 @@ use zoen_core::{
     ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, ExecutorCatalog,
     MembershipId, OntologyCatalog, PolicyCatalog, PolicyEvaluation, PrincipalId,
-    ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest, ResourceId, TenantId,
-    TimestampMicros, TrustedExecutionContext, WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA,
-    WorkloadId, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseDecision,
-    WorldReleaseError, WorldReleasePreview, WorldReleasePublication,
+    ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest, ResourceId, TimestampMicros,
+    TrustedExecutionContext, WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA, WorkloadId,
+    WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseDecision, WorldReleaseError,
+    WorldReleasePreview, WorldReleasePublication,
 };
 use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
@@ -798,7 +798,7 @@ fn authorize_context(
         TimestampMicros::new(i64::MAX),
     )?;
     Ok(TrustedExecutionContext::new(
-        TenantId::parse(world.as_str())?,
+        WorldId::parse(world.as_str())?,
         ActorId::parse("actor.world-release")?,
         principal.clone(),
         workload,

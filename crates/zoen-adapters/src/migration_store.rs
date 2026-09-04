@@ -4,7 +4,7 @@ use sqlx::{Postgres, Row, Transaction};
 use zoen_core::{
     ClaimId, CommitSequence, DefinitionActivationKind, DefinitionReference, IntentDigest,
     MigrationLineage, MigrationObligation, MigrationProgress, MigrationRuleKind, MigrationStatus,
-    OperationId, TenantId,
+    OperationId, WorldId,
 };
 use zoen_engine::{
     AdmittedDefinitionActivation, AdmittedMigrationBatch, AdmittedMigrationPlan,
@@ -24,14 +24,14 @@ pub(crate) async fn prepare(
     let context = migration.context();
     let plan = migration.plan();
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    let head = lock_head(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
+    let head = lock_head(&mut transaction, context.world_id()).await?;
     let existing = sqlx::query(
         "SELECT intent_digest
          FROM definition_migrations
          WHERE tenant_id = $1 AND operation_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(plan.operation_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -44,13 +44,13 @@ pub(crate) async fn prepare(
             return Err(StoreError::OperationMismatch);
         }
         transaction.commit().await.map_err(store_unavailable)?;
-        return get(store, context.tenant_id(), &plan.operation_id).await;
+        return get(store, context.world_id(), &plan.operation_id).await;
     }
-    check_dependencies(&mut transaction, context.tenant_id(), plan).await?;
+    check_dependencies(&mut transaction, context.world_id(), plan).await?;
     let next_sequence = next_sequence(head)?;
     insert_commit(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         "definition_migration_plan",
     )
@@ -58,7 +58,7 @@ pub(crate) async fn prepare(
     insert_migration_plan_row(&mut transaction, migration, next_sequence).await?;
     insert_event(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         0,
         "DefinitionMigrationPrepared",
@@ -72,14 +72,14 @@ pub(crate) async fn prepare(
         ),
     )
     .await?;
-    advance_head(&mut transaction, context.tenant_id(), next_sequence).await?;
+    advance_head(&mut transaction, context.world_id(), next_sequence).await?;
     transaction.commit().await.map_err(store_unavailable)?;
-    get(store, context.tenant_id(), &plan.operation_id).await
+    get(store, context.world_id(), &plan.operation_id).await
 }
 
 pub(crate) async fn preflight(
     store: &PostgresAuthorityStore,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
     batch_index: u32,
     intent_digest: &IntentDigest,
@@ -87,13 +87,13 @@ pub(crate) async fn preflight(
     let batch_index = i32::try_from(batch_index)
         .map_err(|_| StoreError::Conflict("migration batch index exceeds i32".to_owned()))?;
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, tenant_id).await?;
+    set_tenant(&mut transaction, world_id).await?;
     let existing = sqlx::query_scalar::<_, String>(
         "SELECT intent_digest
          FROM definition_migration_batches
          WHERE tenant_id = $1 AND operation_id = $2 AND batch_index = $3",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .bind(batch_index)
     .fetch_optional(&mut *transaction)
@@ -101,7 +101,7 @@ pub(crate) async fn preflight(
     .map_err(store_unavailable)?;
     transaction.commit().await.map_err(store_unavailable)?;
     match existing {
-        Some(existing) if existing == intent_digest.as_str() => get(store, tenant_id, operation_id)
+        Some(existing) if existing == intent_digest.as_str() => get(store, world_id, operation_id)
             .await
             .map(Box::new)
             .map(MigrationBatchPreflight::Replayed),
@@ -117,14 +117,14 @@ pub(crate) async fn apply(
     let context = batch.context();
     let plan = &batch.migration().plan;
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
-    let head = lock_head(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
+    let head = lock_head(&mut transaction, context.world_id()).await?;
     let existing = sqlx::query(
         "SELECT intent_digest
          FROM definition_migration_batches
          WHERE tenant_id = $1 AND operation_id = $2 AND batch_index = $3",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(plan.operation_id.as_str())
     .bind(
         i32::try_from(batch.batch_index())
@@ -141,7 +141,7 @@ pub(crate) async fn apply(
             return Err(StoreError::OperationMismatch);
         }
         transaction.commit().await.map_err(store_unavailable)?;
-        return get(store, context.tenant_id(), &plan.operation_id).await;
+        return get(store, context.world_id(), &plan.operation_id).await;
     }
     let stored = sqlx::query(
         "SELECT intent_digest
@@ -149,7 +149,7 @@ pub(crate) async fn apply(
          WHERE tenant_id = $1 AND operation_id = $2
          FOR SHARE",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(plan.operation_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -161,12 +161,12 @@ pub(crate) async fn apply(
     if stored_intent != batch.migration().intent_digest.as_str() {
         return Err(StoreError::OperationMismatch);
     }
-    check_dependencies(&mut transaction, context.tenant_id(), plan).await?;
+    check_dependencies(&mut transaction, context.world_id(), plan).await?;
     check_record_sources(&mut transaction, batch).await?;
     let next_sequence = next_sequence(head)?;
     insert_commit(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         "definition_migration_batch",
     )
@@ -175,7 +175,7 @@ pub(crate) async fn apply(
     for (ordinal, record) in batch.records().iter().enumerate() {
         insert_record(
             &mut transaction,
-            context.tenant_id(),
+            context.world_id(),
             plan,
             batch.batch_index(),
             next_sequence,
@@ -184,13 +184,13 @@ pub(crate) async fn apply(
         )
         .await?;
     }
-    let (_, remaining) = obligations(&mut transaction, context.tenant_id(), plan).await?;
+    let (_, remaining) = obligations(&mut transaction, context.world_id(), plan).await?;
     if remaining.is_empty() {
-        check_postconditions(&mut transaction, context.tenant_id(), plan).await?;
+        check_postconditions(&mut transaction, context.world_id(), plan).await?;
     }
     insert_event(
         &mut transaction,
-        context.tenant_id(),
+        context.world_id(),
         next_sequence,
         i32::try_from(batch.records().len()).map_err(|_| {
             StoreError::Conflict("migration batch event ordinal exceeds i32".to_owned())
@@ -206,24 +206,24 @@ pub(crate) async fn apply(
         ),
     )
     .await?;
-    advance_head(&mut transaction, context.tenant_id(), next_sequence).await?;
+    advance_head(&mut transaction, context.world_id(), next_sequence).await?;
     transaction.commit().await.map_err(store_unavailable)?;
-    get(store, context.tenant_id(), &plan.operation_id).await
+    get(store, context.world_id(), &plan.operation_id).await
 }
 
 pub(crate) async fn get(
     store: &PostgresAuthorityStore,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<MigrationProgress, StoreError> {
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, tenant_id).await?;
+    set_tenant(&mut transaction, world_id).await?;
     let row = sqlx::query(
         "SELECT assessment_digest, canonical_plan, intent_digest, commit_sequence
          FROM definition_migrations
          WHERE tenant_id = $1 AND operation_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_optional(&mut *transaction)
     .await
@@ -250,10 +250,10 @@ pub(crate) async fn get(
         .try_get::<i64, _>("commit_sequence")
         .map_err(store_unavailable)?;
     let (completed_batches, latest_commit) =
-        load_completed_batches(&mut transaction, tenant_id, operation_id, plan_commit).await?;
-    let lineage = load_lineage(&mut transaction, tenant_id, operation_id).await?;
+        load_completed_batches(&mut transaction, world_id, operation_id, plan_commit).await?;
+    let lineage = load_lineage(&mut transaction, world_id, operation_id).await?;
     let (total_obligations, remaining_obligations) =
-        obligations(&mut transaction, tenant_id, &plan).await?;
+        obligations(&mut transaction, world_id, &plan).await?;
     let status = if remaining_obligations.is_empty() {
         MigrationStatus::Completed
     } else if completed_batches.is_empty() {
@@ -280,12 +280,12 @@ pub(crate) async fn get(
 
 pub(crate) async fn completed(
     store: &PostgresAuthorityStore,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     from: &DefinitionReference,
     to: &DefinitionReference,
 ) -> Result<Option<MigrationProgress>, StoreError> {
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, tenant_id).await?;
+    set_tenant(&mut transaction, world_id).await?;
     let rows = sqlx::query(
         "SELECT operation_id, canonical_plan
          FROM definition_migrations
@@ -297,7 +297,7 @@ pub(crate) async fn completed(
            AND to_revision = $6
          ORDER BY commit_sequence DESC",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(from.definition_id.as_str())
     .bind(from.digest.as_str())
     .bind(u64_to_i64(
@@ -315,7 +315,7 @@ pub(crate) async fn completed(
             .try_get::<String, _>("canonical_plan")
             .map_err(store_unavailable)?;
         let plan = decode_migration_plan(&canonical_plan).map_err(StoreError::Corrupt)?;
-        let (_, remaining) = obligations(&mut transaction, tenant_id, &plan).await?;
+        let (_, remaining) = obligations(&mut transaction, world_id, &plan).await?;
         if remaining.is_empty() {
             completed = Some(
                 OperationId::parse(
@@ -329,18 +329,18 @@ pub(crate) async fn completed(
     }
     transaction.commit().await.map_err(store_unavailable)?;
     match completed {
-        Some(operation) => get(store, tenant_id, &operation).await.map(Some),
+        Some(operation) => get(store, world_id, &operation).await.map(Some),
         None => Ok(None),
     }
 }
 
 pub(crate) async fn revision_was_active(
     store: &PostgresAuthorityStore,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     revision: &DefinitionReference,
 ) -> Result<bool, StoreError> {
     let mut transaction = store.pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, tenant_id).await?;
+    set_tenant(&mut transaction, world_id).await?;
     let existed = sqlx::query_scalar::<_, bool>(
         "SELECT true
          FROM definition_activations
@@ -350,7 +350,7 @@ pub(crate) async fn revision_was_active(
            AND revision = $4
          LIMIT 1",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(revision.definition_id.as_str())
     .bind(revision.digest.as_str())
     .bind(u64_to_i64(revision.revision.get(), "definition revision")?)
@@ -377,7 +377,7 @@ pub(crate) async fn validate_activation(
                    AND revision = $4
                  LIMIT 1",
             )
-            .bind(activation.context().tenant_id().as_str())
+            .bind(activation.context().world_id().as_str())
             .bind(activation.target().definition_id.as_str())
             .bind(activation.target().digest.as_str())
             .bind(u64_to_i64(
@@ -406,7 +406,7 @@ pub(crate) async fn validate_activation(
                        AND to_revision = $7
                      FOR SHARE",
                 )
-                .bind(activation.context().tenant_id().as_str())
+                .bind(activation.context().world_id().as_str())
                 .bind(operation_id.as_str())
                 .bind(activation.target().definition_id.as_str())
                 .bind(previous.digest.as_str())
@@ -424,13 +424,13 @@ pub(crate) async fn validate_activation(
                 .map_err(store_unavailable)?
                 .ok_or(StoreError::StalePrecondition)?;
                 let plan = decode_migration_plan(&canonical_plan).map_err(StoreError::Corrupt)?;
-                check_dependencies(transaction, activation.context().tenant_id(), &plan).await?;
+                check_dependencies(transaction, activation.context().world_id(), &plan).await?;
                 let (_, remaining) =
-                    obligations(transaction, activation.context().tenant_id(), &plan).await?;
+                    obligations(transaction, activation.context().world_id(), &plan).await?;
                 if !remaining.is_empty() {
                     return Err(StoreError::StalePrecondition);
                 }
-                check_postconditions(transaction, activation.context().tenant_id(), &plan).await?;
+                check_postconditions(transaction, activation.context().world_id(), &plan).await?;
             }
         }
     }
@@ -460,7 +460,7 @@ async fn insert_migration_plan_row(
             $17, $18, $19, $20
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(plan.operation_id.as_str())
     .bind(migration.intent_digest().as_str())
     .bind(migration.canonical_plan())
@@ -516,7 +516,7 @@ async fn insert_migration_batch_row(
             $10, $11, $12, $13
          )",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(plan.operation_id.as_str())
     .bind(
         i32::try_from(batch.batch_index())
@@ -547,7 +547,7 @@ async fn insert_migration_batch_row(
 
 async fn load_completed_batches(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
     plan_commit: i64,
 ) -> Result<(Vec<u32>, i64), StoreError> {
@@ -557,7 +557,7 @@ async fn load_completed_batches(
          WHERE tenant_id = $1 AND operation_id = $2
          ORDER BY batch_index",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -583,7 +583,7 @@ async fn load_completed_batches(
 
 async fn load_lineage(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     operation_id: &OperationId,
 ) -> Result<Vec<MigrationLineage>, StoreError> {
     let record_rows = sqlx::query(
@@ -592,7 +592,7 @@ async fn load_lineage(
          WHERE tenant_id = $1 AND operation_id = $2
          ORDER BY target_claim_id",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(operation_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -608,7 +608,7 @@ async fn load_lineage(
              WHERE tenant_id = $1 AND operation_id = $2 AND target_claim_id = $3
              ORDER BY source_claim_id",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(operation_id.as_str())
         .bind(&target_claim_id)
         .fetch_all(&mut **transaction)
@@ -640,7 +640,7 @@ async fn load_lineage(
 
 async fn check_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     plan: &zoen_core::MigrationPlan,
 ) -> Result<(), StoreError> {
     for dependency in &plan.dependencies {
@@ -656,7 +656,7 @@ async fn check_dependencies(
              LIMIT 1
              FOR SHARE",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(plan.from.definition_id.as_str())
         .bind(plan.from.digest.as_str())
         .bind(dependency.entity_id.as_str())
@@ -710,7 +710,7 @@ async fn check_record_sources(
                  WHERE tenant_id = $1 AND claim_id = $2
                  FOR SHARE",
             )
-            .bind(batch.context().tenant_id().as_str())
+            .bind(batch.context().world_id().as_str())
             .bind(source_claim_id.as_str())
             .fetch_optional(&mut **transaction)
             .await
@@ -743,7 +743,7 @@ async fn check_record_sources(
 
 async fn insert_record(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     plan: &zoen_core::MigrationPlan,
     batch_index: u32,
     commit_sequence: i64,
@@ -753,7 +753,7 @@ async fn insert_record(
     let draft = record.evidence().draft();
     semantic_claim_store::insert(
         transaction,
-        tenant_id,
+        world_id,
         commit_sequence,
         record.evidence(),
         RevisionRequirement::Published,
@@ -764,7 +764,7 @@ async fn insert_record(
             tenant_id, operation_id, batch_index, target_claim_id, rule_id, rule_kind
          ) VALUES ($1, $2, $3, $4, $5, $6)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(plan.operation_id.as_str())
     .bind(
         i32::try_from(batch_index)
@@ -782,7 +782,7 @@ async fn insert_record(
                 tenant_id, operation_id, target_claim_id, source_claim_id
              ) VALUES ($1, $2, $3, $4)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(plan.operation_id.as_str())
         .bind(draft.claim_id.as_str())
         .bind(source_claim_id.as_str())
@@ -793,7 +793,7 @@ async fn insert_record(
     let event = record.evidence().projection_event();
     insert_event(
         transaction,
-        tenant_id,
+        world_id,
         commit_sequence,
         i32::try_from(ordinal)
             .map_err(|_| StoreError::Conflict("migration record ordinal exceeds i32".to_owned()))?,
@@ -805,7 +805,7 @@ async fn insert_record(
 
 async fn check_postconditions(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     plan: &zoen_core::MigrationPlan,
 ) -> Result<(), StoreError> {
     for postcondition in &plan.postconditions {
@@ -822,7 +822,7 @@ async fn check_postconditions(
                AND claim.definition_revision = $5
                AND claim.relation_id = $6",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(plan.operation_id.as_str())
         .bind(plan.to.definition_id.as_str())
         .bind(plan.to.digest.as_str())
@@ -843,7 +843,7 @@ async fn check_postconditions(
 
 async fn lock_head(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<i64, StoreError> {
     sqlx::query_scalar::<_, i64>(
         "SELECT commit_sequence
@@ -851,7 +851,7 @@ async fn lock_head(
          WHERE tenant_id = $1
          FOR UPDATE",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
     .map_err(store_unavailable)?
@@ -865,7 +865,7 @@ fn next_sequence(head: i64) -> Result<i64, StoreError> {
 
 async fn insert_commit(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     kind: &str,
 ) -> Result<(), StoreError> {
@@ -873,7 +873,7 @@ async fn insert_commit(
         "INSERT INTO authority_commits (tenant_id, commit_sequence, commit_kind)
          VALUES ($1, $2, $3)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(commit_sequence)
     .bind(kind)
     .execute(&mut **transaction)
@@ -884,7 +884,7 @@ async fn insert_commit(
 
 async fn insert_event(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
     ordinal: i32,
     event_type: &str,
@@ -895,7 +895,7 @@ async fn insert_event(
             (tenant_id, commit_sequence, ordinal, event_type, event_version, payload)
          VALUES ($1, $2, $3, $4, 1, $5::jsonb)",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(commit_sequence)
     .bind(ordinal)
     .bind(event_type)
@@ -908,7 +908,7 @@ async fn insert_event(
 
 async fn advance_head(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     commit_sequence: i64,
 ) -> Result<(), StoreError> {
     let updated = sqlx::query(
@@ -916,7 +916,7 @@ async fn advance_head(
          SET commit_sequence = $2
          WHERE tenant_id = $1",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(commit_sequence)
     .execute(&mut **transaction)
     .await
@@ -931,7 +931,7 @@ async fn advance_head(
 
 async fn obligations(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     plan: &zoen_core::MigrationPlan,
 ) -> Result<(u64, Vec<MigrationObligation>), StoreError> {
     let mut total = 0_u64;
@@ -948,7 +948,7 @@ async fn obligations(
              ORDER BY claim_id
              FOR SHARE",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(plan.from.definition_id.as_str())
         .bind(plan.from.digest.as_str())
         .bind(u64_to_i64(
@@ -979,7 +979,7 @@ async fn obligations(
                AND record.rule_id = $3
                AND lineage.source_claim_id = ANY($4::text[])",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(plan.operation_id.as_str())
         .bind(source.rule_id.as_str())
         .bind(&source_claim_ids)

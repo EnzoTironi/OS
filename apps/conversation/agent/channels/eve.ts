@@ -9,6 +9,7 @@ import {
 import { type SessionOwner, withSessionOwnership } from "../session-ownership";
 
 const TRAILING_SLASHES = /\/+$/u;
+const SHA_256_HEX = /^[0-9a-f]{64}$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,20 +58,83 @@ function normalizedEnvUrl(name: string): string | undefined {
   return value === undefined ? undefined : nonEmptyString(value);
 }
 
-function sessionHeaders(request: Request): Headers | null {
-  const headers = new Headers();
-  const cookie = request.headers.get("cookie");
+interface DoorCredential {
+  readonly sessionHeaders: Headers;
+  readonly token: string;
+}
+
+interface ParsedDoorCookie {
+  readonly header: string;
+  readonly token: string;
+}
+
+function opaqueToken(value: string): string | undefined {
+  const token = value.trim();
+  return token.length > 0 && token.split(".").length !== 3 ? token : undefined;
+}
+
+function bearerDoorToken(authorization: string | null): string | undefined {
+  if (!authorization?.toLowerCase().startsWith("bearer ")) {
+    return undefined;
+  }
+  return opaqueToken(authorization.slice("bearer ".length));
+}
+
+function cookieDoorCredentials(
+  cookie: string | null
+): ParsedDoorCookie[] | undefined {
+  if (cookie === null || cookie.length === 0) {
+    return [];
+  }
+  const credentials = new Map<string, ParsedDoorCookie>();
+  for (const part of cookie.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (!name?.endsWith("session_token")) {
+      continue;
+    }
+    try {
+      const encodedValue = rest.join("=");
+      const token = opaqueToken(decodeURIComponent(encodedValue));
+      if (token === undefined) {
+        return undefined;
+      }
+      credentials.set(token, { header: `${name}=${encodedValue}`, token });
+    } catch {
+      return undefined;
+    }
+  }
+  return [...credentials.values()];
+}
+
+function doorCredential(request: Request): DoorCredential | undefined {
   const authorization = request.headers.get("authorization");
-  if (cookie !== null && cookie.length > 0) {
-    headers.set("cookie", cookie);
+  const cookie = request.headers.get("cookie");
+  const bearerToken = bearerDoorToken(authorization);
+  if (authorization !== null && bearerToken === undefined) {
+    return undefined;
   }
-  if (authorization !== null && authorization.length > 0) {
-    headers.set("authorization", authorization);
+  const cookieCredentials = cookieDoorCredentials(cookie);
+  if (cookieCredentials === undefined || cookieCredentials.length > 1) {
+    return undefined;
   }
-  if (headers.get("cookie") === null && headers.get("authorization") === null) {
-    return null;
+  const [cookieCredential] = cookieCredentials;
+  if (
+    bearerToken !== undefined &&
+    cookieCredential !== undefined &&
+    bearerToken !== cookieCredential.token
+  ) {
+    return undefined;
   }
-  return headers;
+  const sessionHeaders = new Headers();
+  if (cookieCredential !== undefined) {
+    sessionHeaders.set("cookie", cookieCredential.header);
+    return { sessionHeaders, token: cookieCredential.token };
+  }
+  if (bearerToken !== undefined && authorization !== null) {
+    sessionHeaders.set("authorization", authorization);
+    return { sessionHeaders, token: bearerToken };
+  }
+  return undefined;
 }
 
 async function fetchJson(
@@ -96,7 +160,7 @@ async function fetchJson(
 function workbenchCredentialInput(input: {
   readonly doorToken: string;
   readonly membershipId: string;
-  readonly tenantId: string;
+  readonly worldId: string;
 }) {
   return hostCredentialFromRaw({
     definitionDigest:
@@ -104,8 +168,8 @@ function workbenchCredentialInput(input: {
     definitionId: process.env.ZOEN_WORKBENCH_DEFINITION_ID?.trim() ?? "",
     doorToken: input.doorToken,
     membershipId: input.membershipId,
-    tenantId: input.tenantId,
     validAt: process.env.ZOEN_WORKBENCH_VALID_AT?.trim() ?? "",
+    worldId: input.worldId,
   });
 }
 
@@ -126,31 +190,30 @@ async function authenticateMembership(
   if (base === undefined) {
     return undefined;
   }
-  const headers = sessionHeaders(request);
-  if (headers === null) {
+  const credential = doorCredential(request);
+  if (credential === undefined) {
     return undefined;
   }
   const body = await fetchJson(`${base}/api/auth/get-session`, {
-    headers,
+    headers: credential.sessionHeaders,
     method: "GET",
   });
   const user = sessionUser(body);
-  const principalId = userId(user);
-  if (principalId === undefined) {
+  const doorUserId = userId(user);
+  if (doorUserId === undefined) {
     return undefined;
   }
-  const doorToken = opaqueDoorToken(request);
-  const tenantHint = nonEmptyString(
+  const worldHint = nonEmptyString(
     request.headers.get("x-zoen-tenant")?.trim()
   );
-  if (doorToken === undefined || tenantHint === undefined) {
+  if (worldHint === undefined) {
     return undefined;
   }
   const zoend = normalizedEnvUrl("ZOEN_ZOEND");
   if (zoend === undefined) {
     return undefined;
   }
-  const resolved = await resolveMembership(zoend, doorToken, tenantHint);
+  const resolved = await resolveIngress(zoend, credential.token, worldHint);
   if (resolved === undefined) {
     return undefined;
   }
@@ -159,26 +222,29 @@ async function authenticateMembership(
   if (email !== undefined) {
     attributes.email = email;
   }
+  attributes.doorUserId = doorUserId;
+  attributes.accountId = resolved.accountId;
+  attributes.activeReleaseDigest = resolved.activeReleaseDigest;
   attributes.membershipId = resolved.membershipId;
-  attributes.tenantId = resolved.tenantId;
+  attributes.worldId = resolved.worldId;
   putHostCredential(
     workbenchCredentialInput({
-      doorToken,
+      doorToken: credential.token,
       membershipId: resolved.membershipId,
-      tenantId: resolved.tenantId,
+      worldId: resolved.worldId,
     })
   );
   return {
     auth: {
       attributes,
       authenticator: "better-auth",
-      principalId,
+      principalId: resolved.principalId,
       principalType: "user",
     },
     owner: {
       membershipId: resolved.membershipId,
-      principalId,
-      tenantId: resolved.tenantId,
+      principalId: resolved.principalId,
+      worldId: resolved.worldId,
     },
   };
 }
@@ -205,49 +271,61 @@ function betterAuthSession(): AuthFn<Request> {
   );
 }
 
-function opaqueDoorToken(request: Request): string | undefined {
-  const authorization = request.headers.get("authorization");
-  if (authorization?.toLowerCase().startsWith("bearer ")) {
-    const token = authorization.slice("bearer ".length).trim();
-    if (token.length > 0 && token.split(".").length !== 3) {
-      return token;
-    }
-  }
-  const cookie = request.headers.get("cookie");
-  if (cookie === null || cookie.length === 0) {
-    return undefined;
-  }
-  for (const part of cookie.split(";")) {
-    const [name, ...rest] = part.trim().split("=");
-    if (name?.endsWith("session_token")) {
-      const value = rest.join("=");
-      if (value.length > 0 && value.split(".").length !== 3) {
-        return decodeURIComponent(value);
-      }
-    }
-  }
-  return undefined;
-}
-
-async function resolveMembership(
+async function resolveIngress(
   zoendBaseUrl: string,
   doorToken: string,
-  tenantId: string
-): Promise<{ membershipId: string; tenantId: string } | undefined> {
-  const url = `${zoendBaseUrl}/identity/admin/resolve-context?tenant=${encodeURIComponent(tenantId)}`;
+  requestedWorldId: string
+): Promise<
+  | {
+      accountId: string;
+      activeReleaseDigest: string;
+      membershipId: string;
+      principalId: string;
+      worldId: string;
+    }
+  | undefined
+> {
+  const url = `${zoendBaseUrl}/identity/admin/resolve-ingress?world=${encodeURIComponent(requestedWorldId)}`;
   const body = await fetchJson(url, {
     headers: { authorization: `Bearer ${doorToken}` },
   });
   if (!isRecord(body)) {
     return undefined;
   }
-  const { membershipId, tenantId: tenant } = body;
-  if (typeof membershipId !== "string" || membershipId.length === 0) {
+  const {
+    accountId,
+    accountStatus,
+    activeReleaseDigest,
+    bindingId,
+    bindingProvider,
+    membershipId,
+    principalId,
+    worldId,
+  } = body;
+  const resolvedWorldId = nonEmptyString(worldId);
+  if (
+    typeof accountId !== "string" ||
+    accountId.length === 0 ||
+    accountStatus !== "verified" ||
+    typeof activeReleaseDigest !== "string" ||
+    !SHA_256_HEX.test(activeReleaseDigest) ||
+    typeof bindingId !== "string" ||
+    bindingId.length === 0 ||
+    bindingProvider !== "auth_door" ||
+    typeof membershipId !== "string" ||
+    membershipId.length === 0 ||
+    typeof principalId !== "string" ||
+    principalId.length === 0 ||
+    resolvedWorldId !== requestedWorldId
+  ) {
     return undefined;
   }
   return {
+    accountId,
+    activeReleaseDigest,
     membershipId,
-    tenantId: nonEmptyString(tenant) ?? tenantId,
+    principalId,
+    worldId: resolvedWorldId,
   };
 }
 

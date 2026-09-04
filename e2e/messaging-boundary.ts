@@ -126,7 +126,7 @@ async function seedBoundAccount(): Promise<{
   );
   assert.equal(bootstrap.status, 200, JSON.stringify(bootstrap.body));
   const accountId = String(bootstrap.body.accountId);
-  const tenantId = String(bootstrap.body.tenantId);
+  const tenantId = String(bootstrap.body.worldId);
   const principalId = String(bootstrap.body.principalId);
   const membershipId = String(bootstrap.body.membershipId);
 
@@ -331,13 +331,13 @@ async function main(): Promise<void> {
     const seed = await seedBoundAccount();
     const resolved = await admin(
       "GET",
-      `/identity/admin/resolve-context?tenant=${encodeURIComponent(seed.tenantId)}`,
+      `/identity/admin/resolve-context?world=${encodeURIComponent(seed.tenantId)}`,
     );
     record(
       "membership resolves from the Better Auth session",
       resolved.status === 200 &&
         resolved.body.membershipId === seed.membershipId &&
-        resolved.body.tenantId === seed.tenantId,
+        resolved.body.worldId === seed.tenantId,
     );
     killMutant("Bootstrap a Membership that the active door session cannot resolve");
 

@@ -5,7 +5,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionId, ActorId, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence, PrincipalId,
-    PublicVerb, ReleaseDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
+    PublicVerb, ReleaseDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
     WORLD_KERNEL_AUTHORITY_DEFINITION, WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST,
     WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId, encode_hex,
 };
@@ -55,7 +55,7 @@ impl KernelAuthorization {
     fn validate_seal(&self) -> Result<(), KernelError> {
         let expected_delegation = delegation_jcs(&self.context)?;
         if self.action.as_str() != self.verb.action_id()
-            || self.context.tenant_id().as_str() != self.world.as_str()
+            || self.context.world_id().as_str() != self.world.as_str()
             || self.context.principal_id() != &self.principal
             || self.delegation_jcs != expected_delegation
             || self.approved != verb_has_approval(self.verb)
@@ -633,14 +633,12 @@ impl PostgresWorldKernel {
             .map_err(|error| KernelError::Store(error.to_string()))?;
         let resource = ResourceId::parse(WORLD_KERNEL_AUTHORITY_RESOURCE)
             .map_err(|error| KernelError::Store(error.to_string()))?;
-        let tenant = TenantId::parse(world.as_str())
-            .map_err(|error| KernelError::Store(error.to_string()))?;
         let authorized_at = TimestampMicros::new(clock_micros());
         let context = self
             .identity
             .resolve_membership_authority(
                 membership,
-                &tenant,
+                world,
                 principal,
                 &action,
                 &resource,

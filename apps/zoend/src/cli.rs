@@ -3080,7 +3080,8 @@ struct WorkloadAuthenticationDocument {
     actor_id: String,
     exchange_token: String,
     principal_id: String,
-    tenant_id: String,
+    #[serde(rename = "tenantId")]
+    world_id: String,
     workload_id: String,
 }
 
@@ -3163,7 +3164,7 @@ async fn workload_exchange(env: &RuntimeEnv) -> Result<WorkloadExchangeToken, Wo
         WorkloadSignalError::AuthenticationUnavailable,
     )
     .await?;
-    if document.tenant_id != env.tenant
+    if document.world_id != env.tenant
         || document.principal_id != env.principal_id
         || document.workload_id != env.workload_id
         || document.actor_id != env.actor_id

@@ -39,7 +39,7 @@ pub struct RecordAttributionInput<'a> {
     pub publisher_id: &'a PublisherId,
     pub referral_id: &'a ReferralId,
     pub share_token: Option<&'a str>,
-    pub tenant_id: Option<&'a str>,
+    pub world_id: Option<&'a str>,
     pub idempotency_key: &'a str,
 }
 
@@ -462,7 +462,7 @@ impl PostgresPackRegistryStore {
         input: RecordAttributionInput<'_>,
     ) -> Result<(), PackError> {
         let share_token_hash = hex_sha256(input.share_token.unwrap_or("").as_bytes());
-        let tenant_id_hash = input.tenant_id.map(|tenant| hex_sha256(tenant.as_bytes()));
+        let tenant_id_hash = input.world_id.map(|tenant| hex_sha256(tenant.as_bytes()));
         let event_id = format!("attr_{}", hex_id());
         let result = sqlx::query(
             "INSERT INTO pack_attribution_events (

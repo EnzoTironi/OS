@@ -26,7 +26,7 @@ pub(crate) async fn load(
     target: &ExplanationTarget,
 ) -> Result<HistorySnapshot, StoreError> {
     let mut transaction = pool.begin().await.map_err(store_unavailable)?;
-    set_tenant(&mut transaction, context.tenant_id()).await?;
+    set_tenant(&mut transaction, context.world_id()).await?;
     let snapshot = match target {
         ExplanationTarget::Operation(operation_id) => {
             load_action_by_operation(&mut transaction, context, operation_id).await?
@@ -72,7 +72,7 @@ async fn load_action_by_operation(
     context: &ExecutionContext,
     operation_id: &OperationId,
 ) -> Result<HistorySnapshot, StoreError> {
-    let commit = load_operation(transaction, context.tenant_id(), operation_id)
+    let commit = load_operation(transaction, context.world_id(), operation_id)
         .await?
         .ok_or(StoreError::NotFound)?;
     load_action(
@@ -94,7 +94,7 @@ async fn load_action_by_proposal(
          FROM action_operations
          WHERE tenant_id = $1 AND proposal_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(proposal_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -104,7 +104,7 @@ async fn load_action_by_proposal(
     .map_err(corrupt)?;
     let commit = match operation_id {
         Some(operation_id) => {
-            load_operation(transaction, context.tenant_id(), &operation_id).await?
+            load_operation(transaction, context.world_id(), &operation_id).await?
         }
         None => None,
     };
@@ -117,10 +117,10 @@ async fn load_action(
     proposal_id: ProposalId,
     commit: Option<zoen_core::CommitReceipt>,
 ) -> Result<HistorySnapshot, StoreError> {
-    let proposal = load_proposal(transaction, context.tenant_id(), &proposal_id)
+    let proposal = load_proposal(transaction, context.world_id(), &proposal_id)
         .await?
         .ok_or(StoreError::NotFound)?;
-    let approval = load_approval(transaction, context.tenant_id(), &proposal_id).await?;
+    let approval = load_approval(transaction, context.world_id(), &proposal_id).await?;
     let definition = load_definition(transaction, context, &proposal.definition).await?;
     let proposal_claim_ids = proposal
         .state_basis
@@ -183,7 +183,7 @@ async fn operation_for_effect(
          FROM effect_requests
          WHERE tenant_id = $1 AND effect_request_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -215,7 +215,7 @@ async fn action_for_claim(
          ORDER BY priority, owner_id
          LIMIT 1",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(claim_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -255,7 +255,7 @@ async fn load_definition(
            AND digest = $3
            AND revision = $4",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(reference.definition_id.as_str())
     .bind(reference.digest.as_str())
     .bind(
@@ -282,7 +282,7 @@ async fn load_claim(
          FROM semantic_claims
          WHERE tenant_id = $1 AND claim_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(claim_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -300,7 +300,7 @@ async fn load_migration(
          FROM definition_migration_records
          WHERE tenant_id = $1 AND target_claim_id = $2",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(claim_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -329,7 +329,7 @@ async fn load_migration(
          WHERE tenant_id = $1 AND operation_id = $2 AND target_claim_id = $3
          ORDER BY source_claim_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(operation_id.as_str())
     .bind(claim_id.as_str())
     .fetch_all(&mut **transaction)
@@ -373,7 +373,7 @@ async fn load_claims(
          WHERE tenant_id = $1 AND claim_id = ANY($2::text[])
          ORDER BY claim_id",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(ids)
     .fetch_all(&mut **transaction)
     .await
@@ -392,7 +392,7 @@ async fn load_dispatches(
          WHERE tenant_id = $1 AND effect_request_id = $2
          ORDER BY attempt_number",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(effect_request_id.as_str())
     .fetch_all(&mut **transaction)
     .await

@@ -15,8 +15,8 @@ use zoen_core::{
     OntologyDependency, OntologyImpactLine, OntologyImpactStatus, PACK_FORMAT_V1, PackDigest,
     PackError, PackId, PackManifest, PackPresentation, PackUpdatePermissionDiff, PackVersion,
     PermissionImpactPreview, PreviewDigest, PublicKeyId, PublisherId, PublisherIdentity,
-    RelationId, RequirementId, RequirementImpactLine, Sensitivity, SignatureEvidence, TenantId,
-    TimestampMicros, required_grants_accepted,
+    RelationId, RequirementId, RequirementImpactLine, Sensitivity, SignatureEvidence,
+    TimestampMicros, WorldId, required_grants_accepted,
 };
 
 use crate::set_tenant;
@@ -37,7 +37,7 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn verify_and_stage(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         staged_by: &str,
         manifest_bytes: &[u8],
         expected_digest: Option<&PackDigest>,
@@ -46,7 +46,7 @@ impl PostgresPackStore {
         let (digest, mut manifest) = admit_pack(manifest_bytes, expected_digest)?;
         bind_pack_ontology(&mut manifest, ontology_artifacts)?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
 
@@ -54,7 +54,7 @@ impl PostgresPackStore {
             "SELECT manifest_jcs FROM pack_artifacts
              WHERE tenant_id = $1 AND pack_digest = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(digest.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -101,7 +101,7 @@ impl PostgresPackStore {
                 publisher_id, manifest_jcs, signature_json, lock_jcs, staged_by
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(digest.as_str())
         .bind(manifest.pack_id.as_str())
         .bind(manifest.version.as_str())
@@ -121,7 +121,7 @@ impl PostgresPackStore {
                     tenant_id, pack_digest, definition_id, definition_digest, canonical_json
                  ) VALUES ($1, $2, $3, $4, $5)",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(digest.as_str())
             .bind(dependency.definition_id.as_str())
             .bind(dependency.digest.as_str())
@@ -140,18 +140,18 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn load_manifest(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         pack_digest: &PackDigest,
     ) -> Result<PackManifest, PackError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
         let row = sqlx::query(
             "SELECT manifest_jcs FROM pack_artifacts
              WHERE tenant_id = $1 AND pack_digest = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(pack_digest.as_str())
         .fetch_optional(&mut *transaction)
         .await
@@ -165,7 +165,7 @@ impl PostgresPackStore {
              WHERE tenant_id = $1 AND pack_digest = $2
              ORDER BY definition_id",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(pack_digest.as_str())
         .fetch_all(&mut *transaction)
         .await
@@ -207,12 +207,12 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn derive_preview(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         pack_digest: &PackDigest,
     ) -> Result<(PermissionImpactPreview, PreviewDigest), PackError> {
-        let manifest = self.load_manifest(tenant_id, pack_digest).await?;
+        let manifest = self.load_manifest(world_id, pack_digest).await?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
 
@@ -222,7 +222,7 @@ impl PostgresPackStore {
                 "SELECT digest FROM active_definition_revisions
                  WHERE tenant_id = $1 AND definition_id = $2",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(dependency.definition_id.as_str())
             .fetch_optional(&mut *transaction)
             .await
@@ -288,20 +288,20 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn install(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         pack_digest: &PackDigest,
         preview_digest: &PreviewDigest,
         prior_install_id: Option<&InstallId>,
         decided_by: &str,
     ) -> Result<InstallReceipt, PackError> {
-        let (_, expected_preview) = self.derive_preview(tenant_id, pack_digest).await?;
+        let (_, expected_preview) = self.derive_preview(world_id, pack_digest).await?;
         if expected_preview.as_str() != preview_digest.as_str() {
             return Err(PackError::PreviewStale);
         }
-        let manifest = self.load_manifest(tenant_id, pack_digest).await?;
+        let manifest = self.load_manifest(world_id, pack_digest).await?;
         let install_id = InstallId::parse(format!("install.{}", hex_id()))?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
 
@@ -311,7 +311,7 @@ impl PostgresPackStore {
                 preview_digest, phase, prior_install_id
              ) VALUES ($1, $2, $3, $4, $5, $6, 'installed', $7)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(install_id.as_str())
         .bind(pack_digest.as_str())
         .bind(manifest.pack_id.as_str())
@@ -346,7 +346,7 @@ impl PostgresPackStore {
                     sensitivity, capability_kind, scope_json, degrade_json, status
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(install_id.as_str())
             .bind(grant_id.as_str())
             .bind(requirement.requirement_id.as_str())
@@ -373,7 +373,7 @@ impl PostgresPackStore {
         let _ = decided_by;
         Ok(InstallReceipt {
             install_id,
-            tenant_id: tenant_id.clone(),
+            world_id: world_id.clone(),
             pack_digest: pack_digest.clone(),
             pack_id: manifest.pack_id,
             pack_version: manifest.version,
@@ -389,14 +389,14 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn get_install(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         install_id: &InstallId,
     ) -> Result<InstallReceipt, PackError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
-        let receipt = load_receipt(&mut transaction, tenant_id, install_id).await?;
+        let receipt = load_receipt(&mut transaction, world_id, install_id).await?;
         transaction.commit().await.map_err(store)?;
         Ok(receipt)
     }
@@ -406,16 +406,16 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn decide_grants(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         install_id: &InstallId,
         decisions: &[(GrantId, bool)],
         decided_by: &str,
     ) -> Result<InstallReceipt, PackError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
-        let mut receipt = load_receipt(&mut transaction, tenant_id, install_id).await?;
+        let mut receipt = load_receipt(&mut transaction, world_id, install_id).await?;
         if !matches!(
             receipt.phase,
             InstallPhase::Installed | InstallPhase::GrantsResolved
@@ -436,7 +436,7 @@ impl PostgresPackStore {
             .bind(status)
             .bind(now.get())
             .bind(decided_by)
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(install_id.as_str())
             .bind(grant_id.as_str())
             .execute(&mut *transaction)
@@ -449,7 +449,7 @@ impl PostgresPackStore {
                 )));
             }
         }
-        receipt = load_receipt(&mut transaction, tenant_id, install_id).await?;
+        receipt = load_receipt(&mut transaction, world_id, install_id).await?;
         for grant in &receipt.grants {
             if matches!(grant.necessity, Necessity::Required)
                 && matches!(grant.status, GrantStatus::Declined { .. })
@@ -465,7 +465,7 @@ impl PostgresPackStore {
                  SET phase = 'grants_resolved', updated_at = clock_timestamp()
                  WHERE tenant_id = $1 AND install_id = $2",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(install_id.as_str())
             .execute(&mut *transaction)
             .await
@@ -481,15 +481,15 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn mark_activating(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         install_id: &InstallId,
         evolution_ack_digest: &EvolutionAckDigest,
     ) -> Result<InstallReceipt, PackError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
-        let receipt = load_receipt(&mut transaction, tenant_id, install_id).await?;
+        let receipt = load_receipt(&mut transaction, world_id, install_id).await?;
         match receipt.phase {
             InstallPhase::GrantsResolved | InstallPhase::Activating => {}
             InstallPhase::Active { .. } => {
@@ -511,13 +511,13 @@ impl PostgresPackStore {
              WHERE tenant_id = $2 AND install_id = $3",
         )
         .bind(evolution_ack_digest.as_str())
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(install_id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(store)?;
         transaction.commit().await.map_err(store)?;
-        self.get_install(tenant_id, install_id).await
+        self.get_install(world_id, install_id).await
     }
 
     /// # Errors
@@ -525,15 +525,15 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn mark_active(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         install_id: &InstallId,
         activated: Vec<ActivatedDefinitionRef>,
     ) -> Result<InstallReceipt, PackError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
-        let receipt = load_receipt(&mut transaction, tenant_id, install_id).await?;
+        let receipt = load_receipt(&mut transaction, world_id, install_id).await?;
         if matches!(receipt.phase, InstallPhase::Active { .. }) {
             transaction.commit().await.map_err(store)?;
             return Ok(receipt);
@@ -562,7 +562,7 @@ impl PostgresPackStore {
                  WHERE tenant_id = $2 AND install_id = $3 AND phase = 'active'",
             )
             .bind(install_id.as_str())
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(prior.as_str())
             .execute(&mut *transaction)
             .await
@@ -574,13 +574,13 @@ impl PostgresPackStore {
              WHERE tenant_id = $2 AND install_id = $3",
         )
         .bind(refs)
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(install_id.as_str())
         .execute(&mut *transaction)
         .await
         .map_err(store)?;
         transaction.commit().await.map_err(store)?;
-        self.get_install(tenant_id, install_id).await
+        self.get_install(world_id, install_id).await
     }
 
     /// # Errors
@@ -588,12 +588,12 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn permission_diff(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         from_digest: &PackDigest,
         to_digest: &PackDigest,
     ) -> Result<PackUpdatePermissionDiff, PackError> {
-        let from = self.load_manifest(tenant_id, from_digest).await?;
-        let to = self.load_manifest(tenant_id, to_digest).await?;
+        let from = self.load_manifest(world_id, from_digest).await?;
+        let to = self.load_manifest(world_id, to_digest).await?;
         let from_ids: BTreeMap<_, _> = from
             .integration_requirements
             .iter()
@@ -622,16 +622,16 @@ impl PostgresPackStore {
     /// Returns [`PackError`] when `PostgreSQL` is unavailable or the pack cannot be admitted.
     pub async fn evaluate_first_success(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         install_id: &InstallId,
     ) -> Result<FirstSuccessEval, PackError> {
-        let receipt = self.get_install(tenant_id, install_id).await?;
+        let receipt = self.get_install(world_id, install_id).await?;
         if !matches!(receipt.phase, InstallPhase::Active { .. }) {
             return Ok(FirstSuccessEval::NotReady);
         }
-        let manifest = self.load_manifest(tenant_id, &receipt.pack_digest).await?;
+        let manifest = self.load_manifest(world_id, &receipt.pack_digest).await?;
         let mut transaction = self.pool.begin().await.map_err(store)?;
-        set_tenant(&mut transaction, tenant_id)
+        set_tenant(&mut transaction, world_id)
             .await
             .map_err(|error| PackError::Store(error.to_string()))?;
         let existing = sqlx::query(
@@ -639,7 +639,7 @@ impl PostgresPackStore {
              FROM pack_first_success_events
              WHERE tenant_id = $1 AND install_id = $2 AND contract_id = $3",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(install_id.as_str())
         .bind(manifest.first_success_contract.contract_id.as_str())
         .fetch_optional(&mut *transaction)
@@ -667,7 +667,7 @@ impl PostgresPackStore {
                      ORDER BY operations.commit_sequence DESC
                      LIMIT 1",
                 )
-                .bind(tenant_id.as_str())
+                .bind(world_id.as_str())
                 .bind(action_id.as_str())
                 .fetch_optional(&mut *transaction)
                 .await
@@ -682,7 +682,7 @@ impl PostgresPackStore {
                      ORDER BY commit_sequence DESC
                      LIMIT 1",
                 )
-                .bind(tenant_id.as_str())
+                .bind(world_id.as_str())
                 .bind(relation_id.as_str())
                 .fetch_optional(&mut *transaction)
                 .await
@@ -701,7 +701,7 @@ impl PostgresPackStore {
                 tenant_id, install_id, pack_digest, contract_id, outcome_ref, fired_at
              ) VALUES ($1, $2, $3, $4, $5, to_timestamp($6::double precision / 1000000.0))",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(install_id.as_str())
         .bind(receipt.pack_digest.as_str())
         .bind(manifest.first_success_contract.contract_id.as_str())
@@ -916,7 +916,7 @@ fn install_phase_from_row(row: &sqlx::postgres::PgRow) -> Result<InstallPhase, P
 
 async fn load_capability_grants(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     install_id: &InstallId,
 ) -> Result<Vec<CapabilityGrant>, PackError> {
     let grant_rows = sqlx::query(
@@ -927,7 +927,7 @@ async fn load_capability_grants(
          WHERE tenant_id = $1 AND install_id = $2
          ORDER BY grant_id",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(install_id.as_str())
     .fetch_all(&mut **transaction)
     .await
@@ -1018,7 +1018,7 @@ fn capability_grant_from_row(
 
 async fn load_receipt(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
     install_id: &InstallId,
 ) -> Result<InstallReceipt, PackError> {
     let row = sqlx::query(
@@ -1028,7 +1028,7 @@ async fn load_receipt(
          FROM pack_install_receipts
          WHERE tenant_id = $1 AND install_id = $2",
     )
-    .bind(tenant_id.as_str())
+    .bind(world_id.as_str())
     .bind(install_id.as_str())
     .fetch_optional(&mut **transaction)
     .await
@@ -1036,11 +1036,11 @@ async fn load_receipt(
     .ok_or(PackError::InstallNotFound)?;
 
     let phase = install_phase_from_row(&row)?;
-    let grants = load_capability_grants(transaction, tenant_id, install_id).await?;
+    let grants = load_capability_grants(transaction, world_id, install_id).await?;
 
     Ok(InstallReceipt {
         install_id: install_id.clone(),
-        tenant_id: tenant_id.clone(),
+        world_id: world_id.clone(),
         pack_digest: PackDigest::parse(row.try_get::<String, _>("pack_digest").map_err(store)?)?,
         pack_id: PackId::parse(row.try_get::<String, _>("pack_id").map_err(store)?)?,
         pack_version: PackVersion::parse(row.try_get::<String, _>("pack_version").map_err(store)?)?,

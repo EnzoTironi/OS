@@ -28,7 +28,7 @@ pub(crate) async fn load_current(
            AND digest = $3
            AND revision = $4",
     )
-    .bind(context.tenant_id().as_str())
+    .bind(context.world_id().as_str())
     .bind(proposal.definition.definition_id.as_str())
     .bind(proposal.definition.digest.as_str())
     .bind(i64::try_from(proposal.definition.revision.get()).map_err(corrupt)?)

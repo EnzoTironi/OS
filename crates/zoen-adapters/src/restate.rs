@@ -49,7 +49,7 @@ impl DispatchScheduler for RestateEffectScheduler {
             .json(&RestateEffectInput {
                 dispatch_version: command.knowledge_commit_sequence,
                 effect_request_id: command.effect_request_id.as_str(),
-                tenant_id: command.tenant_id.as_str(),
+                world_id: command.world_id.as_str(),
             })
             .send()
             .await
@@ -82,7 +82,7 @@ impl DispatchScheduler for RestateEffectScheduler {
 pub fn restate_effect_key(command: &DispatchScheduleCommand) -> String {
     format!(
         "{}:{}:{}",
-        command.tenant_id.as_str(),
+        command.world_id.as_str(),
         command.effect_request_id.as_str(),
         command.knowledge_commit_sequence
     )
@@ -93,7 +93,8 @@ pub fn restate_effect_key(command: &DispatchScheduleCommand) -> String {
 struct RestateEffectInput<'a> {
     dispatch_version: u64,
     effect_request_id: &'a str,
-    tenant_id: &'a str,
+    #[serde(rename = "tenantId")]
+    world_id: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -106,7 +107,7 @@ struct RestateAccepted {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use zoen_core::{EffectRequestId, TenantId};
+    use zoen_core::{EffectRequestId, WorldId};
 
     use reqwest::{Client, Url};
 
@@ -128,7 +129,7 @@ mod tests {
             effect_request_id: EffectRequestId::parse("effect.action.operation.1.0")
                 .expect("effect request id"),
             knowledge_commit_sequence: 12,
-            tenant_id: TenantId::parse("tenant.a").expect("tenant id"),
+            world_id: WorldId::parse("tenant.a").expect("tenant id"),
         }
     }
 

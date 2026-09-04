@@ -427,7 +427,7 @@ status="$(
     -H "Authorization: Bearer ${owner_token}" \
     "${zoend_base}/identity/admin/bootstrap-bound"
 )"
-tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tenantId"])' < "$body")"
+tenant_id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["worldId"])' < "$body")"
 owner_membership="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["membershipId"])' < "$body")"
 record "POST /identity/admin/bootstrap-bound (owner)" "curl bootstrap-bound" "${zoend_base}/identity/admin/bootstrap-bound" "$status" "tenant=${tenant_id} membership=${owner_membership}"
 [[ "$status" == "200" ]] || fail "bootstrap-bound ${status}"
@@ -490,7 +490,7 @@ status="$(
     -H "Authorization: Bearer ${admin_token}" \
     -H 'content-type: application/json' \
     -d "$(python3 -c 'import json,sys; print(json.dumps({
-      "tenantId":sys.argv[1],
+      "worldId":sys.argv[1],
       "principalId":"principal.reception",
       "token":sys.argv[2],
       "expiresAtMicros": 4102444800000000,

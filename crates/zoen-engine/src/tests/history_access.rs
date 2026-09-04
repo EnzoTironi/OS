@@ -10,7 +10,7 @@ use zoen_core::{
     ExplanationPayload, GapReason, InputId, IntentDigest,
     OperationId, PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber,
     PrincipalId, ProposalAuthority, ProposalId, RelationId, ResourceId, SourceId, StateBasis,
-    StateBasisDigest, TenantId, TimestampMicros, TrustedExecutionContext, ValidTime, WorkloadId,
+    StateBasisDigest, WorldId, TimestampMicros, TrustedExecutionContext, ValidTime, WorkloadId,
 };
 
 use super::{
@@ -161,7 +161,7 @@ fn context(principal: &str) -> TrustedExecutionContext {
     )
     .expect("delegation grant");
     TrustedExecutionContext::new(
-        TenantId::parse("tenant.test").expect("tenant id"),
+        WorldId::parse("tenant.test").expect("tenant id"),
         ActorId::parse("actor.test").expect("actor id"),
         PrincipalId::parse(principal).expect("principal id"),
         workload,

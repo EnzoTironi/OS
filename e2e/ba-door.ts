@@ -402,7 +402,7 @@ async function bindInvite(input: {
       expiresAtMicros: INVITE_EXPIRES_AT_MICROS,
       principalId: input.persona.principalId,
       resourceIds: [...input.persona.resourceIds],
-      tenantId: input.persona.tenantId,
+      worldId: input.persona.tenantId,
       token: inviteToken,
       workloadId: input.persona.workloadId,
     },
@@ -432,7 +432,7 @@ async function bindInvite(input: {
   const resolved = await jsonRequest(
     input.zoendBaseUrl,
     "GET",
-    `/identity/admin/resolve-context?tenant=${encodeURIComponent(input.persona.tenantId)}`,
+    `/identity/admin/resolve-context?world=${encodeURIComponent(input.persona.tenantId)}`,
     input.token,
   );
   assert.equal(
@@ -467,7 +467,7 @@ async function grantOwnerClearance(
     const result = await client.query(
       `UPDATE memberships
           SET clearance_json = $1::jsonb
-        WHERE account_id = $2 AND tenant_id = $3 AND status = 'active'`,
+        WHERE account_id = $2 AND world_id = $3 AND status = 'active'`,
       [JSON.stringify(["zoen.world.floor", "zoen.world.top"]), accountId, tenantId],
     );
     assert.ok(

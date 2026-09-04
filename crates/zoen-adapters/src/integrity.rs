@@ -5,7 +5,7 @@ use std::{
 };
 
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_core::TenantId;
+use zoen_core::WorldId;
 
 use super::PostgresAuthorityStore;
 
@@ -78,17 +78,17 @@ impl PostgresAuthorityStore {
     /// Returns [`IntegrityError::Query`] when PostgreSQL is unavailable.
     pub async fn projection_watermark(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         max_age: Duration,
     ) -> Result<ProjectionWatermarkStatus, IntegrityError> {
         let mut transaction = self.pool.begin().await.map_err(IntegrityError::Query)?;
-        set_ready_tenant(&mut transaction, tenant_id).await?;
+        set_ready_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT (EXTRACT(EPOCH FROM (pg_catalog.clock_timestamp() - updated_at)) * 1000)::bigint AS age_ms
              FROM public.projection_watermarks
              WHERE tenant_id = $1 AND projection_id = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(SEMANTIC_PROJECTION_ID)
         .fetch_optional(&mut *transaction)
         .await
@@ -113,10 +113,10 @@ impl PostgresAuthorityStore {
 
 async fn set_ready_tenant(
     transaction: &mut Transaction<'_, Postgres>,
-    tenant_id: &TenantId,
+    world_id: &WorldId,
 ) -> Result<(), IntegrityError> {
     sqlx::query("SELECT pg_catalog.set_config('zoen.tenant_id', $1, true)")
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .execute(&mut **transaction)
         .await
         .map_err(IntegrityError::Query)?;

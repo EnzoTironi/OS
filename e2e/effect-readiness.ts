@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client as PostgresClient } from "pg";
 import { z } from "zod";
 import { AUTH_DOOR_ORIGIN, startAuthDoor, stopAuthDoor } from "./ba-door.js";
+import { startEve } from "./eve-support.js";
 import {
   plantBudgetRelease,
   type AuthorizationPolicy,
@@ -18,7 +17,6 @@ import {
   eveOrigin,
   productReadinessEnvironment,
   registrarReady,
-  repositoryRoot,
   startEffectRegistrar,
   startMinio,
   startProjection,
@@ -135,7 +133,11 @@ export async function proveProductReadiness(input: {
     }
     return true;
   }, "projection process stays alive", 5);
-  const eve = await startEve();
+  const eve = await startEve({
+    authBaseUrl: AUTH_DOOR_ORIGIN,
+    eveOrigin,
+    zoendBaseUrl: zoenBaseUrl,
+  });
   processes.push(eve);
 
   await waitForReady(
@@ -385,7 +387,11 @@ export async function proveProductReadiness(input: {
 
   await stopProcess(eve);
   await assertReadyFails(observe, "Eve is missing", "eveMissing");
-  const restartedEve = await startEve();
+  const restartedEve = await startEve({
+    authBaseUrl: AUTH_DOOR_ORIGIN,
+    eveOrigin,
+    zoendBaseUrl: zoenBaseUrl,
+  });
   processes.push(restartedEve);
   await waitForReady((body) => body === "ready\n", "Eve recovered");
 
@@ -855,132 +861,5 @@ async function fetchReady(): Promise<{ body: string; status: number }> {
     return { body: await response.text(), status: response.status };
   } catch {
     return { body: "", status: 0 };
-  }
-}
-
-async function startEve(): Promise<ManagedProcess> {
-  const conversationRoot = path.join(repositoryRoot, "apps", "conversation");
-  const eveBin = path.join(conversationRoot, "node_modules", "eve", "bin", "eve.js");
-  const npmBin = path.join(path.dirname(process.execPath), "npm");
-  if (!existsSync(eveBin)) {
-    execFileSync(
-      npmBin,
-      ["ci", "--ignore-scripts", "--prefix", conversationRoot],
-      {
-        cwd: repositoryRoot,
-        stdio: "inherit",
-      },
-    );
-  }
-  const eveNode = eveNodeExecutable();
-  const evePath = `${path.dirname(eveNode)}${path.delimiter}${process.env.PATH ?? ""}`;
-  const eveOutput = path.join(
-    conversationRoot,
-    ".output",
-    "server",
-    "index.mjs",
-  );
-  if (!existsSync(eveOutput)) {
-    const buildEnv = { ...process.env };
-    for (const name of [
-      "KAPSO_API_KEY",
-      "KAPSO_PHONE_NUMBER_ID",
-      "KAPSO_WEBHOOK_SECRET",
-      "KAPSO_BASE_URL",
-      "WHATSAPP_ACCESS_TOKEN",
-    ]) {
-      delete buildEnv[name];
-    }
-    execFileSync(eveNode, [eveBin, "build"], {
-      cwd: conversationRoot,
-      env: {
-        ...buildEnv,
-        PATH: evePath,
-        ZOEN_MODEL: process.env.ZOEN_MODEL ?? "openai-compatible/hy3-free",
-      },
-      stdio: "inherit",
-    });
-  }
-  const output: string[] = [];
-  const stderr: string[] = [];
-  const evePort = new URL(eveOrigin).port;
-  const child: ChildProcessWithoutNullStreams = spawn(
-    eveNode,
-    [eveBin, "start", "--host", "127.0.0.1", "--port", evePort],
-    {
-      cwd: conversationRoot,
-      env: {
-        ...process.env,
-        PATH: evePath,
-        ZOEN_AUTH_BASE_URL: AUTH_DOOR_ORIGIN,
-        ZOEN_MODEL: process.env.ZOEN_MODEL ?? "openai-compatible/hy3-free",
-        ZOEN_ZOEND: zoenBaseUrl,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
-  child.stdin.end();
-  child.stdout.on("data", (chunk: Buffer) => output.push(chunk.toString()));
-  child.stderr.on("data", (chunk: Buffer) => {
-    const text = chunk.toString();
-    output.push(text);
-    stderr.push(text);
-  });
-  const managed: ManagedProcess = {
-    child,
-    name: "eve",
-    output,
-    stderr,
-  };
-  await waitFor(
-    async () => {
-      if (child.exitCode !== null) {
-        throw new Error(`eve exited during startup:\n${output.join("")}`);
-      }
-      try {
-        const response = await fetch(`${eveOrigin}/eve/v1/health`);
-        return response.ok ? true : undefined;
-      } catch {
-        return undefined;
-      }
-    },
-    "Eve /eve/v1/health",
-    2400,
-  );
-  return managed;
-}
-
-const eveNodeMajor = 24;
-
-function eveNodeExecutable(): string {
-  const candidates = [
-    process.env.ZOEN_EVE_NODE,
-    process.execPath,
-    "/usr/local/node24/bin/node",
-  ].filter((value): value is string => value !== undefined && value !== "");
-  for (const candidate of candidates) {
-    if (nodeMajor(candidate) >= eveNodeMajor) {
-      return candidate;
-    }
-  }
-  throw new Error(
-    `Eve requires Node.js >= ${eveNodeMajor} (runner is ${process.version}). Set ZOEN_EVE_NODE to a Node ${eveNodeMajor}+ binary.`,
-  );
-}
-
-function nodeMajor(executable: string): number {
-  if (executable === process.execPath) {
-    return Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
-  }
-  if (!existsSync(executable)) {
-    return 0;
-  }
-  try {
-    const version = execFileSync(executable, ["-p", "process.versions.node"], {
-      encoding: "utf8",
-    }).trim();
-    return Number.parseInt(version.split(".")[0] ?? "0", 10);
-  } catch {
-    return 0;
   }
 }

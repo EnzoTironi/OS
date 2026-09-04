@@ -4,7 +4,7 @@ use std::{
 };
 
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use zoen_core::{EffectRequestId, TenantId};
+use zoen_core::{EffectRequestId, WorldId};
 use zoen_engine::StoreError;
 
 use crate::{set_tenant, store_unavailable};
@@ -13,7 +13,7 @@ use crate::{set_tenant, store_unavailable};
 pub struct DispatchScheduleCommand {
     pub effect_request_id: EffectRequestId,
     pub knowledge_commit_sequence: u64,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,14 +94,14 @@ where
     /// corrupt.
     pub async fn dispatch_once(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         limit: u32,
     ) -> Result<Vec<EffectDispatchResult>, StoreError> {
         let mut results = Vec::with_capacity(limit as usize);
         let mut attempted_effects = Vec::with_capacity(limit as usize);
         for _ in 0..limit {
             let Some(pending) = self
-                .claim_pending_request(tenant_id, &attempted_effects)
+                .claim_pending_request(world_id, &attempted_effects)
                 .await?
             else {
                 break;
@@ -112,11 +112,11 @@ where
                 .schedule(&DispatchScheduleCommand {
                     effect_request_id: pending.effect_request_id.clone(),
                     knowledge_commit_sequence: pending.knowledge_commit_sequence,
-                    tenant_id: tenant_id.clone(),
+                    world_id: world_id.clone(),
                 })
                 .await;
             let result = self
-                .record_dispatch_result(tenant_id, pending, scheduled)
+                .record_dispatch_result(world_id, pending, scheduled)
                 .await?;
             let accepted = result.outcome == EffectDispatchOutcome::Accepted;
             results.push(result);
@@ -129,11 +129,11 @@ where
 
     async fn claim_pending_request(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         attempted_effects: &[String],
     ) -> Result<Option<PendingEffect>, StoreError> {
         let mut transaction = self.pool.begin().await.map_err(store_unavailable)?;
-        set_tenant(&mut transaction, tenant_id).await?;
+        set_tenant(&mut transaction, world_id).await?;
         let row = sqlx::query(
             "SELECT request.effect_request_id, request.last_commit_sequence
              FROM effect_requests AS request
@@ -163,7 +163,7 @@ where
              LIMIT 1
              FOR UPDATE OF request SKIP LOCKED",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(attempted_effects)
         .fetch_optional(&mut *transaction)
         .await
@@ -191,7 +191,7 @@ where
 
     async fn record_dispatch_result(
         &self,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         pending: PendingEffect,
         result: Result<DispatchAcceptance, DispatchScheduleError>,
     ) -> Result<EffectDispatchResult, StoreError> {
@@ -207,7 +207,7 @@ where
              FROM effect_dispatch_attempts
              WHERE tenant_id = $1 AND effect_request_id = $2",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(effect_request_id.as_str())
         .fetch_one(&mut *transaction)
         .await
@@ -219,7 +219,7 @@ where
                 restate_invocation_id, error_message
              ) VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(tenant_id.as_str())
+        .bind(world_id.as_str())
         .bind(effect_request_id.as_str())
         .bind(attempt_number)
         .bind(outcome_name)
@@ -238,7 +238,7 @@ where
                     tenant_id, effect_request_id, knowledge_commit_sequence
                  ) DO NOTHING",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(effect_request_id.as_str())
             .bind(knowledge_commit_sequence)
             .bind(invocation_id)
@@ -252,7 +252,7 @@ where
                    AND effect_request_id = $2
                    AND knowledge_commit_sequence = $3",
             )
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .bind(effect_request_id.as_str())
             .bind(knowledge_commit_sequence)
             .fetch_one(&mut *transaction)

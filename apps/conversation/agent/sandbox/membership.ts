@@ -2,13 +2,13 @@ import { mkdir } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 declare const membershipIdBrand: unique symbol;
-declare const tenantIdBrand: unique symbol;
+declare const worldIdBrand: unique symbol;
 declare const doorTokenBrand: unique symbol;
 
 export type MembershipId = string & {
   readonly [membershipIdBrand]: undefined;
 };
-export type TenantId = string & { readonly [tenantIdBrand]: undefined };
+export type WorldId = string & { readonly [worldIdBrand]: undefined };
 export type DoorToken = string & { readonly [doorTokenBrand]: undefined };
 
 const UNBOUND_RAW = "unbound";
@@ -28,12 +28,12 @@ export function MembershipId(raw: string): MembershipId {
   return trimmed as MembershipId;
 }
 
-export function TenantId(raw: string): TenantId {
+export function WorldId(raw: string): WorldId {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    throw new Error("TenantId empty");
+    throw new Error("WorldId empty");
   }
-  return trimmed as TenantId;
+  return trimmed as WorldId;
 }
 
 export function DoorToken(raw: string): DoorToken {

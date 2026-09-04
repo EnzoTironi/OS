@@ -63,7 +63,7 @@ impl Reconciler {
     pub async fn reconcile(&self) -> Result<String, ReconcileError> {
         Probes::require_credential_marker(
             &self.config.worker_credential_ready_file,
-            &self.config.tenant_id,
+            &self.config.world_id,
             &self.config.worker_workload_id,
             &self.config.worker_principal_id,
             &self.config.worker_actor_id,
@@ -77,7 +77,7 @@ impl Reconciler {
         );
         let credential_ref = parse_credential_ref(
             &self.config.connector_credential_refs,
-            &self.config.tenant_id,
+            &self.config.world_id,
         )
         .map_err(ReconcileError::Probe)?;
         let health = self.probes.require_http_health(&zoend_live);
@@ -86,7 +86,7 @@ impl Reconciler {
             &self.config.connector_probe_url,
             &self.config.connector_caller_token,
             &credential_ref,
-            &self.config.tenant_id,
+            &self.config.world_id,
         );
         let handler_health = self
             .probes

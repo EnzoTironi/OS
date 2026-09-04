@@ -595,7 +595,7 @@ fn mint_attempt_id(
     let digest = Sha256::digest(
         format!(
             "{}\0{}\0{}",
-            context.tenant_id().as_str(),
+            context.world_id().as_str(),
             effect_request_id.as_str(),
             adapter_execution_id
         )

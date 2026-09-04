@@ -2,7 +2,7 @@ use std::{env, error::Error, time::Duration};
 
 use serde_json::json;
 use zoen_adapters::PostgresAuthorityStore;
-use zoen_core::TenantId;
+use zoen_core::WorldId;
 use zoen_query::{ProjectionMode, ProjectionOutcome, ProjectionRunOptions, ProjectionWorker};
 use zoend::config::object_store_config;
 
@@ -31,7 +31,7 @@ async fn run(arguments: Vec<String>) -> Result<(), Box<dyn Error + Send + Sync>>
         [] => run_continuously(&worker, projection_tenant()?).await,
         [command, tenant] if command == "--once" => {
             let outcome = worker
-                .run_once(&TenantId::parse(tenant)?, ProjectionRunOptions::default())
+                .run_once(&WorldId::parse(tenant)?, ProjectionRunOptions::default())
                 .await?;
             print_outcome(&outcome);
             Ok(())
@@ -39,7 +39,7 @@ async fn run(arguments: Vec<String>) -> Result<(), Box<dyn Error + Send + Sync>>
         [command, tenant] if command == "--rebuild" => {
             let outcome = worker
                 .run_once(
-                    &TenantId::parse(tenant)?,
+                    &WorldId::parse(tenant)?,
                     ProjectionRunOptions {
                         mode: ProjectionMode::Rebuild,
                     },
@@ -54,7 +54,7 @@ async fn run(arguments: Vec<String>) -> Result<(), Box<dyn Error + Send + Sync>>
 
 async fn run_continuously(
     worker: &ProjectionWorker,
-    tenant: TenantId,
+    tenant: WorldId,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let interval = env::var("ZOEN_PROJECTION_INTERVAL_MS")
         .unwrap_or_else(|_| "5000".to_owned())
@@ -135,8 +135,8 @@ fn reject_ambient_authority_credentials() -> Result<(), Box<dyn Error + Send + S
     Ok(())
 }
 
-fn projection_tenant() -> Result<TenantId, Box<dyn Error + Send + Sync>> {
-    Ok(TenantId::parse(&env::var("ZOEN_TENANT_ID")?)?)
+fn projection_tenant() -> Result<WorldId, Box<dyn Error + Send + Sync>> {
+    Ok(WorldId::parse(&env::var("ZOEN_TENANT_ID")?)?)
 }
 
 async fn shutdown_signal() -> Result<(), Box<dyn Error + Send + Sync>> {

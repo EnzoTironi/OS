@@ -6,7 +6,7 @@ use zoen_adapters::{
     CedarPolicyEvaluator, PostgresAuthorityStore, PostgresWorldReleaseStore,
     ProjectionWatermarkStatus, require_loadable_policy_catalog,
 };
-use zoen_core::{TenantId, WorldId, WorldReleaseError};
+use zoen_core::{WorldId, WorldReleaseError};
 use zoen_query::ObjectStoreConfig;
 use zoend::{config, integrity::StateClassification};
 
@@ -24,7 +24,7 @@ pub struct ReadyState {
     pub require_reference: bool,
     pub releases: PostgresWorldReleaseStore,
     pub store: PostgresAuthorityStore,
-    pub tenant_id: Option<TenantId>,
+    pub projection_world_id: Option<WorldId>,
     pub watermark_max_age: Duration,
     pub world_id: Option<WorldId>,
 }
@@ -63,7 +63,7 @@ impl ReadyState {
             require_reference,
             releases,
             store,
-            tenant_id: config::ready_tenant_id()?,
+            projection_world_id: config::ready_tenant_id()?,
             watermark_max_age: config::projection_watermark_max_age()?,
             world_id: config::ready_world_id()?,
         })
@@ -156,12 +156,12 @@ fn active_release_error(error: WorldReleaseError) -> String {
 }
 
 async fn check_watermark(state: &ReadyState) -> Result<(), String> {
-    let Some(tenant_id) = state.tenant_id.as_ref() else {
+    let Some(world_id) = state.projection_world_id.as_ref() else {
         return Err("projection watermark is missing".to_owned());
     };
     match state
         .store
-        .projection_watermark(tenant_id, state.watermark_max_age)
+        .projection_watermark(world_id, state.watermark_max_age)
         .await
     {
         Ok(ProjectionWatermarkStatus::Current) => Ok(()),

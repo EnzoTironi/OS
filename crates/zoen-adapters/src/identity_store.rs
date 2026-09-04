@@ -5,16 +5,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
-    AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus, ChannelProvider, Clearance,
-    DelegationChain, DelegationGrant, DelegationId, ExternalBinding, ExternalBindingId,
-    ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership, MembershipId,
-    MembershipKind, MembershipStatus, PrincipalId, PublicVerb, ResourceId, RevocationReason,
-    TenantId, TimestampMicros, TrustedExecutionContext, UnbindReason,
+    Account, AccountId, AccountMergePlan, AccountStatus, ActionId, ActorId, BindingStatus,
+    ChannelBinding, ChannelBindingId, ChannelProvider, Clearance, DelegationChain, DelegationGrant,
+    DelegationId, ExternalSubject, IdentityError, Invite, InviteId, InviteToken, Membership,
+    MembershipId, MembershipKind, MembershipStatus, PrincipalId, PublicVerb, ResourceId,
+    RevocationReason, TimestampMicros, TrustedExecutionContext, UnbindReason,
     WORKLOAD_CREDENTIALS_RESOURCE, WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION,
     WORLD_KERNEL_AUTHORITY_RESOURCE, WORLD_READ_ACTION, WORLD_RELEASE_ACTIVATE_ACTION,
     WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION,
-    WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId,
-    ZoenAccount, ZoenAccountId, encode_hex, trusted_context_from_membership,
+    WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, WorldId,
+    encode_hex, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl PostgresIdentityStore {
     pub async fn ensure_provisional(
         &self,
         subject: ExternalSubject,
-    ) -> Result<ZoenAccount, IdentityError> {
+    ) -> Result<Account, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         if let Some(existing) = active_binding_for_subject(&mut transaction, &subject).await? {
             let account = load_account(&mut transaction, &existing.account_id).await?;
@@ -54,7 +54,7 @@ impl PostgresIdentityStore {
         .map_err(unavailable)?;
         let binding_id = new_binding_id()?;
         sqlx::query(
-            "INSERT INTO external_bindings (
+            "INSERT INTO channel_bindings (
                 binding_id, account_id, provider, subject_key, status
              ) VALUES ($1, $2, $3, $4, 'provisional')",
         )
@@ -65,7 +65,7 @@ impl PostgresIdentityStore {
         .execute(&mut *transaction)
         .await
         .map_err(map_unique_subject)?;
-        let account = ZoenAccount {
+        let account = Account {
             id: account_id,
             status: AccountStatus::Provisional,
             created_at: now,
@@ -79,15 +79,15 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn verify_binding(
         &self,
-        account: ZoenAccountId,
-    ) -> Result<ExternalBinding, IdentityError> {
+        account: AccountId,
+    ) -> Result<ChannelBinding, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, &account).await?;
         reject_merged(&account_row)?;
         let binding = sqlx::query(
             "SELECT binding_id, account_id, provider, subject_key, status, verified_at,
                     unbound_at, unbind_reason
-             FROM external_bindings
+             FROM channel_bindings
              WHERE account_id = $1 AND status = 'provisional'
              ORDER BY binding_id
              LIMIT 1
@@ -101,7 +101,7 @@ impl PostgresIdentityStore {
         let now = now_micros();
         let binding_id = row_text(&binding, "binding_id")?;
         sqlx::query(
-            "UPDATE external_bindings
+            "UPDATE channel_bindings
              SET status = 'verified',
                  verified_at = to_timestamp($2::double precision / 1000000.0)
              WHERE binding_id = $1",
@@ -120,7 +120,7 @@ impl PostgresIdentityStore {
         }
         let verified = load_binding(
             &mut transaction,
-            &ExternalBindingId::parse(binding_id)
+            &ChannelBindingId::parse(binding_id)
                 .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))?,
         )
         .await?;
@@ -133,9 +133,9 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn bind_verified_subject(
         &self,
-        account: ZoenAccountId,
+        account: AccountId,
         subject: ExternalSubject,
-    ) -> Result<ExternalBinding, IdentityError> {
+    ) -> Result<ChannelBinding, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, &account).await?;
         reject_merged(&account_row)?;
@@ -148,7 +148,7 @@ impl PostgresIdentityStore {
         let now = now_micros();
         let binding_id = new_binding_id()?;
         sqlx::query(
-            "INSERT INTO external_bindings (
+            "INSERT INTO channel_bindings (
                 binding_id, account_id, provider, subject_key, status, verified_at
              ) VALUES ($1, $2, $3, $4, 'verified', to_timestamp($5::double precision / 1000000.0))",
         )
@@ -167,7 +167,7 @@ impl PostgresIdentityStore {
                 .await
                 .map_err(unavailable)?;
         }
-        let binding = ExternalBinding {
+        let binding = ChannelBinding {
             id: binding_id,
             account_id: account,
             subject,
@@ -183,7 +183,7 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn unbind(
         &self,
-        binding: ExternalBindingId,
+        binding: ChannelBindingId,
         reason: UnbindReason,
     ) -> Result<(), IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
@@ -194,7 +194,7 @@ impl PostgresIdentityStore {
         }
         let now = now_micros();
         sqlx::query(
-            "UPDATE external_bindings
+            "UPDATE channel_bindings
              SET status = 'unbound',
                  unbound_at = to_timestamp($2::double precision / 1000000.0),
                  unbind_reason = $3
@@ -215,26 +215,26 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn ensure_personal_workspace(
         &self,
-        account: ZoenAccountId,
+        account: AccountId,
     ) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, &account).await?;
         reject_merged(&account_row)?;
-        if let Some(tenant_id) = sqlx::query_scalar::<_, String>(
-            "SELECT tenant_id FROM personal_tenants WHERE account_id = $1",
+        if let Some(world_id) = sqlx::query_scalar::<_, String>(
+            "SELECT world_id FROM personal_worlds WHERE account_id = $1",
         )
         .bind(account.as_str())
         .fetch_optional(&mut *transaction)
         .await
         .map_err(unavailable)?
         {
-            let tenant = TenantId::parse(tenant_id)
-                .map_err(|_| IdentityError::Conflict("invalid personal tenant".to_owned()))?;
-            let membership = load_active_membership(&mut transaction, &account, &tenant).await?;
+            let world = WorldId::parse(world_id)
+                .map_err(|_| IdentityError::Conflict("invalid personal world".to_owned()))?;
+            let membership = load_active_membership(&mut transaction, &account, &world).await?;
             transaction.commit().await.map_err(unavailable)?;
             return Ok(membership);
         }
-        let tenant_id = new_tenant_id()?;
+        let world_id = new_world_id()?;
         let principal_id = new_principal_id()?;
         let membership_id = new_membership_id()?;
         let actor_id = ActorId::parse(new_id_value("actor")?)
@@ -243,9 +243,14 @@ impl PostgresIdentityStore {
             .map_err(|_| IdentityError::Conflict("invalid workload".to_owned()))?;
         let delegation = personal_delegation(&workload_id)?;
         let clearance = Clearance::personal_owner();
-        sqlx::query("INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)")
+        sqlx::query("INSERT INTO worlds (world_id, kind) VALUES ($1, 'personal')")
+            .bind(world_id.as_str())
+            .execute(&mut *transaction)
+            .await
+            .map_err(unavailable)?;
+        sqlx::query("INSERT INTO personal_worlds (account_id, world_id) VALUES ($1, $2)")
             .bind(account.as_str())
-            .bind(tenant_id.as_str())
+            .bind(world_id.as_str())
             .execute(&mut *transaction)
             .await
             .map_err(unavailable)?;
@@ -254,7 +259,7 @@ impl PostgresIdentityStore {
             InsertMembership {
                 id: &membership_id,
                 account_id: &account,
-                tenant_id: &tenant_id,
+                world_id: &world_id,
                 principal_id: &principal_id,
                 kind: MembershipKind::Personal,
                 workload_id: &workload_id,
@@ -267,7 +272,7 @@ impl PostgresIdentityStore {
         let membership = Membership {
             id: membership_id,
             account_id: account,
-            tenant_id,
+            world_id,
             principal_id,
             status: MembershipStatus::Active,
             kind: MembershipKind::Personal,
@@ -281,6 +286,38 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// Resolve `Account` → `ChannelBinding` → `Membership` → `World` → active release.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError`] when the subject is unbound, the membership is
+    /// missing or inactive, or the store is unavailable.
+    pub async fn resolve_bound_ingress(
+        &self,
+        subject: &ExternalSubject,
+        world: &WorldId,
+    ) -> Result<BoundIngress, IdentityError> {
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let binding = active_binding_for_subject(&mut transaction, subject)
+            .await?
+            .ok_or(IdentityError::SubjectUnbound)?;
+        if !matches!(binding.status, BindingStatus::Verified) {
+            return Err(IdentityError::SubjectUnbound);
+        }
+        let account = load_account(&mut transaction, &binding.account_id).await?;
+        reject_merged(&account)?;
+        let membership = load_active_membership(&mut transaction, &account.id, world).await?;
+        let active_release_digest = load_world_and_active_release(&mut transaction, world).await?;
+        transaction.commit().await.map_err(unavailable)?;
+        Ok(BoundIngress {
+            account,
+            binding,
+            membership,
+            world_id: world.clone(),
+            active_release_digest,
+        })
+    }
+
     /// # Errors
     ///
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
@@ -288,9 +325,10 @@ impl PostgresIdentityStore {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let invite_id = new_invite_id()?;
         let token_hash = hash_token(input.token);
+        ensure_world_row(&mut transaction, &input.world_id, "shared").await?;
         sqlx::query(
             "INSERT INTO invites (
-                invite_id, tenant_id, principal_id, token_hash, expires_at,
+                invite_id, world_id, principal_id, token_hash, expires_at,
                 workload_id, actor_id, delegation_json, clearance_json
              ) VALUES (
                 $1, $2, $3, $4, to_timestamp($5::double precision / 1000000.0),
@@ -298,7 +336,7 @@ impl PostgresIdentityStore {
              )",
         )
         .bind(invite_id.as_str())
-        .bind(input.tenant_id.as_str())
+        .bind(input.world_id.as_str())
         .bind(input.principal_id.as_str())
         .bind(token_hash.as_slice())
         .bind(input.expires_at.get())
@@ -314,7 +352,7 @@ impl PostgresIdentityStore {
         .map_err(unavailable)?;
         let invite = Invite {
             id: invite_id,
-            tenant_id: input.tenant_id,
+            world_id: input.world_id,
             principal_id: input.principal_id,
             token_hash,
             expires_at: input.expires_at,
@@ -333,7 +371,7 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn accept_invite(
         &self,
-        account: ZoenAccountId,
+        account: AccountId,
         token: InviteToken,
     ) -> Result<Membership, IdentityError> {
         let token_hash = hash_token(&token);
@@ -341,7 +379,7 @@ impl PostgresIdentityStore {
         let account_row = load_account(&mut transaction, &account).await?;
         reject_merged(&account_row)?;
         let invite_row = sqlx::query(
-            "SELECT invite_id, tenant_id, principal_id, token_hash, expires_at, consumed_at,
+            "SELECT invite_id, world_id, principal_id, token_hash, expires_at, consumed_at,
                     workload_id, actor_id, delegation_json, clearance_json
              FROM invites
              WHERE token_hash = $1
@@ -352,8 +390,8 @@ impl PostgresIdentityStore {
         .await
         .map_err(unavailable)?
         .ok_or(IdentityError::InviteNotFound)?;
-        let tenant_id = TenantId::parse(row_text(&invite_row, "tenant_id")?)
-            .map_err(|_| IdentityError::Conflict("invalid invite tenant".to_owned()))?;
+        let world_id = WorldId::parse(row_text(&invite_row, "world_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid invite world".to_owned()))?;
         let consumed: bool =
             sqlx::query_scalar("SELECT consumed_at IS NOT NULL FROM invites WHERE invite_id = $1")
                 .bind(row_text(&invite_row, "invite_id")?)
@@ -402,7 +440,7 @@ impl PostgresIdentityStore {
             InsertMembership {
                 id: &membership_id,
                 account_id: &account,
-                tenant_id: &tenant_id,
+                world_id: &world_id,
                 principal_id: &principal_id,
                 kind: MembershipKind::Invite {
                     invite_id: invite_id.clone(),
@@ -417,7 +455,7 @@ impl PostgresIdentityStore {
         let membership = Membership {
             id: membership_id,
             account_id: account,
-            tenant_id,
+            world_id,
             principal_id,
             status: MembershipStatus::Active,
             kind: MembershipKind::Invite { invite_id },
@@ -446,7 +484,7 @@ impl PostgresIdentityStore {
             Ok(membership) => return Ok(membership),
             Err(IdentityError::AlreadyConsumed) => {
                 return self
-                    .active_membership(&input.account_id, &input.tenant_id)
+                    .active_membership(&input.account_id, &input.world_id)
                     .await;
             }
             Err(IdentityError::InviteNotFound) => {}
@@ -458,7 +496,7 @@ impl PostgresIdentityStore {
             delegation: input.delegation,
             expires_at: input.expires_at,
             principal_id: input.principal_id,
-            tenant_id: input.tenant_id.clone(),
+            world_id: input.world_id.clone(),
             token: &token,
             workload_id: input.workload_id,
         })
@@ -466,7 +504,7 @@ impl PostgresIdentityStore {
         match self.accept_invite(input.account_id.clone(), token).await {
             Ok(membership) => Ok(membership),
             Err(IdentityError::AlreadyConsumed) => {
-                self.active_membership(&input.account_id, &input.tenant_id)
+                self.active_membership(&input.account_id, &input.world_id)
                     .await
             }
             Err(error) => Err(error),
@@ -478,11 +516,11 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn active_membership(
         &self,
-        account: &ZoenAccountId,
-        tenant: &TenantId,
+        account: &AccountId,
+        world: &WorldId,
     ) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let membership = load_active_membership(&mut transaction, account, tenant).await?;
+        let membership = load_active_membership(&mut transaction, account, world).await?;
         transaction.commit().await.map_err(unavailable)?;
         Ok(membership)
     }
@@ -513,16 +551,16 @@ impl PostgresIdentityStore {
         reason: Option<&str>,
     ) -> Result<(), IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let tenant: String = sqlx::query_scalar(
-            "SELECT tenant_id FROM memberships WHERE membership_id = $1 FOR UPDATE",
+        let world_key: String = sqlx::query_scalar(
+            "SELECT world_id FROM memberships WHERE membership_id = $1 FOR UPDATE",
         )
         .bind(id.as_str())
         .fetch_optional(&mut *transaction)
         .await
         .map_err(unavailable)?
         .ok_or(IdentityError::MembershipNotFound)?;
-        let _tenant_id = TenantId::parse(tenant)
-            .map_err(|_| IdentityError::Conflict("invalid membership tenant".to_owned()))?;
+        let _world = WorldId::parse(world_key)
+            .map_err(|_| IdentityError::Conflict("invalid membership world".to_owned()))?;
         let now = now_micros();
         let updated = sqlx::query(
             "UPDATE memberships
@@ -551,8 +589,8 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn plan_merge(
         &self,
-        survivor: ZoenAccountId,
-        absorbed: ZoenAccountId,
+        survivor: AccountId,
+        absorbed: AccountId,
     ) -> Result<AccountMergePlan, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let survivor_row = load_account(&mut transaction, &survivor).await?;
@@ -565,7 +603,7 @@ impl PostgresIdentityStore {
             ));
         }
         let bindings = sqlx::query_scalar::<_, String>(
-            "SELECT binding_id FROM external_bindings
+            "SELECT binding_id FROM channel_bindings
              WHERE account_id = $1 AND status IN ('provisional', 'verified')
              ORDER BY binding_id",
         )
@@ -576,7 +614,7 @@ impl PostgresIdentityStore {
         let move_bindings = bindings
             .into_iter()
             .map(|id| {
-                ExternalBindingId::parse(id)
+                ChannelBindingId::parse(id)
                     .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -599,7 +637,7 @@ impl PostgresIdentityStore {
         reject_merged(&absorbed_row)?;
         for binding_id in &plan.move_bindings {
             let updated = sqlx::query(
-                "UPDATE external_bindings
+                "UPDATE channel_bindings
                  SET account_id = $2
                  WHERE binding_id = $1
                    AND account_id = $3
@@ -628,7 +666,7 @@ impl PostgresIdentityStore {
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
-        // Memberships and personal tenants intentionally stay on absorbed.
+        // Memberships and personal Worlds intentionally stay on the absorbed Account.
         transaction.commit().await.map_err(unavailable)?;
         Ok(())
     }
@@ -639,7 +677,7 @@ impl PostgresIdentityStore {
     pub async fn binding_for_subject(
         &self,
         subject: &ExternalSubject,
-    ) -> Result<Option<ExternalBinding>, IdentityError> {
+    ) -> Result<Option<ChannelBinding>, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let binding = active_binding_for_subject(&mut transaction, subject).await?;
         transaction.commit().await.map_err(unavailable)?;
@@ -652,7 +690,7 @@ impl PostgresIdentityStore {
     pub async fn snapshot_for_verified_subject(
         &self,
         subject: &ExternalSubject,
-    ) -> Result<(ExternalBinding, AccountSnapshot), IdentityError> {
+    ) -> Result<(ChannelBinding, AccountSnapshot), IdentityError> {
         let binding = self
             .binding_for_subject(subject)
             .await?
@@ -675,7 +713,7 @@ impl PostgresIdentityStore {
     pub async fn resolve_for_subject(
         &self,
         subject: &ExternalSubject,
-        tenant: &TenantId,
+        world: &WorldId,
     ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let binding = active_binding_for_subject(&mut transaction, subject)
@@ -689,7 +727,7 @@ impl PostgresIdentityStore {
             return Err(IdentityError::AccountMerged { survivor });
         }
         let membership =
-            load_active_membership(&mut transaction, &binding.account_id, tenant).await?;
+            load_active_membership(&mut transaction, &binding.account_id, world).await?;
         let context = trusted_context_from_membership(&membership)?;
         transaction.commit().await.map_err(unavailable)?;
         Ok((membership, context))
@@ -700,8 +738,8 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn get_binding(
         &self,
-        id: &ExternalBindingId,
-    ) -> Result<ExternalBinding, IdentityError> {
+        id: &ChannelBindingId,
+    ) -> Result<ChannelBinding, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let binding = load_binding(&mut transaction, id).await?;
         transaction.commit().await.map_err(unavailable)?;
@@ -713,18 +751,18 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn get_membership(&self, id: &MembershipId) -> Result<Membership, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let tenant: String =
-            sqlx::query_scalar("SELECT tenant_id FROM memberships WHERE membership_id = $1")
+        let world_key: String =
+            sqlx::query_scalar("SELECT world_id FROM memberships WHERE membership_id = $1")
                 .bind(id.as_str())
                 .fetch_optional(&mut *transaction)
                 .await
                 .map_err(unavailable)?
                 .ok_or(IdentityError::MembershipNotFound)?;
-        let _tenant_id = TenantId::parse(tenant)
-            .map_err(|_| IdentityError::Conflict("invalid membership tenant".to_owned()))?;
+        let _world = WorldId::parse(world_key)
+            .map_err(|_| IdentityError::Conflict("invalid membership world".to_owned()))?;
         let row = sqlx::query(
-            "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
-                    invite_id, idp_issuer, idp_subject, delegation_template_id,
+            "SELECT membership_id, account_id, world_id, principal_id, status, kind,
+                    invite_id, delegation_template_id,
                     workload_id, actor_id, delegation_json, ended_at, ended_reason,
                     clearance_json
              FROM memberships WHERE membership_id = $1",
@@ -740,27 +778,27 @@ impl PostgresIdentityStore {
 
     /// Resolve one durable Membership authority cut.
     ///
-    /// The caller-supplied principal and tenant are only selectors: the stored
+    /// The caller-supplied principal and World are only selectors: the stored
     /// active Membership remains authoritative, and its terminal delegation
     /// grant must cover the requested Action, resource, workload, and time.
     ///
     /// # Errors
     ///
     /// Returns [`IdentityError::MembershipNotFound`] when the Membership does
-    /// not bind the requested principal/tenant, [`IdentityError::MembershipInactive`]
+    /// not bind the requested principal/World, [`IdentityError::MembershipInactive`]
     /// when it has ended, or [`IdentityError::IngressNotAllowed`] when its
     /// delegation does not cover the requested operation.
     pub async fn resolve_membership_authority(
         &self,
         id: &MembershipId,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         principal_id: &PrincipalId,
         action_id: &ActionId,
         resource_id: &ResourceId,
         at: TimestampMicros,
     ) -> Result<TrustedExecutionContext, IdentityError> {
         let (_, context) = self
-            .load_membership_authority(id, tenant_id, principal_id, action_id, resource_id, at)
+            .load_membership_authority(id, world_id, principal_id, action_id, resource_id, at)
             .await?;
         Ok(context)
     }
@@ -768,14 +806,14 @@ impl PostgresIdentityStore {
     async fn load_membership_authority(
         &self,
         id: &MembershipId,
-        tenant_id: &TenantId,
+        world_id: &WorldId,
         principal_id: &PrincipalId,
         action_id: &ActionId,
         resource_id: &ResourceId,
         at: TimestampMicros,
     ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
         let membership = self.get_membership(id).await?;
-        if membership.tenant_id != *tenant_id || membership.principal_id != *principal_id {
+        if membership.world_id != *world_id || membership.principal_id != *principal_id {
             return Err(IdentityError::MembershipNotFound);
         }
         let context = trusted_context_from_membership(&membership)?;
@@ -793,14 +831,14 @@ impl PostgresIdentityStore {
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
     pub async fn snapshot_account(
         &self,
-        account: &ZoenAccountId,
+        account: &AccountId,
     ) -> Result<AccountSnapshot, IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let account_row = load_account(&mut transaction, account).await?;
         let bindings = sqlx::query(
             "SELECT binding_id, account_id, provider, subject_key, status, verified_at,
                     unbound_at, unbind_reason
-             FROM external_bindings WHERE account_id = $1 ORDER BY binding_id",
+             FROM channel_bindings WHERE account_id = $1 ORDER BY binding_id",
         )
         .bind(account.as_str())
         .fetch_all(&mut *transaction)
@@ -811,8 +849,8 @@ impl PostgresIdentityStore {
             .map(row_to_binding)
             .collect::<Result<Vec<_>, _>>()?;
         let membership_rows = sqlx::query(
-            "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
-                    invite_id, idp_issuer, idp_subject, delegation_template_id,
+            "SELECT membership_id, account_id, world_id, principal_id, status, kind,
+                    invite_id, delegation_template_id,
                     workload_id, actor_id, delegation_json, ended_at, ended_reason,
                     clearance_json
              FROM memberships WHERE account_id = $1 ORDER BY membership_id",
@@ -825,8 +863,8 @@ impl PostgresIdentityStore {
             .iter()
             .map(row_to_membership)
             .collect::<Result<Vec<_>, _>>()?;
-        let personal_tenant = sqlx::query_scalar::<_, String>(
-            "SELECT tenant_id FROM personal_tenants WHERE account_id = $1",
+        let personal_world = sqlx::query_scalar::<_, String>(
+            "SELECT world_id FROM personal_worlds WHERE account_id = $1",
         )
         .bind(account.as_str())
         .fetch_optional(&mut *transaction)
@@ -837,7 +875,7 @@ impl PostgresIdentityStore {
             account: account_row,
             bindings,
             memberships,
-            personal_tenant,
+            personal_world,
         })
     }
 
@@ -990,7 +1028,7 @@ impl PostgresIdentityStore {
             account: membership.account_id.clone(),
             membership: membership.id.clone(),
             principal: membership.principal_id.clone(),
-            tenant: membership.tenant_id.clone(),
+            world_id: membership.world_id.clone(),
         })
     }
 
@@ -1010,11 +1048,20 @@ impl PostgresIdentityStore {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundIngress {
+    pub account: Account,
+    pub binding: ChannelBinding,
+    pub membership: Membership,
+    pub world_id: WorldId,
+    pub active_release_digest: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountSnapshot {
-    pub account: ZoenAccount,
-    pub bindings: Vec<ExternalBinding>,
+    pub account: Account,
+    pub bindings: Vec<ChannelBinding>,
     pub memberships: Vec<Membership>,
-    pub personal_tenant: Option<String>,
+    pub personal_world: Option<String>,
 }
 
 pub struct MintedOnboardToken {
@@ -1030,10 +1077,10 @@ pub struct OnboardTokenRow {
 }
 
 pub struct CompleteOnboard {
-    pub account: ZoenAccountId,
+    pub account: AccountId,
     pub membership: MembershipId,
     pub principal: PrincipalId,
-    pub tenant: TenantId,
+    pub world_id: WorldId,
 }
 
 pub struct CreateInvite<'a> {
@@ -1042,26 +1089,26 @@ pub struct CreateInvite<'a> {
     pub delegation: DelegationChain,
     pub expires_at: TimestampMicros,
     pub principal_id: PrincipalId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub token: &'a InviteToken,
     pub workload_id: WorkloadId,
 }
 
 pub struct WorldInvite {
-    pub account_id: ZoenAccountId,
+    pub account_id: AccountId,
     pub actor_id: ActorId,
     pub delegation: DelegationChain,
     pub expires_at: TimestampMicros,
     pub principal_id: PrincipalId,
-    pub tenant_id: TenantId,
+    pub world_id: WorldId,
     pub token: InviteToken,
     pub workload_id: WorkloadId,
 }
 
 struct InsertMembership<'a> {
     id: &'a MembershipId,
-    account_id: &'a ZoenAccountId,
-    tenant_id: &'a TenantId,
+    account_id: &'a AccountId,
+    world_id: &'a WorldId,
     principal_id: &'a PrincipalId,
     kind: MembershipKind,
     workload_id: &'a WorkloadId,
@@ -1080,19 +1127,16 @@ async fn insert_membership(
     };
     sqlx::query(
         "INSERT INTO memberships (
-            membership_id, account_id, tenant_id, principal_id, status, kind,
-            invite_id, idp_issuer, idp_subject, workload_id, actor_id, delegation_json,
-            clearance_json
-         ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10,$11,$12)",
+            membership_id, account_id, world_id, principal_id, status, kind,
+            invite_id, workload_id, actor_id, delegation_json, clearance_json
+         ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9,$10)",
     )
     .bind(input.id.as_str())
     .bind(input.account_id.as_str())
-    .bind(input.tenant_id.as_str())
+    .bind(input.world_id.as_str())
     .bind(input.principal_id.as_str())
     .bind(kind)
     .bind(invite_id)
-    .bind(None::<&str>)
-    .bind(None::<&str>)
     .bind(input.workload_id.as_str())
     .bind(input.actor_id.as_str())
     .bind(
@@ -1109,11 +1153,11 @@ async fn insert_membership(
 async fn active_binding_for_subject(
     transaction: &mut Transaction<'_, Postgres>,
     subject: &ExternalSubject,
-) -> Result<Option<ExternalBinding>, IdentityError> {
+) -> Result<Option<ChannelBinding>, IdentityError> {
     let row = sqlx::query(
         "SELECT binding_id, account_id, provider, subject_key, status, verified_at,
                 unbound_at, unbind_reason
-         FROM external_bindings
+         FROM channel_bindings
          WHERE provider = $1 AND subject_key = $2 AND status IN ('provisional', 'verified')
          FOR UPDATE",
     )
@@ -1127,12 +1171,12 @@ async fn active_binding_for_subject(
 
 async fn load_binding(
     transaction: &mut Transaction<'_, Postgres>,
-    id: &ExternalBindingId,
-) -> Result<ExternalBinding, IdentityError> {
+    id: &ChannelBindingId,
+) -> Result<ChannelBinding, IdentityError> {
     let row = sqlx::query(
         "SELECT binding_id, account_id, provider, subject_key, status, verified_at,
                 unbound_at, unbind_reason
-         FROM external_bindings WHERE binding_id = $1 FOR UPDATE",
+         FROM channel_bindings WHERE binding_id = $1 FOR UPDATE",
     )
     .bind(id.as_str())
     .fetch_optional(&mut **transaction)
@@ -1144,8 +1188,8 @@ async fn load_binding(
 
 async fn load_account(
     transaction: &mut Transaction<'_, Postgres>,
-    id: &ZoenAccountId,
-) -> Result<ZoenAccount, IdentityError> {
+    id: &AccountId,
+) -> Result<Account, IdentityError> {
     let row = sqlx::query(
         "SELECT account_id, status, merged_into_account_id,
                 (EXTRACT(EPOCH FROM created_at) * 1000000)::bigint AS created_at_micros
@@ -1160,7 +1204,7 @@ async fn load_account(
         "provisional" => AccountStatus::Provisional,
         "verified" => AccountStatus::Verified,
         "merged_into" => AccountStatus::MergedInto {
-            survivor: ZoenAccountId::parse(row_text(&row, "merged_into_account_id")?)
+            survivor: AccountId::parse(row_text(&row, "merged_into_account_id")?)
                 .map_err(|_| IdentityError::Conflict("invalid survivor".to_owned()))?,
         },
         other => {
@@ -1169,8 +1213,8 @@ async fn load_account(
             )));
         }
     };
-    Ok(ZoenAccount {
-        id: ZoenAccountId::parse(row_text(&row, "account_id")?)
+    Ok(Account {
+        id: AccountId::parse(row_text(&row, "account_id")?)
             .map_err(|_| IdentityError::Conflict("invalid account id".to_owned()))?,
         status,
         created_at: TimestampMicros::new(row.try_get("created_at_micros").map_err(unavailable)?),
@@ -1179,20 +1223,20 @@ async fn load_account(
 
 async fn load_active_membership(
     transaction: &mut Transaction<'_, Postgres>,
-    account: &ZoenAccountId,
-    tenant: &TenantId,
+    account: &AccountId,
+    world: &WorldId,
 ) -> Result<Membership, IdentityError> {
     let row = sqlx::query(
-        "SELECT membership_id, account_id, tenant_id, principal_id, status, kind,
-                invite_id, idp_issuer, idp_subject, delegation_template_id,
+        "SELECT membership_id, account_id, world_id, principal_id, status, kind,
+                invite_id, delegation_template_id,
                 workload_id, actor_id, delegation_json, ended_at, ended_reason,
                 clearance_json
          FROM memberships
-         WHERE account_id = $1 AND tenant_id = $2 AND status = 'active'
+         WHERE account_id = $1 AND world_id = $2 AND status = 'active'
          FOR SHARE",
     )
     .bind(account.as_str())
-    .bind(tenant.as_str())
+    .bind(world.as_str())
     .fetch_optional(&mut **transaction)
     .await
     .map_err(unavailable)?
@@ -1200,7 +1244,7 @@ async fn load_active_membership(
     row_to_membership(&row)
 }
 
-fn row_to_binding(row: &PgRow) -> Result<ExternalBinding, IdentityError> {
+fn row_to_binding(row: &PgRow) -> Result<ChannelBinding, IdentityError> {
     let status = match row_text(row, "status")?.as_str() {
         "provisional" => BindingStatus::Provisional,
         "verified" => BindingStatus::Verified,
@@ -1224,10 +1268,10 @@ fn row_to_binding(row: &PgRow) -> Result<ExternalBinding, IdentityError> {
     } else {
         None
     };
-    Ok(ExternalBinding {
-        id: ExternalBindingId::parse(row_text(row, "binding_id")?)
+    Ok(ChannelBinding {
+        id: ChannelBindingId::parse(row_text(row, "binding_id")?)
             .map_err(|_| IdentityError::Conflict("invalid binding id".to_owned()))?,
-        account_id: ZoenAccountId::parse(row_text(row, "account_id")?)
+        account_id: AccountId::parse(row_text(row, "account_id")?)
             .map_err(|_| IdentityError::Conflict("invalid account id".to_owned()))?,
         subject: ExternalSubject::new(
             ChannelProvider::parse(&row_text(row, "provider")?)?,
@@ -1269,10 +1313,10 @@ fn row_to_membership(row: &PgRow) -> Result<Membership, IdentityError> {
     Ok(Membership {
         id: MembershipId::parse(row_text(row, "membership_id")?)
             .map_err(|_| IdentityError::Conflict("invalid membership id".to_owned()))?,
-        account_id: ZoenAccountId::parse(row_text(row, "account_id")?)
+        account_id: AccountId::parse(row_text(row, "account_id")?)
             .map_err(|_| IdentityError::Conflict("invalid account id".to_owned()))?,
-        tenant_id: TenantId::parse(row_text(row, "tenant_id")?)
-            .map_err(|_| IdentityError::Conflict("invalid tenant id".to_owned()))?,
+        world_id: WorldId::parse(row_text(row, "world_id")?)
+            .map_err(|_| IdentityError::Conflict("invalid world id".to_owned()))?,
         principal_id: PrincipalId::parse(row_text(row, "principal_id")?)
             .map_err(|_| IdentityError::Conflict("invalid principal id".to_owned()))?,
         status,
@@ -1287,7 +1331,7 @@ fn row_to_membership(row: &PgRow) -> Result<Membership, IdentityError> {
     })
 }
 
-fn reject_merged(account: &ZoenAccount) -> Result<(), IdentityError> {
+fn reject_merged(account: &Account) -> Result<(), IdentityError> {
     match &account.status {
         AccountStatus::MergedInto { survivor } => Err(IdentityError::AccountMerged {
             survivor: survivor.clone(),
@@ -1411,13 +1455,50 @@ fn new_id_value(prefix: &str) -> Result<String, IdentityError> {
     Ok(format!("{prefix}.{}", encode_hex(&entropy)))
 }
 
-fn new_account_id() -> Result<ZoenAccountId, IdentityError> {
-    ZoenAccountId::parse(new_id_value("account")?)
+fn new_account_id() -> Result<AccountId, IdentityError> {
+    AccountId::parse(new_id_value("account")?)
         .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_binding_id() -> Result<ExternalBindingId, IdentityError> {
-    ExternalBindingId::parse(new_id_value("binding")?)
+fn new_binding_id() -> Result<ChannelBindingId, IdentityError> {
+    ChannelBindingId::parse(new_id_value("binding")?)
         .map_err(|error| IdentityError::Conflict(error.to_string()))
+}
+
+async fn load_world_and_active_release(
+    transaction: &mut Transaction<'_, Postgres>,
+    world: &WorldId,
+) -> Result<Option<String>, IdentityError> {
+    let world_exists: Option<String> =
+        sqlx::query_scalar("SELECT world_id FROM worlds WHERE world_id = $1")
+            .bind(world.as_str())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(unavailable)?;
+    if world_exists.is_none() {
+        return Err(IdentityError::Conflict("world not found".to_owned()));
+    }
+    sqlx::query_scalar("SELECT digest FROM world_active_releases WHERE world_id = $1")
+        .bind(world.as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(unavailable)
+}
+
+async fn ensure_world_row(
+    transaction: &mut Transaction<'_, Postgres>,
+    world_id: &WorldId,
+    kind: &str,
+) -> Result<(), IdentityError> {
+    sqlx::query(
+        "INSERT INTO worlds (world_id, kind) VALUES ($1, $2)
+         ON CONFLICT (world_id) DO NOTHING",
+    )
+    .bind(world_id.as_str())
+    .bind(kind)
+    .execute(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    Ok(())
 }
 fn new_membership_id() -> Result<MembershipId, IdentityError> {
     MembershipId::parse(new_id_value("membership")?)
@@ -1427,8 +1508,8 @@ fn new_invite_id() -> Result<InviteId, IdentityError> {
     InviteId::parse(new_id_value("invite")?)
         .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
-fn new_tenant_id() -> Result<TenantId, IdentityError> {
-    TenantId::parse(new_id_value("tenant")?)
+fn new_world_id() -> Result<WorldId, IdentityError> {
+    WorldId::parse(new_id_value("world")?)
         .map_err(|error| IdentityError::Conflict(error.to_string()))
 }
 fn new_principal_id() -> Result<PrincipalId, IdentityError> {
@@ -1447,7 +1528,7 @@ fn unavailable(error: impl std::fmt::Display) -> IdentityError {
 fn map_unique_subject(error: sqlx::Error) -> IdentityError {
     match &error {
         sqlx::Error::Database(database)
-            if database.constraint() == Some("external_bindings_active_subject") =>
+            if database.constraint() == Some("channel_bindings_active_subject") =>
         {
             IdentityError::AlreadyBound
         }

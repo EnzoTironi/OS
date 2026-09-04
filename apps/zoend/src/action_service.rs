@@ -422,7 +422,7 @@ pub(crate) fn to_trusted_context(context: &TrustedExecutionContext) -> TrustedCo
             })
             .collect(),
         principal_id: context.principal_id().as_str().to_owned(),
-        tenant_id: context.tenant_id().as_str().to_owned(),
+        tenant_id: context.world_id().as_str().to_owned(),
         workload_id: context.workload_id().as_str().to_owned(),
         ..Default::default()
     }
