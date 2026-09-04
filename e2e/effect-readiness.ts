@@ -147,14 +147,16 @@ export async function proveProductReadiness(input: {
   await assertReadyDoesNotMutate(admin, observe, "healthy");
 
   await writeFile(policyManifestPath, "{}\n");
-  const ignoresBootPolicy = await fetchReady();
-  observe(
-    "readyIgnoresBootManifestAfterWorldReleaseActivation",
-    ignoresBootPolicy.status === 200 && ignoresBootPolicy.body === "ready\n",
+  await assertReadyFails(
+    observe,
+    "bootstrap Cedar is broken",
+    "bootstrapPolicyBroken",
   );
   await writeFile(policyManifestPath, originalPolicy);
+  await waitForReady((body) => body === "ready\n", "bootstrap Cedar restored");
 
   const releaseARow = await requireActiveReleaseRow(admin, tenantA);
+  const catalogsA = await requireReleaseCatalogRows(admin, releaseA.digest);
   const policyARow = await requirePolicyCatalogRow(
     admin,
     releaseA.policyCatalogDigest,
@@ -204,6 +206,59 @@ export async function proveProductReadiness(input: {
   );
   await restorePolicyCatalog(admin, policyARow);
   await waitForReady((body) => body === "ready\n", "active PolicyCatalog row restored");
+
+  await replaceReleaseCatalogContent(
+    admin,
+    "ontology",
+    catalogsA.ontologyDigest,
+    Buffer.from("{}\n"),
+  );
+  await assertReadyFails(
+    observe,
+    "active WorldRelease is broken",
+    "activeOntologyDigestBroken",
+  );
+  await replaceReleaseCatalogContent(
+    admin,
+    "ontology",
+    catalogsA.ontologyDigest,
+    catalogsA.ontologyContent,
+  );
+  await waitForReady((body) => body === "ready\n", "active OntologyCatalog restored");
+
+  await removeReleaseCatalog(admin, "executors", catalogsA.executorsDigest);
+  await assertReadyFails(
+    observe,
+    "active WorldRelease is broken",
+    "activeExecutorCatalogMissing",
+  );
+  await restoreReleaseCatalog(
+    admin,
+    "executors",
+    catalogsA.executorsDigest,
+    catalogsA.executorsContent,
+    catalogsA.executorsStoredAtMicros,
+  );
+  await waitForReady((body) => body === "ready\n", "active ExecutorCatalog restored");
+
+  await replaceReleaseCatalogContent(
+    admin,
+    "components",
+    catalogsA.componentsDigest,
+    Buffer.from("broken component catalog\n"),
+  );
+  await assertReadyFails(
+    observe,
+    "active WorldRelease is broken",
+    "activeComponentDigestBroken",
+  );
+  await replaceReleaseCatalogContent(
+    admin,
+    "components",
+    catalogsA.componentsDigest,
+    catalogsA.componentsContent,
+  );
+  await waitForReady((body) => body === "ready\n", "active ComponentCatalog restored");
 
   await pointActiveRelease(admin, tenantA, releaseB.digest);
   await assertReadyFails(observe, "active WorldRelease is broken", "releaseStale");
@@ -352,6 +407,19 @@ interface PolicyCatalogRow {
   stored_at_micros: string;
 }
 
+interface ReleaseCatalogRows {
+  componentsContent: Buffer;
+  componentsDigest: string;
+  componentsStoredAtMicros: string;
+  executorsContent: Buffer;
+  executorsDigest: string;
+  executorsStoredAtMicros: string;
+  ontologyContent: Buffer;
+  ontologyDigest: string;
+}
+
+type ReleaseCatalogKind = "components" | "executors" | "ontology";
+
 async function requireActiveReleaseRow(
   admin: PostgresClient,
   worldId: string,
@@ -375,6 +443,32 @@ async function requirePolicyCatalogRow(
   );
   const row = result.rows[0];
   assert.ok(row, `PolicyCatalog ${digest} must exist`);
+  return row;
+}
+
+async function requireReleaseCatalogRows(
+  admin: PostgresClient,
+  releaseDigest: string,
+): Promise<ReleaseCatalogRows> {
+  const result = await admin.query<ReleaseCatalogRows>(
+    `SELECT
+       release.ontology_digest AS "ontologyDigest",
+       ontology.content AS "ontologyContent",
+       release.executors_digest AS "executorsDigest",
+       executors.content AS "executorsContent",
+       executors.stored_at_micros::text AS "executorsStoredAtMicros",
+       release.components_digest AS "componentsDigest",
+       components.content AS "componentsContent",
+       components.stored_at_micros::text AS "componentsStoredAtMicros"
+     FROM world_releases release
+     JOIN world_ontology_catalogs ontology ON ontology.digest = release.ontology_digest
+     JOIN world_executor_catalogs executors ON executors.digest = release.executors_digest
+     JOIN world_component_catalogs components ON components.digest = release.components_digest
+     WHERE release.digest = $1`,
+    [releaseDigest],
+  );
+  const row = result.rows[0];
+  assert.ok(row, `all catalogs for WorldRelease ${releaseDigest} must exist`);
   return row;
 }
 
@@ -422,6 +516,79 @@ async function restorePolicyCatalog(
     "INSERT INTO world_policy_catalogs (digest, content, stored_at_micros) VALUES ($1, $2, $3)",
     [row.digest, row.content, row.stored_at_micros],
   );
+}
+
+async function replaceReleaseCatalogContent(
+  admin: PostgresClient,
+  kind: ReleaseCatalogKind,
+  digest: string,
+  content: Buffer,
+): Promise<void> {
+  await withImmutableHistoryBypass(admin, async () => {
+    if (kind === "ontology") {
+      await admin.query(
+        "UPDATE world_ontology_catalogs SET content = $1 WHERE digest = $2",
+        [content, digest],
+      );
+    } else if (kind === "executors") {
+      await admin.query(
+        "UPDATE world_executor_catalogs SET content = $1 WHERE digest = $2",
+        [content, digest],
+      );
+    } else {
+      await admin.query(
+        "UPDATE world_component_catalogs SET content = $1 WHERE digest = $2",
+        [content, digest],
+      );
+    }
+  });
+}
+
+async function removeReleaseCatalog(
+  admin: PostgresClient,
+  kind: ReleaseCatalogKind,
+  digest: string,
+): Promise<void> {
+  await withImmutableHistoryBypass(admin, async () => {
+    if (kind === "ontology") {
+      await admin.query("DELETE FROM world_ontology_catalogs WHERE digest = $1", [
+        digest,
+      ]);
+    } else if (kind === "executors") {
+      await admin.query("DELETE FROM world_executor_catalogs WHERE digest = $1", [
+        digest,
+      ]);
+    } else {
+      await admin.query("DELETE FROM world_component_catalogs WHERE digest = $1", [
+        digest,
+      ]);
+    }
+  });
+}
+
+async function restoreReleaseCatalog(
+  admin: PostgresClient,
+  kind: ReleaseCatalogKind,
+  digest: string,
+  content: Buffer,
+  storedAtMicros: string,
+): Promise<void> {
+  if (kind === "ontology") {
+    await admin.query(
+      "INSERT INTO world_ontology_catalogs (digest, content, stored_at_micros) VALUES ($1, $2, $3)",
+      [digest, content, storedAtMicros],
+    );
+  } else if (kind === "executors") {
+    await admin.query(
+      "INSERT INTO world_executor_catalogs (digest, content, stored_at_micros) VALUES ($1, $2, $3)",
+      [digest, content, storedAtMicros],
+    );
+  } else {
+    await admin.query(
+      "INSERT INTO world_component_catalogs (digest, content, stored_at_micros) VALUES ($1, $2, $3)",
+      [digest, content, storedAtMicros],
+    );
+  }
 }
 
 async function pointActiveRelease(

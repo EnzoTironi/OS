@@ -121,6 +121,7 @@ pub struct PostgresWorldReleaseStore {
 }
 
 /// One uncached, content-verified view of the active release and its policy.
+/// Construction verifies all four release-bound catalog blobs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActiveReleasePolicySnapshot {
     release: WorldRelease,
@@ -614,15 +615,27 @@ impl PostgresWorldReleaseStore {
                     release.components_digest,
                     release.canonical_jcs,
                     publication.digest AS publication_digest,
+                    ontology.digest AS stored_ontology_digest,
+                    ontology.content AS ontology_content,
                     policy.digest AS stored_policy_digest,
-                    policy.content AS policy_content
+                    policy.content AS policy_content,
+                    executors.digest AS stored_executors_digest,
+                    executors.content AS executors_content,
+                    components.digest AS stored_components_digest,
+                    components.content AS components_content
              FROM world_active_releases AS active
              LEFT JOIN world_releases AS release
                ON release.digest = active.digest
              LEFT JOIN world_release_publications AS publication
                ON publication.digest = active.digest
+             LEFT JOIN world_ontology_catalogs AS ontology
+               ON ontology.digest = release.ontology_digest
              LEFT JOIN world_policy_catalogs AS policy
                ON policy.digest = release.policy_digest
+             LEFT JOIN world_executor_catalogs AS executors
+               ON executors.digest = release.executors_digest
+             LEFT JOIN world_component_catalogs AS components
+               ON components.digest = release.components_digest
              WHERE active.world_id = $1",
         )
         .bind(world.as_str())
@@ -632,47 +645,9 @@ impl PostgresWorldReleaseStore {
         let Some(row) = row else {
             return Ok(None);
         };
-        let active_world =
-            WorldId::parse(row.try_get::<String, _>("active_world_id").map_err(store)?)?;
-        if &active_world != world {
-            return Err(WorldReleaseError::WorldMismatch);
-        }
-        let active_digest =
-            ReleaseDigest::parse(row.try_get::<String, _>("active_digest").map_err(store)?)?;
-        if row
-            .try_get::<Option<String>, _>("digest")
-            .map_err(store)?
-            .is_none()
-        {
-            return Err(WorldReleaseError::NotFound);
-        }
-        let release = row_to_release(&row)?;
-        if release.id() != &active_digest || release.content().world() != world {
-            return Err(WorldReleaseError::WorldMismatch);
-        }
-        let publication_digest = row
-            .try_get::<Option<String>, _>("publication_digest")
-            .map_err(store)?
-            .ok_or(WorldReleaseError::MissingPolicy)?;
-        if publication_digest != active_digest.as_str() {
-            return Err(WorldReleaseError::MissingPolicy);
-        }
-        let stored_policy_digest = row
-            .try_get::<Option<String>, _>("stored_policy_digest")
-            .map_err(store)?
-            .ok_or(WorldReleaseError::MissingCatalog)?;
-        let policy_content = row
-            .try_get::<Option<Vec<u8>>, _>("policy_content")
-            .map_err(store)?
-            .ok_or(WorldReleaseError::MissingCatalog)?;
-        let policy = PolicyCatalog::from_bytes(policy_content);
-        if policy.digest().as_str() != stored_policy_digest
-            || policy.digest() != release.content().policy()
-        {
-            return Err(WorldReleaseError::InvalidPolicyCatalog(
-                "stored bytes do not match the release-bound digest".to_owned(),
-            ));
-        }
+        let release = active_release_from_row(&row, world)?;
+        let catalogs = active_catalogs_from_row(&row, &release)?;
+        let policy = catalogs.policy().clone();
         Ok(Some(ActiveReleasePolicySnapshot { release, policy }))
     }
 
@@ -691,6 +666,116 @@ impl PostgresWorldReleaseStore {
         };
         load_bound_catalogs(&self.pool, &release).await.map(Some)
     }
+}
+
+fn active_release_from_row(
+    row: &PgRow,
+    world: &WorldId,
+) -> Result<WorldRelease, WorldReleaseError> {
+    let active_world = WorldId::parse(row.try_get::<String, _>("active_world_id").map_err(store)?)?;
+    if &active_world != world {
+        return Err(WorldReleaseError::WorldMismatch);
+    }
+    let active_digest =
+        ReleaseDigest::parse(row.try_get::<String, _>("active_digest").map_err(store)?)?;
+    if row
+        .try_get::<Option<String>, _>("digest")
+        .map_err(store)?
+        .is_none()
+    {
+        return Err(WorldReleaseError::NotFound);
+    }
+    let release = row_to_release(row)?;
+    if release.id() != &active_digest || release.content().world() != world {
+        return Err(WorldReleaseError::WorldMismatch);
+    }
+    let publication_digest = row
+        .try_get::<Option<String>, _>("publication_digest")
+        .map_err(store)?
+        .ok_or(WorldReleaseError::MissingPolicy)?;
+    if publication_digest != active_digest.as_str() {
+        return Err(WorldReleaseError::MissingPolicy);
+    }
+    Ok(release)
+}
+
+fn active_catalogs_from_row(
+    row: &PgRow,
+    release: &WorldRelease,
+) -> Result<WorldReleaseCatalogs, WorldReleaseError> {
+    let stored_ontology_digest = row
+        .try_get::<Option<String>, _>("stored_ontology_digest")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("OntologyCatalog"))?;
+    let ontology_content = row
+        .try_get::<Option<Vec<u8>>, _>("ontology_content")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("OntologyCatalog"))?;
+    let ontology = OntologyCatalog::from_bytes(ontology_content);
+    if ontology.digest().as_str() != stored_ontology_digest
+        || ontology.digest() != release.content().ontology()
+    {
+        return Err(invalid_active_catalog("OntologyCatalog"));
+    }
+    let stored_policy_digest = row
+        .try_get::<Option<String>, _>("stored_policy_digest")
+        .map_err(store)?
+        .ok_or(WorldReleaseError::MissingCatalog)?;
+    let policy_content = row
+        .try_get::<Option<Vec<u8>>, _>("policy_content")
+        .map_err(store)?
+        .ok_or(WorldReleaseError::MissingCatalog)?;
+    let policy = PolicyCatalog::from_bytes(policy_content);
+    if policy.digest().as_str() != stored_policy_digest
+        || policy.digest() != release.content().policy()
+    {
+        return Err(WorldReleaseError::InvalidPolicyCatalog(
+            "stored bytes do not match the release-bound digest".to_owned(),
+        ));
+    }
+    let stored_executors_digest = row
+        .try_get::<Option<String>, _>("stored_executors_digest")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("ExecutorCatalog"))?;
+    let executors_content = row
+        .try_get::<Option<Vec<u8>>, _>("executors_content")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("ExecutorCatalog"))?;
+    let executors = ExecutorCatalog::from_bytes(executors_content);
+    if executors.digest().as_str() != stored_executors_digest
+        || executors.digest() != release.content().executors()
+    {
+        return Err(invalid_active_catalog("ExecutorCatalog"));
+    }
+    let stored_components_digest = row
+        .try_get::<Option<String>, _>("stored_components_digest")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("ComponentCatalog"))?;
+    let components_content = row
+        .try_get::<Option<Vec<u8>>, _>("components_content")
+        .map_err(store)?
+        .ok_or_else(|| missing_active_catalog("ComponentCatalog"))?;
+    let components = ComponentCatalog::from_bytes(components_content);
+    if components.digest().as_str() != stored_components_digest
+        || components.digest() != release.content().components()
+    {
+        return Err(invalid_active_catalog("ComponentCatalog"));
+    }
+    let catalogs = WorldReleaseCatalogs::new(ontology, policy.clone(), executors, components);
+    if !catalogs.binds(release) {
+        return Err(WorldReleaseError::MixedCatalogs);
+    }
+    Ok(catalogs)
+}
+
+fn missing_active_catalog(name: &str) -> WorldReleaseError {
+    WorldReleaseError::Conflict(format!("active {name} row is missing"))
+}
+
+fn invalid_active_catalog(name: &str) -> WorldReleaseError {
+    WorldReleaseError::Conflict(format!(
+        "active {name} bytes do not match the release-bound digest"
+    ))
 }
 
 async fn put_release_tx(

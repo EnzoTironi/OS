@@ -1,10 +1,10 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
 use reqwest::Client;
 use zoen_adapters::{
-    PostgresAuthorityStore, PostgresWorldReleaseStore, ProjectionWatermarkStatus,
-    require_loadable_policy_catalog,
+    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresWorldReleaseStore,
+    ProjectionWatermarkStatus, require_loadable_policy_catalog,
 };
 use zoen_core::{TenantId, WorldId, WorldReleaseError};
 use zoen_query::ObjectStoreConfig;
@@ -15,6 +15,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 #[derive(Clone)]
 pub struct ReadyState {
     pub auth_origin: String,
+    pub cedar_manifest_path: PathBuf,
     pub classification: std::sync::Arc<StateClassification>,
     pub eve_origin: String,
     pub effect_registration_health_url: Option<String>,
@@ -53,6 +54,7 @@ impl ReadyState {
         let releases = PostgresWorldReleaseStore::new(store.pool());
         Ok(Self {
             auth_origin: config::auth_base_url()?,
+            cedar_manifest_path: config::cedar_manifest_path()?,
             classification,
             eve_origin: config::eve_base_url()?,
             effect_registration_health_url: config::effect_registration_health_url()?,
@@ -77,6 +79,7 @@ pub async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {
 
 async fn evaluate(state: &ReadyState) -> Result<(), String> {
     let integrity = check_integrity(state);
+    let bootstrap_policy = check_bootstrap_policy(state);
     let release = check_release(state);
     let watermark = check_watermark(state);
     let effect = check_effect(state);
@@ -86,7 +89,16 @@ async fn evaluate(state: &ReadyState) -> Result<(), String> {
     let (integrity, release, watermark, effect, eve, auth, storage) =
         tokio::join!(integrity, release, watermark, effect, eve, auth, storage);
     let mut reasons = Vec::new();
-    for result in [integrity, release, watermark, effect, eve, auth, storage] {
+    for result in [
+        integrity,
+        bootstrap_policy,
+        release,
+        watermark,
+        effect,
+        eve,
+        auth,
+        storage,
+    ] {
         if let Err(reason) = result {
             reasons.push(reason);
         }
@@ -95,6 +107,14 @@ async fn evaluate(state: &ReadyState) -> Result<(), String> {
         Ok(())
     } else {
         Err(reasons.join("\n"))
+    }
+}
+
+fn check_bootstrap_policy(state: &ReadyState) -> Result<(), String> {
+    match CedarPolicyEvaluator::from_path(&state.cedar_manifest_path) {
+        Ok(policy) if !policy.is_empty() => Ok(()),
+        Ok(_) => Err("bootstrap Cedar is broken: policy manifest is empty".to_owned()),
+        Err(error) => Err(format!("bootstrap Cedar is broken: {error}")),
     }
 }
 

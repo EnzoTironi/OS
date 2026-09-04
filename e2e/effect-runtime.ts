@@ -476,7 +476,7 @@ async function main(): Promise<void> {
         isolation:
           "corrupting another World's distinct active PolicyCatalog leaves the configured World's readiness unchanged",
         negative:
-          "missing or corrupt active release authority and missing, corrupt, or unloadable release-bound policy fail readiness closed",
+          "broken bootstrap Cedar, missing or corrupt active release authority, and missing, corrupt, or unloadable release-bound catalogs fail readiness closed",
         path:
           "governed WorldRelease activation -> one-statement active release and PolicyCatalog snapshot -> fresh Cedar compilation -> /ready",
         recovery:
