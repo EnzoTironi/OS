@@ -29,7 +29,7 @@ const FIXED_CHILD_PATH =
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const DETACH_CHILDREN =
   process.platform !== "win32" && !e2eRunnerIsolatedProcessGroup;
-const DOOR_PASSWORD = "E2e-session-door-1";
+export const E2E_DOOR_PASSWORD = "E2e-session-door-1";
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
 export type InvitePersona = {
@@ -260,7 +260,7 @@ export async function signUpSession(
       body: JSON.stringify({
         email,
         name: input.id,
-        password: DOOR_PASSWORD,
+        password: E2E_DOOR_PASSWORD,
       }),
       headers: {
         "content-type": "application/json",

@@ -64,21 +64,25 @@ pub async fn require_account(
     actor: &IdentityAdminActor,
     account_id: &AccountId,
 ) -> Option<Response> {
+    match resolve_actor_account(identity, actor).await {
+        Ok(None) => None,
+        Ok(Some(actual)) if actual == *account_id => None,
+        Ok(Some(_)) => Some(forbidden()),
+        Err(error) => Some(identity_error_response(&error)),
+    }
+}
+
+pub async fn resolve_actor_account(
+    identity: &PostgresIdentityStore,
+    actor: &IdentityAdminActor,
+) -> Result<Option<AccountId>, IdentityError> {
     match actor {
-        IdentityAdminActor::Machine => None,
+        IdentityAdminActor::Machine => Ok(None),
         IdentityAdminActor::Door(evidence) => {
-            let subject = match ExternalSubject::new(
-                ChannelProvider::AuthDoor,
-                evidence.door_user_key.clone(),
-            ) {
-                Ok(subject) => subject,
-                Err(error) => return Some(identity_error_response(&error)),
-            };
-            match identity.snapshot_for_verified_subject(&subject).await {
-                Ok((_, snapshot)) if snapshot.account.id == *account_id => None,
-                Ok(_) => Some(forbidden()),
-                Err(error) => Some(identity_error_response(&error)),
-            }
+            let subject =
+                ExternalSubject::new(ChannelProvider::AuthDoor, evidence.door_user_key.clone())?;
+            let (_, snapshot) = identity.snapshot_for_verified_subject(&subject).await?;
+            Ok(Some(snapshot.account.id))
         }
     }
 }
@@ -106,7 +110,9 @@ pub fn identity_error_response(error: &IdentityError) -> Response {
         IdentityError::AlreadyBound
         | IdentityError::AlreadyConsumed
         | IdentityError::InviteExpired
+        | IdentityError::LinkIntentConsumed
         | IdentityError::LinkIntentExpired
+        | IdentityError::LinkIntentInvalidated
         | IdentityError::AccountMerged { .. }
         | IdentityError::InviteWorldMismatch
         | IdentityError::Conflict(_)

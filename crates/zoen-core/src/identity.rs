@@ -635,7 +635,9 @@ pub enum IdentityError {
     InviteExpired,
     InviteNotFound,
     InviteWorldMismatch,
+    LinkIntentConsumed,
     LinkIntentExpired,
+    LinkIntentInvalidated,
     LinkIntentNotFound,
     MembershipInactive,
     MembershipNotFound,
@@ -676,7 +678,9 @@ impl Display for IdentityError {
             Self::InviteWorldMismatch => {
                 formatter.write_str("invite cannot retarget another world")
             }
+            Self::LinkIntentConsumed => formatter.write_str("link intent already consumed"),
             Self::LinkIntentExpired => formatter.write_str("link intent expired"),
+            Self::LinkIntentInvalidated => formatter.write_str("link intent invalidated"),
             Self::LinkIntentNotFound => formatter.write_str("link intent not found"),
             Self::MembershipInactive => formatter.write_str("membership is not active"),
             Self::MembershipNotFound => formatter.write_str("membership not found"),

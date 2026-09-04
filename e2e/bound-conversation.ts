@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { parseZoenJson, runZoenCli, type ZoenCliResult } from "./zoen-cli.js";
 import { Client as PostgresClient } from "pg";
-import { AUTH_DOOR_ORIGIN } from "./ba-door.js";
+import { z } from "zod";
+import { AUTH_DOOR_ORIGIN, E2E_DOOR_PASSWORD } from "./ba-door.js";
+import {
+  startBrowser,
+  stopBrowser,
+  waitForCondition,
+  type BrowserProcess,
+} from "./chromium-cdp.js";
 import { startEve } from "./eve-support.js";
 import { stopProcess, type ManagedProcess } from "./effect-support.js";
 import { releaseAuthorityPolicies } from "./kernel-world-support.js";
@@ -413,9 +422,37 @@ async function activateReleaseForWorld(
   return digest;
 }
 
+async function waitForBlockedDoorAccountResolution(
+  observer: PostgresClient,
+  lockerPid: number,
+): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const blocked = await observer.query<{ blocked: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_stat_activity AS activity
+          WHERE activity.pid <> $1
+            AND activity.datname = current_database()
+            AND activity.wait_event_type = 'Lock'
+            AND position('FROM channel_bindings' IN activity.query) > 0
+            AND position('WHERE provider = $1' IN activity.query) > 0
+       ) AS blocked`,
+      [lockerPid],
+    );
+    if (blocked.rows[0]?.blocked === true) {
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error("stale unbind did not pause on Door-account resolution");
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   let auth: Awaited<ReturnType<typeof startAuthDoor>> | undefined;
+  let browser: BrowserProcess | undefined;
+  let browserHome: string | undefined;
   let eve: ManagedProcess | undefined;
   let server: ServerProcess | undefined;
   const pg = new PostgresClient({ connectionString: databaseUrl });
@@ -527,18 +564,100 @@ async function main(): Promise<void> {
         linkPage.status === 200 &&
         !linkHtml.includes(String(intentA.token)),
     );
-    const bindA = await confirmLinkIntent({
-      origin: baseUrl,
-      sessionToken: webA.token,
-      token: intentA.token,
-    });
-    assert.equal(bindA.status, 200, JSON.stringify(bindA.body));
-    record(
-      "telegram_a_linked_by_door_session",
-      bindA.body.bindingId === bindingA &&
-        bindA.body.sourceAccountId === sourceAccountA &&
-        bindA.body.targetAccountId === accountA,
+    browserHome = await mkdtemp(path.join(tmpdir(), "zoen-link-browser-"));
+    browser = await startBrowser(browserHome);
+    await browser.page.navigate(String(intentA.href), `${baseUrl}/link`);
+    await waitForCondition(
+      browser.page,
+      `(() => {
+        const form = document.querySelector("#signin");
+        return location.hash === "" &&
+          sessionStorage.getItem("zoen.link-token") !== null &&
+          form instanceof HTMLElement && !form.hidden;
+      })()`,
+      10_000,
+      "link token fragment clearing and unauthenticated sign-in form",
     );
+    const pendingBrowser = z
+      .object({
+        hash: z.literal(""),
+        signInVisible: z.boolean(),
+        storedToken: z.string(),
+      })
+      .strict()
+      .parse(
+        await browser.page.evaluate(`(() => {
+          const form = document.querySelector("#signin");
+          return {
+            hash: location.hash,
+            signInVisible: form instanceof HTMLElement && !form.hidden,
+            storedToken: sessionStorage.getItem("zoen.link-token"),
+          };
+        })()`),
+      );
+    record(
+      "link_browser_clears_fragment_into_session_storage",
+      pendingBrowser.signInVisible &&
+        pendingBrowser.storedToken === String(intentA.token),
+    );
+    const submitted = z.boolean().parse(
+      await browser.page.evaluate(`(() => {
+        const form = document.querySelector("#signin");
+        const email = form?.querySelector('input[name="email"]');
+        const password = form?.querySelector('input[name="password"]');
+        if (!(form instanceof HTMLFormElement) ||
+            !(email instanceof HTMLInputElement) ||
+            !(password instanceof HTMLInputElement)) {
+          return false;
+        }
+        email.value = ${JSON.stringify(webA.email)};
+        password.value = ${JSON.stringify(E2E_DOOR_PASSWORD)};
+        form.requestSubmit();
+        return true;
+      })()`),
+    );
+    assert.equal(submitted, true, "link Better Auth form must submit");
+    await waitForCondition(
+      browser.page,
+      `document.querySelector("#status")?.textContent ===
+        "Pronto. Esta conversa agora reconhece você." &&
+        sessionStorage.getItem("zoen.link-token") === null`,
+      10_000,
+      "link confirmation and sessionStorage cleanup",
+    );
+    const browserLink = await pg.query<{
+      account_id: string;
+      binding_status: string;
+      consumed: boolean;
+      receipt_id: string;
+      source_account_id: string;
+      target_account_id: string;
+    }>(
+      `SELECT binding.account_id, binding.status AS binding_status,
+              intent.consumed_at IS NOT NULL AS consumed,
+              receipt.receipt_id, receipt.source_account_id,
+              receipt.target_account_id
+         FROM channel_bindings AS binding
+         JOIN channel_link_intents AS intent USING (binding_id)
+         JOIN channel_link_receipts AS receipt USING (intent_id, binding_id)
+        WHERE binding.binding_id = $1 AND intent.intent_id = $2`,
+      [bindingA, String(intentA.intentId)],
+    );
+    const browserLinkRow = browserLink.rows[0];
+    assert.ok(browserLinkRow);
+    record(
+      "link_browser_confirms_binding_receipt_and_consumption",
+      browserLinkRow.account_id === accountA &&
+        browserLinkRow.binding_status === "verified" &&
+        browserLinkRow.consumed &&
+        browserLinkRow.receipt_id.length > 0 &&
+        browserLinkRow.source_account_id === sourceAccountA &&
+        browserLinkRow.target_account_id === accountA,
+    );
+    await stopBrowser(browser);
+    browser = undefined;
+    await rm(browserHome, { force: true, recursive: true });
+    browserHome = undefined;
     const mergedSourceA = await pg.query<{
       merged_into_account_id: string | null;
       status: string;
@@ -680,7 +799,7 @@ async function main(): Promise<void> {
     });
     record("atomic_failure_can_retry", atomicRetry.status === 200);
 
-    const receiptId = String(bindA.body.receiptId);
+    const receiptId = browserLinkRow.receipt_id;
     await assert.rejects(
       pg.query(
         "UPDATE channel_link_receipts SET confirmed_at = clock_timestamp() WHERE receipt_id = $1",
@@ -731,10 +850,12 @@ async function main(): Promise<void> {
         WHERE account_id = $1 AND provider = 'auth_door' AND status = 'verified'`,
       [accountA],
     );
+    const authDoorBindingAId = authDoorBindingA.rows[0]?.binding_id;
+    assert.ok(authDoorBindingAId);
     record(
       "web_ingress_uses_authenticated_door_binding",
       webIngress.body.bindingProvider === "auth_door" &&
-        webIngress.body.bindingId === authDoorBindingA.rows[0]?.binding_id,
+        webIngress.body.bindingId === authDoorBindingAId,
     );
 
     const tgIngress = await admin(
@@ -822,6 +943,77 @@ async function main(): Promise<void> {
     record("telegram_b_separate_account", accountB !== accountA);
     record("telegram_b_separate_world", worldB !== worldA && worldB.length > 0);
 
+    const ownershipIntent = await issueLinkIntent("telegram", "8100000019");
+    const ownedByA = await confirmLinkIntent({
+      origin: baseUrl,
+      sessionToken: webA.token,
+      token: ownershipIntent.token,
+    });
+    assert.equal(ownedByA.status, 200, JSON.stringify(ownedByA.body));
+    const ownershipBindingId = String(ownedByA.body.bindingId);
+    const transferDuringUnbind = await issueLinkIntent(
+      "telegram",
+      "8100000019",
+    );
+    const locker = new PostgresClient({ connectionString: adminDatabaseUrl });
+    let lockerTransaction = false;
+    let staleUnbindPromise: Promise<HttpResult> | undefined;
+    await locker.connect();
+    try {
+      await locker.query("BEGIN");
+      lockerTransaction = true;
+      const lockerIdentity = await locker.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      const lockerPid = lockerIdentity.rows[0]?.pid;
+      assert.ok(lockerPid);
+      await locker.query(
+        "SELECT binding_id FROM channel_bindings WHERE binding_id = $1 FOR UPDATE",
+        [authDoorBindingAId],
+      );
+      staleUnbindPromise = admin(
+        "POST",
+        "/identity/admin/unbind",
+        { bindingId: ownershipBindingId, reason: "user_request" },
+        webA.token,
+      );
+      await waitForBlockedDoorAccountResolution(locker, lockerPid);
+      const transferredWhileStale = await confirmLinkIntent({
+        origin: baseUrl,
+        sessionToken: webB.token,
+        token: transferDuringUnbind.token,
+      });
+      await locker.query("COMMIT");
+      lockerTransaction = false;
+      const staleUnbind = await staleUnbindPromise;
+      staleUnbindPromise = undefined;
+      const bindingAfterRace = await pg.query<{
+        account_id: string;
+        status: string;
+      }>(
+        "SELECT account_id, status FROM channel_bindings WHERE binding_id = $1",
+        [ownershipBindingId],
+      );
+      record(
+        "stale_owner_cannot_unbind_after_transfer_interleaving",
+        transferredWhileStale.status === 200 &&
+          transferredWhileStale.body.targetAccountId === accountB &&
+          staleUnbind.status === 409 &&
+          staleUnbind.body.error ===
+            "identity conflict: binding owner changed before unbind" &&
+          bindingAfterRace.rows[0]?.account_id === accountB &&
+          bindingAfterRace.rows[0]?.status === "verified",
+      );
+    } finally {
+      if (lockerTransaction) {
+        await locker.query("ROLLBACK");
+      }
+      if (staleUnbindPromise !== undefined) {
+        await staleUnbindPromise.catch(() => undefined);
+      }
+      await locker.end();
+    }
+
     const transferableIntent = await issueLinkIntent("telegram", "8100000015");
     const linkedToB = await confirmLinkIntent({
       origin: baseUrl,
@@ -885,7 +1077,12 @@ async function main(): Promise<void> {
       sessionToken: webA.token,
       token: intentA.token,
     });
-    record("telegram_a_link_replay_fail_closed", bindReplay.status === 409);
+    record(
+      "telegram_a_link_replay_has_link_intent_error",
+      bindReplay.status === 409 &&
+        bindReplay.body.error === "link intent already consumed" &&
+        !String(bindReplay.body.error).includes("invite"),
+    );
 
     const bOwn = await admin(
       "GET",
@@ -987,6 +1184,17 @@ async function main(): Promise<void> {
       renewedIntent.intentId !== expiringIntent.intentId &&
         renewedIntent.token !== expiringIntent.token,
     );
+    const invalidated = await confirmLinkIntent({
+      origin: baseUrl,
+      sessionToken: webA.token,
+      token: expiringIntent.token,
+    });
+    record(
+      "replaced_link_intent_has_invalidated_error",
+      invalidated.status === 409 &&
+        invalidated.body.error === "link intent invalidated" &&
+        !String(invalidated.body.error).includes("invite"),
+    );
     const afterRestart = await admin(
       "GET",
       `/identity/admin/resolve-ingress?world=${encodeURIComponent(worldA)}&provider=telegram&subjectKey=${encodeURIComponent(telegramA)}`,
@@ -1027,7 +1235,7 @@ async function main(): Promise<void> {
         canonicalJourney: "J5",
         deferredTo: ["W3-03", "W5-03", "W5-04", "W5-05"],
         proven:
-          "W3-02 one-time channel-possession LinkIntent confirmed by an origin-bound Better Auth browser session, with exact-binding continuity into W3-01 identity storage",
+          "W3-02 one-time channel-possession LinkIntent confirmed through the real /link Chromium and Better Auth path, with exact-binding continuity, atomic receipts, and owner-checked unbind after transfer",
         notClaimed:
           "signed Telegram/Kapso ingress, provider webhook replay, origin-bound reply delivery, and cross-channel workbench recovery",
       },
@@ -1037,13 +1245,13 @@ async function main(): Promise<void> {
         isolation:
           "Telegram B remains on Web B Account and World; moving another exact binding preserves Web B Membership and World",
         negative:
-          "wrong Origin, invalid cookie, Authorization header, caller-supplied account fields, expired/replayed tokens, provisional bindings, wrong World, and divergent Cookie/Bearer credentials fail closed",
+          "wrong Origin, invalid cookie, Authorization header, caller-supplied account fields, expired/replayed/invalidated tokens, stale-owner unbind, provisional bindings, wrong World, and divergent Cookie/Bearer credentials fail closed",
         path:
-          "trusted edge issues a token-hash-only LinkIntent; /link confirms with only token, exact Origin, and Better Auth cookie; Web A and Telegram A then resolve one Account, Membership, World, and active release",
+          "trusted edge issues a token-hash-only LinkIntent; Chromium clears its fragment into sessionStorage, submits the Better Auth form, confirms with only token, exact Origin, and cookie, then clears storage; Web A and Telegram A resolve one Account, Membership, World, and active release",
         recovery:
           "zoend restart preserves a pending LinkIntent plus Account, verified ChannelBinding, Membership, World, and active release; a receipt failure rolls back atomically",
         replay:
-          "concurrent confirmation has exactly one success, token replay fails, and repeated Telegram resolution returns the same authority",
+          "concurrent confirmation has exactly one success, LinkIntent replay and invalidation return domain-specific conflicts, and repeated Telegram resolution returns the same authority",
       },
       finishedAt,
       passed,
@@ -1058,6 +1266,12 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
   } finally {
+    if (browser !== undefined) {
+      await stopBrowser(browser);
+    }
+    if (browserHome !== undefined) {
+      await rm(browserHome, { force: true, recursive: true });
+    }
     if (eve !== undefined) {
       await stopProcess(eve);
     }

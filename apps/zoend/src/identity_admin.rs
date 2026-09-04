@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use zoen_adapters::{CreateInvite, PostgresIdentityStore};
+use zoen_adapters::{CreateInvite, PostgresIdentityStore, UnbindAuthority};
 use zoen_core::{
     AccountId, ActionId, ActorId, ChannelProvider, DelegationChain, DelegationGrant, DelegationId,
     ExternalSubject, IdentityError, InviteToken, MembershipId, PrincipalId, ResourceId,
@@ -19,7 +19,7 @@ use zoen_core::{
 use crate::{
     identity_admin_auth::{
         IdentityAdminActor, authenticate_identity_admin, forbidden, identity_error_response,
-        require_account, require_machine,
+        require_account, require_machine, resolve_actor_account,
     },
     session::SessionExchange,
 };
@@ -267,18 +267,16 @@ async fn unbind(
         Ok(id) => id,
         Err(error) => return bad_request(&error.to_string()),
     };
-    let binding = match state.identity.get_binding(&binding_id).await {
-        Ok(binding) => binding,
-        Err(error) => return identity_error(&error),
-    };
-    if let Some(error) = require_account(&state.identity, &actor, &binding.account_id).await {
-        return error;
-    }
     let reason = match UnbindReason::parse(&body.reason) {
         Ok(reason) => reason,
         Err(error) => return identity_error(&error),
     };
-    match state.identity.unbind(binding_id, reason).await {
+    let authority = match resolve_actor_account(&state.identity, &actor).await {
+        Ok(Some(account)) => UnbindAuthority::Account(account),
+        Ok(None) => UnbindAuthority::MachineOverride,
+        Err(error) => return identity_error(&error),
+    };
+    match state.identity.unbind(binding_id, reason, authority).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => identity_error(&error),
     }

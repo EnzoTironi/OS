@@ -136,9 +136,17 @@ impl PostgresIdentityStore {
         &self,
         binding: ChannelBindingId,
         reason: UnbindReason,
+        authority: UnbindAuthority,
     ) -> Result<(), IdentityError> {
         let mut transaction = self.pool.begin().await.map_err(unavailable)?;
         let existing = load_binding(&mut transaction, &binding).await?;
+        if let UnbindAuthority::Account(expected_account) = &authority
+            && existing.account_id != *expected_account
+        {
+            return Err(IdentityError::Conflict(
+                "binding owner changed before unbind".to_owned(),
+            ));
+        }
         if matches!(existing.status, BindingStatus::Unbound { .. }) {
             transaction.commit().await.map_err(unavailable)?;
             return Ok(());
@@ -937,6 +945,11 @@ pub struct ConfirmedLinkIntent {
     pub target_account_id: AccountId,
 }
 
+pub enum UnbindAuthority {
+    Account(AccountId),
+    MachineOverride,
+}
+
 struct LockedLinkIntent {
     binding: ChannelBindingId,
     intent: LinkIntentId,
@@ -1032,10 +1045,11 @@ async fn lock_link_intent(
     .await
     .map_err(unavailable)?
     .ok_or(IdentityError::LinkIntentNotFound)?;
-    if row.try_get::<bool, _>("consumed").map_err(unavailable)?
-        || row.try_get::<bool, _>("invalidated").map_err(unavailable)?
-    {
-        return Err(IdentityError::AlreadyConsumed);
+    if row.try_get::<bool, _>("consumed").map_err(unavailable)? {
+        return Err(IdentityError::LinkIntentConsumed);
+    }
+    if row.try_get::<bool, _>("invalidated").map_err(unavailable)? {
+        return Err(IdentityError::LinkIntentInvalidated);
     }
     if row.try_get::<bool, _>("expired").map_err(unavailable)? {
         return Err(IdentityError::LinkIntentExpired);
