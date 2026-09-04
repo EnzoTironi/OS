@@ -542,7 +542,7 @@ async fn authorize(
     };
     Ok(ok(json!({
         "authority": "active-release-policy-catalog",
-        "bootManifestIgnored": true,
+        "bootManifestIgnored": boot_ignored.is_some(),
         "decision": decision,
         "digest": active_digest.as_str(),
         "policyCatalogDigest": catalogs.policy().digest().as_str(),
