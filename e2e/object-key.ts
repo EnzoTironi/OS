@@ -1,18 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { Client as PostgresClient } from "pg";
 import { writeScenarioArtifact } from "./host-env.js";
-import {
-  kernelJourneyPaths,
-  kernelSurfaces,
-  sevenVerbs,
-  worldActionId,
-  worldDefinitionDigest,
-} from "./kernel-journey.js";
+import { kernelJourneyPaths, sevenVerbs } from "./kernel-journey.js";
 import { gitHead } from "./scenario-evidence.js";
 import {
   constructWorldRelease,
   parseZoenJson,
-  publishWorldRelease,
   runZoenCli,
   writeZoenJsonFile,
 } from "./zoen-cli.js";
@@ -22,72 +16,19 @@ const { repositoryRoot, databaseUrl, generatedDirectory, zoenPath } = kernelJour
   scenario,
   55_493,
 );
-const surfaces = kernelSurfaces;
-const clinicType = "clinic.Patient";
+const world = "world.clinic";
+const kernelResource = "zoen.world.kernel";
+const releaseResource = "zoen.world.release";
+const releaseAuthorityDefinitionDigest =
+  "e39d2372b5e94449657447a9a2109ed5e5f2e18bc424639ee25627e849f03862";
+const kernelAuthorityDefinitionDigest =
+  "3dfddf9c946656d9ce19ccaacecba5db3d284417c1c3f1f9d0ee710163e42dfc";
 const memoryType = "personal.Memory";
-const validAt = 1_700_000_000_000_000;
+const patientType = "clinic.Patient";
 
-const human = {
-  principal: "principal.clinic.human",
-  membership: "membership.clinic.human",
-} as const;
-const agent = {
-  principal: "principal.clinic.agent",
-  membership: "membership.clinic.agent",
-} as const;
-const stranger = {
-  principal: "principal.stranger",
-  membership: "membership.stranger",
-} as const;
-const analyst = {
-  principal: "principal.finance.analyst",
-  membership: "membership.finance.analyst",
-} as const;
-
-const assertions: Record<string, boolean> = {};
-
-function record(name: string, observed: boolean): void {
-  assert.ok(observed, name);
-  assertions[name] = observed;
-}
-
-function ontologyBytes(label: string): string {
-  return `${JSON.stringify({
-    label,
-    publicVerbs: [...sevenVerbs],
-    schema: "zoen.ontology-catalog.v1",
-  })}\n`;
-}
-
-function buildPolicyCatalog(): { bytes: string; evidenceDigest: string } {
-  const source = `permit (
-    principal,
-    action == Action::"discover",
-    resource
-)
-when {
-    context.actionId == "${worldActionId}"
-};
-`;
-  const policyDigest = createHash("sha256").update(source).digest("hex");
-  const bytes = `${JSON.stringify({
-    schema: "zoen.policy-catalog.v1",
-    authorization: {
-      policies: [
-        {
-          actionId: worldActionId,
-          definitionDigest: worldDefinitionDigest,
-          digest: policyDigest,
-          policyId: "policy.world.discover.r1",
-          revision: 1,
-          source,
-        },
-      ],
-    },
-    membership: [],
-    sourceAdmission: [],
-  })}\n`;
-  return { bytes, evidenceDigest: policyDigest };
+interface Actor {
+  principal: string;
+  membership: string;
 }
 
 interface ZoenResult {
@@ -97,20 +38,249 @@ interface ZoenResult {
   body?: Record<string, unknown>;
 }
 
-function runZoen(args: string[]): ZoenResult {
-  return runZoenCli(zoenPath, databaseUrl, args);
+const owner: Actor = {
+  principal: "principal.owner",
+  membership: "membership.clinic.owner",
+};
+const builder: Actor = {
+  principal: "principal.builder",
+  membership: "membership.clinic.builder",
+};
+const human: Actor = {
+  principal: "principal.clinic.human",
+  membership: "membership.clinic.human",
+};
+
+const kernelActions = sevenVerbs.map((verb) => ({
+  actionId: `zoen.world.${verb.toLowerCase()}`,
+  definitionDigest: kernelAuthorityDefinitionDigest,
+  operation: verb.toLowerCase(),
+}));
+const releaseActions = [
+  {
+    actionId: "zoen.world.release.publish",
+    definitionDigest: releaseAuthorityDefinitionDigest,
+    operation: "publish_release",
+  },
+  {
+    actionId: "zoen.world.release.preview",
+    definitionDigest: releaseAuthorityDefinitionDigest,
+    operation: "preview_release",
+  },
+  {
+    actionId: "zoen.world.release.decide",
+    definitionDigest: releaseAuthorityDefinitionDigest,
+    operation: "decide_release",
+  },
+  {
+    actionId: "zoen.world.release.activate",
+    definitionDigest: releaseAuthorityDefinitionDigest,
+    operation: "activate_release",
+  },
+] as const;
+
+const assertions: Record<string, boolean> = {};
+
+function record(name: string, observed: boolean): void {
+  assert.ok(observed, name);
+  assertions[name] = observed;
 }
 
-function withBody(result: ZoenResult): ZoenResult {
+function runZoen(args: string[]): ZoenResult {
+  const result = runZoenCli(zoenPath, databaseUrl, args);
   if (result.status === 0 && result.stdout.trim() !== "") {
     return { ...result, body: parseZoenJson(result.stdout) };
   }
   return result;
 }
 
-function approveAndActivate(world: string, digest: string, principal: string): {
-  activate: ZoenResult;
-} {
+function ontologyBytes(): string {
+  return `${JSON.stringify({
+    label: "object-key.world",
+    publicVerbs: [...sevenVerbs],
+    schema: "zoen.ontology-catalog.v1",
+  })}\n`;
+}
+
+function policySource(actionId: string, operation: string): string {
+  return `permit (
+    principal,
+    action == Action::"${operation}",
+    resource
+)
+when {
+    context.actionId == "${actionId}"
+};
+`;
+}
+
+function policyCatalogBytes(): string {
+  const bindings = [...kernelActions, ...releaseActions];
+  const policies = bindings.map(({ actionId, definitionDigest, operation }, index) => {
+    const source = policySource(actionId, operation);
+    return {
+      actionId,
+      definitionDigest,
+      digest: createHash("sha256").update(source).digest("hex"),
+      policyId: `policy.object-key.${index + 1}`,
+      revision: 1,
+      source,
+    };
+  });
+  return `${JSON.stringify({
+    schema: "zoen.policy-catalog.v1",
+    authorization: { policies },
+    membershipDelegation: [],
+    sourceAdmission: [],
+  })}\n`;
+}
+
+async function bootstrapSchema(): Promise<void> {
+  runZoen(["world", "release", "active", "--world", world]);
+  const client = new PostgresClient({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const result = await client.query<{ table_name: string | null }>(
+      "SELECT to_regclass('memberships')::text AS table_name",
+    );
+    assert.equal(result.rows[0]?.table_name, "memberships");
+  } finally {
+    await client.end();
+  }
+}
+
+async function seedMemberships(): Promise<void> {
+  const allKernelActions = kernelActions.map(({ actionId }) => actionId);
+  const allReleaseActions = releaseActions.map(({ actionId }) => actionId);
+  const personas = [
+    {
+      ...owner,
+      account: "account.owner",
+      actions: [...allKernelActions, ...allReleaseActions],
+      kind: "personal" as const,
+      resources: [kernelResource, releaseResource],
+    },
+    {
+      ...builder,
+      account: "account.builder",
+      actions: ["zoen.world.discover", "zoen.world.propose"],
+      kind: "invite" as const,
+      resources: [kernelResource],
+    },
+    {
+      ...human,
+      account: "account.clinic.human",
+      actions: ["zoen.world.query"],
+      kind: "invite" as const,
+      resources: [kernelResource],
+    },
+  ];
+  const client = new PostgresClient({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    for (const persona of personas) {
+      const suffix = persona.membership.replace("membership.", "");
+      const delegation = {
+        grants: [
+          {
+            actionIds: persona.actions,
+            delegationId: `delegation.${suffix}`,
+            expiresAt: 4_102_444_800,
+            notBefore: 0,
+            resourceIds: persona.resources,
+            workloadIds: ["workload.world-kernel"],
+          },
+        ],
+      };
+      await client.query(
+        "INSERT INTO zoen_accounts (account_id, status) VALUES ($1, 'verified')",
+        [persona.account],
+      );
+      if (persona.kind === "personal") {
+        await client.query(
+          "INSERT INTO personal_tenants (account_id, tenant_id) VALUES ($1, $2)",
+          [persona.account, world],
+        );
+      }
+      await client.query(
+        `INSERT INTO memberships (
+           membership_id, account_id, tenant_id, principal_id, status, kind,
+           invite_id, workload_id, actor_id, delegation_json, clearance_json
+         ) VALUES ($1,$2,$3,$4,'active',$5,$6,$7,$8,$9::jsonb,$10::jsonb)`,
+        [
+          persona.membership,
+          persona.account,
+          world,
+          persona.principal,
+          persona.kind,
+          persona.kind === "invite" ? `invite.${suffix}` : null,
+          "workload.world-kernel",
+          `actor.${suffix}`,
+          JSON.stringify(delegation),
+          JSON.stringify(["zoen.world.floor", "zoen.world.top"]),
+        ],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    await client.end();
+  }
+}
+
+async function scalarCount(sql: string, values: unknown[]): Promise<number> {
+  const client = new PostgresClient({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const result = await client.query<{ count: string }>(sql, values);
+    return Number(result.rows[0]?.count ?? "0");
+  } finally {
+    await client.end();
+  }
+}
+
+async function setMembershipStatus(status: "active" | "revoked"): Promise<void> {
+  const client = new PostgresClient({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    if (status === "active") {
+      await client.query(
+        `UPDATE memberships
+         SET status = 'active', ended_at = NULL, ended_reason = NULL
+         WHERE membership_id = $1`,
+        [owner.membership],
+      );
+    } else {
+      await client.query(
+        `UPDATE memberships
+         SET status = 'revoked', ended_at = clock_timestamp(), ended_reason = 'security'
+         WHERE membership_id = $1`,
+        [owner.membership],
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+function publish(file: string): ZoenResult {
+  return runZoen([
+    "world",
+    "release",
+    "publish",
+    "--file",
+    file,
+    "--principal",
+    owner.principal,
+    "--membership",
+    owner.membership,
+  ]);
+}
+
+function activateRelease(digest: string): void {
   const preview = runZoen([
     "world",
     "release",
@@ -120,10 +290,12 @@ function approveAndActivate(world: string, digest: string, principal: string): {
     "--digest",
     digest,
     "--principal",
-    principal,
+    owner.principal,
+    "--membership",
+    owner.membership,
   ]);
   assert.equal(preview.status, 0, preview.stderr);
-  const previewDigest = String(parseZoenJson(preview.stdout).previewDigest);
+  const previewDigest = String(preview.body?.previewDigest);
   const decide = runZoen([
     "world",
     "release",
@@ -131,7 +303,9 @@ function approveAndActivate(world: string, digest: string, principal: string): {
     "--preview-digest",
     previewDigest,
     "--principal",
-    principal,
+    owner.principal,
+    "--membership",
+    owner.membership,
     "--decision",
     "approve",
   ]);
@@ -147,667 +321,442 @@ function approveAndActivate(world: string, digest: string, principal: string): {
     "--preview-digest",
     previewDigest,
     "--principal",
-    principal,
+    owner.principal,
+    "--membership",
+    owner.membership,
   ]);
-  return { activate };
+  assert.equal(activate.status, 0, activate.stderr);
 }
 
-function kernel(verb: string, args: string[], surface = "cli"): ZoenResult {
-  return withBody(runZoen(["kernel", verb, ...args, "--surface", surface]));
+function kernel(verb: string, actor: Actor, args: string[]): ZoenResult {
+  return runZoen([
+    "kernel",
+    verb,
+    ...args,
+    "--principal",
+    actor.principal,
+    "--membership",
+    actor.membership,
+  ]);
 }
 
-function mint(world: string, entity: string, grants: unknown[] = []): ZoenResult {
-  return kernel("mint-object", [
+function propose(actor: Actor, proposalId: string, input: unknown): ZoenResult {
+  return kernel("propose", actor, [
     "--world",
     world,
-    "--principal",
-    "principal.builder",
-    "--entity",
-    entity,
-    "--grants-json",
-    JSON.stringify(grants),
+    "--proposal-id",
+    proposalId,
+    "--input",
+    JSON.stringify(input),
   ]);
 }
 
-function plantType(
-  world: string,
+function decide(actor: Actor, proposalId: string): ZoenResult {
+  return kernel("decide", actor, [
+    "--proposal-id",
+    proposalId,
+    "--decision",
+    "approve",
+  ]);
+}
+
+function commit(actor: Actor, proposalId: string): ZoenResult {
+  return kernel("commit", actor, ["--proposal-id", proposalId]);
+}
+
+function typeAssignmentDraft(input: {
+  assignmentId: string;
+  entity: string;
+  objectType: string;
+  validEndMicros?: number | null;
+}): Record<string, unknown> {
+  return {
+    schema: "zoen.type-assignment-draft.v1",
+    objectKey: { world, entity: input.entity },
+    typeAssignment: {
+      assignmentId: input.assignmentId,
+      objectType: input.objectType,
+      validStartMicros: 0,
+      validEndMicros: input.validEndMicros ?? null,
+    },
+    grants: [
+      {
+        principalId: human.principal,
+        membershipId: human.membership,
+        objectType: input.objectType,
+      },
+    ],
+  };
+}
+
+async function assertNoMaterialization(
+  proposalId: string,
   entity: string,
   assignmentId: string,
-  objectType: string,
-  evidenceRef: string,
-  grants: unknown[],
-): ZoenResult {
-  return kernel("plant-type-assignment", [
-    "--world",
-    world,
-    "--principal",
-    "principal.builder",
-    "--assignment-id",
-    assignmentId,
-    "--entity",
-    entity,
-    "--type",
-    objectType,
-    "--evidence-ref",
-    evidenceRef,
-    "--valid-start-micros",
-    "0",
-    "--grants-json",
-    JSON.stringify(grants),
-  ]);
-}
-
-function queryTyped(
-  world: string,
-  actor: { principal: string; membership: string },
-  objectType: string,
-  surface = "cli",
-): ZoenResult {
-  return kernel(
-    "query-typed",
-    [
-      "--world",
-      world,
-      "--principal",
-      actor.principal,
-      "--membership",
-      actor.membership,
-      "--type",
-      objectType,
-      "--valid-at-micros",
-      String(validAt),
-    ],
-    surface,
+): Promise<void> {
+  assert.equal(
+    await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_kernel_receipts WHERE proposal_id = $1",
+      [proposalId],
+    ),
+    0,
   );
-}
-
-function typedKnowledgeInput(params: {
-  world: string;
-  entity: string;
-  assignmentId: string;
-  objectType: string;
-  evidenceRef: string;
-  fact: string;
-  grants: unknown[];
-}): string {
-  return JSON.stringify({
-    schema: "zoen.typed-knowledge.v1",
-    objectKey: { world: params.world, entity: params.entity },
-    typeAssignment: {
-      assignmentId: params.assignmentId,
-      objectType: params.objectType,
-      validStartMicros: 0,
-      validEndMicros: null,
-    },
-    evidenceRef: params.evidenceRef,
-    fact: params.fact,
-    grants: params.grants,
-  });
+  assert.equal(
+    await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_object_keys WHERE world_id = $1 AND entity_id = $2",
+      [world, entity],
+    ),
+    0,
+  );
+  assert.equal(
+    await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE assignment_id = $1",
+      [assignmentId],
+    ),
+    0,
+  );
 }
 
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourceCommit = gitHead(repositoryRoot);
-  const policy = buildPolicyCatalog();
-  const bytes = {
-    ontology: ontologyBytes("object-key.world"),
-    policy: policy.bytes,
-    executors: "executor catalog object-key v1\n",
-    components: "component catalog object-key v1\n",
-  };
+  const policy = policyCatalogBytes();
   const contentPath = await writeZoenJsonFile(generatedDirectory, "world.json", {
-    world: "world.clinic",
+    world,
     parent: null,
-    ontology: { bytes: bytes.ontology },
-    policy: { bytes: bytes.policy },
-    executors: { bytes: bytes.executors },
-    components: { bytes: bytes.components },
+    ontology: { bytes: ontologyBytes() },
+    policy: { bytes: policy },
+    executors: { bytes: "executor catalog object-key v1\n" },
+    components: { bytes: "component catalog object-key v1\n" },
   });
   const release = constructWorldRelease(zoenPath, databaseUrl, contentPath);
-  assert.equal(publishWorldRelease(zoenPath, databaseUrl, contentPath, "principal.builder", policy.evidenceDigest).status, 0);
-  const ceremony = approveAndActivate(
-    "world.clinic",
-    String(release.digest),
-    "principal.owner",
-  );
-  assert.equal(ceremony.activate.status, 0, ceremony.activate.stderr);
 
-  // --- J2: Eve proposes typed knowledge → Decide → Commit → Query → Explain ---
-  const memoryEntity = "memory.dentist";
-  const mintMemory = mint("world.clinic", memoryEntity);
-  assert.equal(mintMemory.status, 0, mintMemory.stderr);
+  await bootstrapSchema();
+  await seedMemberships();
+  const published = publish(contentPath);
+  assert.equal(published.status, 0, published.stderr);
+  activateRelease(String(release.digest));
+
+  const discovered = kernel("discover", builder, ["--world", world]);
+  assert.equal(discovered.status, 0, discovered.stderr);
   record(
-    "j2_object_key_private_ref",
-    String(mintMemory.body?.objectKey) === `world.clinic/${memoryEntity}`,
+    "catalog_exposes_only_the_seven_ontology_verbs",
+    JSON.stringify(discovered.body?.publicVerbs) === JSON.stringify(sevenVerbs),
   );
+  const mismatched = kernel("propose", { ...builder, membership: owner.membership }, [
+    "--world",
+    world,
+    "--proposal-id",
+    "proposal.mismatched.membership",
+    "--input",
+    JSON.stringify({ operation: "mismatch" }),
+  ]);
   record(
-    "j2_object_key_not_uuid_dump",
-    !String(mintMemory.body?.objectKey).includes("uuid") &&
-      !/^[0-9a-f-]{36}$/i.test(String(mintMemory.body?.entity)),
+    "kernel_actor_requires_matching_durable_membership",
+    mismatched.status !== 0 && mismatched.stderr.toLowerCase().includes("denied"),
   );
 
-  const knowledgeInput = typedKnowledgeInput({
-    world: "world.clinic",
-    entity: memoryEntity,
-    assignmentId: "type-assignment.memory.dentist",
-    objectType: memoryType,
-    evidenceRef: "evidence.eve.dentist",
-    fact: "dentist on tuesday",
-    grants: [
-      {
-        principalId: human.principal,
-        membershipId: human.membership,
-        objectType: memoryType,
-      },
-    ],
-  });
-  const proposed = kernel(
-    "propose",
-    [
-      "--world",
-      "world.clinic",
-      "--principal",
-      "principal.builder",
-      "--proposal-id",
-      "proposal.eve.memory.dentist",
-      "--input",
-      knowledgeInput,
-    ],
-    "eve",
-  );
+  const entity = "memory.dentist";
+  const assignmentId = "type-assignment.memory.dentist";
+  const proposalId = "proposal.memory.dentist";
+  const draft = typeAssignmentDraft({ assignmentId, entity, objectType: memoryType });
+  const proposed = propose(builder, proposalId, draft);
   assert.equal(proposed.status, 0, proposed.stderr);
-  record("j2_eve_propose", proposed.body?.proposalId === "proposal.eve.memory.dentist");
-
-  // Negative: normal member cannot write raw typed knowledge (propose denied)
-  const memberPropose = kernel(
-    "propose",
-    [
-      "--world",
-      "world.clinic",
-      "--principal",
-      stranger.principal,
-      "--proposal-id",
-      "proposal.stranger.raw",
-      "--input",
-      knowledgeInput,
-    ],
-    "cli",
-  );
-  record(
-    "j2_negative_member_cannot_write_raw",
-    memberPropose.status !== 0 && memberPropose.stderr.toLowerCase().includes("denied"),
-  );
-
-  const decided = kernel(
-    "decide",
-    [
-      "--proposal-id",
-      "proposal.eve.memory.dentist",
-      "--principal",
-      "principal.owner",
-      "--decision",
-      "approve",
-    ],
-    "eve",
-  );
+  await assertNoMaterialization(proposalId, entity, assignmentId);
+  const decided = decide(owner, proposalId);
   assert.equal(decided.status, 0, decided.stderr);
+  await assertNoMaterialization(proposalId, entity, assignmentId);
 
-  const committed = kernel(
-    "commit",
-    ["--proposal-id", "proposal.eve.memory.dentist", "--principal", "principal.owner"],
-    "eve",
-  );
+  const committed = commit(owner, proposalId);
   assert.equal(committed.status, 0, committed.stderr);
   const receiptId = String(committed.body?.receiptId ?? "");
-  record("j2_commit_receipt", receiptId.startsWith("receipt.kernel."));
-
-  // Eve does not claim memory before receipt — receipt exists only after commit
-  record("j2_no_memory_before_receipt", receiptId.length > 0);
-
-  const explained = kernel(
-    "explain",
-    ["--receipt-id", receiptId, "--principal", "principal.owner"],
-    "eve",
+  record("commit_returns_receipt", receiptId === `receipt.kernel.${proposalId}`);
+  record(
+    "receipt_object_assignment_and_grant_materialize_together",
+    (await scalarCount(
+      `SELECT COUNT(*)::text AS count
+       FROM world_kernel_receipts r
+       JOIN world_type_assignments a ON a.receipt_id = r.receipt_id
+       JOIN world_object_keys o
+         ON o.world_id = a.world_id AND o.entity_id = a.entity_id
+       JOIN world_typed_object_grants g
+         ON g.type_assignment_id = a.assignment_id
+        AND g.world_id = a.world_id
+        AND g.entity_id = a.entity_id
+        AND g.object_type = a.object_type
+       WHERE r.proposal_id = $1
+         AND a.assignment_id = $2
+         AND o.minted_by = $3
+         AND g.principal_id = $4
+         AND g.membership_id = $5`,
+      [proposalId, assignmentId, builder.principal, human.principal, human.membership],
+    )) === 1,
   );
+
+  const explained = kernel("explain", owner, ["--receipt-id", receiptId]);
   assert.equal(explained.status, 0, explained.stderr);
+  const explanation = JSON.parse(String(explained.body?.explanationJcs)) as {
+    typeAssignment?: {
+      assignmentId?: string;
+      evidenceRef?: string;
+      objectKey?: { world?: string; entity?: string };
+    };
+  };
   record(
-    "j2_explain_attributed",
-    String(explained.body?.explanationJcs ?? "").includes(receiptId),
+    "commit_derives_attributed_evidence_reference",
+    explanation.typeAssignment?.assignmentId === assignmentId &&
+      /^evidence\.[0-9a-f]{64}$/.test(explanation.typeAssignment.evidenceRef ?? "") &&
+      explanation.typeAssignment.objectKey?.world === world &&
+      explanation.typeAssignment.objectKey.entity === entity,
   );
 
-  const memoryQuery = queryTyped("world.clinic", human, memoryType, "eve");
-  assert.equal(memoryQuery.status, 0, memoryQuery.stderr);
-  const memoryObjects = (memoryQuery.body?.objects as Array<Record<string, unknown>>) ?? [];
-  record("j2_query_typed_memory", memoryObjects.length === 1);
+  const replay = commit(owner, proposalId);
+  assert.equal(replay.status, 0, replay.stderr);
+  record("commit_replay_returns_same_receipt", replay.body?.receiptId === receiptId);
   record(
-    "j2_typed_ref_has_assignment",
-    memoryObjects[0]?.assignmentId === "type-assignment.memory.dentist" &&
-      (memoryObjects[0]?.objectKey as { entity?: string })?.entity === memoryEntity,
+    "commit_replay_keeps_exact_single_materialization",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE receipt_id = $1",
+      [receiptId],
+    )) === 1 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_typed_object_grants WHERE type_assignment_id = $1",
+        [assignmentId],
+      )) === 1,
   );
 
-  // Replay: same propose returns original
-  const proposeReplay = kernel(
-    "propose",
-    [
-      "--world",
-      "world.clinic",
-      "--principal",
-      "principal.builder",
-      "--proposal-id",
-      "proposal.eve.memory.dentist.replay",
-      "--input",
-      knowledgeInput,
-    ],
-    "eve",
-  );
-  assert.equal(proposeReplay.status, 0, proposeReplay.stderr);
-  record(
-    "j2_replay_same_proposal",
-    proposeReplay.body?.proposalId === "proposal.eve.memory.dentist" &&
-      proposeReplay.body?.previewHash === proposed.body?.previewHash,
-  );
-  const commitReplay = kernel(
-    "commit",
-    ["--proposal-id", "proposal.eve.memory.dentist", "--principal", "principal.owner"],
-    "connect",
-  );
-  assert.equal(commitReplay.status, 0, commitReplay.stderr);
-  record(
-    "j2_replay_same_receipt",
-    commitReplay.body?.receiptId === receiptId,
-  );
-
-  // Isolation: stranger cannot read typed memory
-  const strangerMemory = queryTyped("world.clinic", stranger, memoryType);
-  record(
-    "j2_isolation_stranger_denied",
-    strangerMemory.status !== 0 && strangerMemory.stderr.toLowerCase().includes("denied"),
-  );
-
-  // Recovery: fresh query after commit still returns typed assignment
-  const recoveredMemory = queryTyped("world.clinic", human, memoryType, "cli");
-  assert.equal(recoveredMemory.status, 0, recoveredMemory.stderr);
-  record(
-    "j2_recovery_typed_survives",
-    recoveredMemory.body?.authorizedCount === 1,
-  );
-
-  // Refuse Membership label for type evidence
-  const membershipLabeled = kernel(
-    "propose",
-    [
-      "--world",
-      "world.clinic",
-      "--principal",
-      "principal.builder",
-      "--proposal-id",
-      "proposal.bad.membership",
-      "--input",
-      JSON.stringify({
-        schema: "zoen.typed-knowledge.v1",
-        objectKey: { world: "world.clinic", entity: memoryEntity },
-        typeAssignment: {
-          assignmentId: "type-assignment.bad",
-          objectType: memoryType,
-          validStartMicros: 0,
-          membership: "should-not-exist",
-        },
-        evidenceRef: "evidence.bad",
-        fact: "nope",
-        grants: [],
+  const recoveryProposal = "proposal.membership.recovery";
+  const recoveryEntity = "memory.recovery";
+  const recoveryAssignment = "type-assignment.memory.recovery";
+  assert.equal(
+    propose(
+      builder,
+      recoveryProposal,
+      typeAssignmentDraft({
+        assignmentId: recoveryAssignment,
+        entity: recoveryEntity,
+        objectType: memoryType,
       }),
-    ],
-    "cli",
+    ).status,
+    0,
   );
-  // Propose may succeed (JSON stored); Commit must refuse Membership label
-  if (membershipLabeled.status === 0) {
-    kernel(
-      "decide",
-      [
-        "--proposal-id",
-        "proposal.bad.membership",
-        "--principal",
-        "principal.owner",
-        "--decision",
-        "approve",
-      ],
-      "cli",
-    );
-    const badCommit = kernel(
-      "commit",
-      ["--proposal-id", "proposal.bad.membership", "--principal", "principal.owner"],
-      "cli",
-    );
-    record(
-      "j2_type_assignment_not_membership",
-      badCommit.status !== 0 &&
-        badCommit.stderr.includes("TypeAssignment must not be called Membership"),
-    );
-  } else {
-    record("j2_type_assignment_not_membership", true);
-  }
-
-  // --- J4: clinic typed patient objects ---
-  const patients = [
-    { entity: "patient.ada", assignment: "type-assignment.patient.ada", grants: [human, agent] },
-    { entity: "patient.beau", assignment: "type-assignment.patient.beau", grants: [human, agent] },
-    { entity: "patient.cara", assignment: "type-assignment.patient.cara", grants: [human, agent] },
-    { entity: "patient.drew", assignment: "type-assignment.patient.drew", grants: [human, agent] },
-    {
-      entity: "patient.ibm-secret",
-      assignment: "type-assignment.patient.ibm-secret",
-      grants: [{ principal: "principal.owner", membership: "membership.clinic.owner" }],
-    },
-    {
-      entity: "patient.ibm-denied",
-      assignment: "type-assignment.patient.ibm-denied",
-      grants: [{ principal: "principal.owner", membership: "membership.clinic.owner" }],
-    },
-  ] as const;
-
-  for (const patient of patients) {
-    const grants = patient.grants.map((g) => ({
-      principalId: g.principal,
-      membershipId: g.membership,
-      objectType: clinicType,
-    }));
-    assert.equal(mint("world.clinic", patient.entity, grants).status, 0);
-    const planted = plantType(
-      "world.clinic",
-      patient.entity,
-      patient.assignment,
-      clinicType,
-      `evidence.clinic.${patient.entity}`,
-      grants,
-    );
-    assert.equal(planted.status, 0, planted.stderr);
-  }
-
-  const humanPage = queryTyped("world.clinic", human, clinicType, "eve");
-  assert.equal(humanPage.status, 0, humanPage.stderr);
-  const humanIds = (
-    (humanPage.body?.objects as Array<{ objectKey?: { entity?: string } }>) ?? []
-  ).map((o) => o.objectKey?.entity ?? "");
-  record("j4_actors_human_sees_four", humanPage.body?.authorizedCount === 4);
+  assert.equal(decide(owner, recoveryProposal).status, 0);
+  await setMembershipStatus("revoked");
+  const deniedCommit = commit(owner, recoveryProposal);
   record(
-    "j4_path_typed_patients",
-    [...humanIds].sort((a, b) => a.localeCompare(b)).join(",") === "patient.ada,patient.beau,patient.cara,patient.drew",
+    "revoked_commit_membership_denies_before_materialization",
+    deniedCommit.status !== 0 && deniedCommit.stderr.toLowerCase().includes("denied"),
+  );
+  await assertNoMaterialization(recoveryProposal, recoveryEntity, recoveryAssignment);
+  await setMembershipStatus("active");
+  const recoveredCommit = commit(owner, recoveryProposal);
+  assert.equal(recoveredCommit.status, 0, recoveredCommit.stderr);
+  record(
+    "reactivated_membership_recovers_same_proposal_once",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE assignment_id = $1",
+      [recoveryAssignment],
+    )) === 1,
+  );
+
+  const collisionProposal = "proposal.assignment.collision";
+  const collisionEntity = "memory.collision";
+  assert.equal(
+    propose(
+      builder,
+      collisionProposal,
+      typeAssignmentDraft({
+        assignmentId,
+        entity: collisionEntity,
+        objectType: memoryType,
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(decide(owner, collisionProposal).status, 0);
+  const collision = commit(owner, collisionProposal);
+  record(
+    "immutable_assignment_collision_is_rejected",
+    collision.status !== 0 && collision.stderr.toLowerCase().includes("assignment"),
   );
   record(
-    "j4_typed_refs_private",
-    ((humanPage.body?.objects as Array<{ assignmentId?: string; typeId?: string }>) ?? []).every(
-      (o) =>
-        typeof o.assignmentId === "string" &&
-        o.assignmentId.startsWith("type-assignment.") &&
-        o.typeId === clinicType,
-    ),
+    "failed_materialization_does_not_orphan_receipt_or_object_key",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_kernel_receipts WHERE proposal_id = $1",
+      [collisionProposal],
+    )) === 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_object_keys WHERE world_id = $1 AND entity_id = $2",
+        [world, collisionEntity],
+      )) === 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE assignment_id = $1 AND receipt_id = $2",
+        [assignmentId, receiptId],
+      )) === 1,
   );
 
-  const agentPage = queryTyped("world.clinic", agent, clinicType, "mcp");
-  assert.equal(agentPage.status, 0, agentPage.stderr);
+  const secondAssignment = "type-assignment.memory.dentist.patient";
+  const secondProposal = "proposal.memory.dentist.patient";
+  assert.equal(
+    propose(
+      builder,
+      secondProposal,
+      typeAssignmentDraft({
+        assignmentId: secondAssignment,
+        entity,
+        objectType: patientType,
+        validEndMicros: 1_800_000_000_000_000,
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(decide(owner, secondProposal).status, 0);
+  assert.equal(commit(owner, secondProposal).status, 0);
   record(
-    "j4_actors_agent_same_count",
-    agentPage.body?.authorizedCount === humanPage.body?.authorizedCount,
+    "one_object_key_supports_multiple_temporal_type_assignments",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_object_keys WHERE world_id = $1 AND entity_id = $2",
+      [world, entity],
+    )) === 1 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_type_assignments WHERE world_id = $1 AND entity_id = $2",
+        [world, entity],
+      )) === 2,
   );
 
-  // Surface parity
-  const surfaceCounts = surfaces.map((surface) => {
-    const page = queryTyped("world.clinic", human, clinicType, surface);
-    assert.equal(page.status, 0, `${surface}: ${page.stderr}`);
-    return page.body?.authorizedCount;
+  const invalidCases: Array<{
+    name: string;
+    proposal: string;
+    entity: string;
+    assignment: string;
+    draft: Record<string, unknown>;
+  }> = [];
+  const crossWorldDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.world",
+    entity: "memory.invalid.world",
+    objectType: memoryType,
   });
-  record(
-    "j4_surface_parity",
-    surfaceCounts.every((count) => count === 4),
-  );
-
-  // Negative
-  const strangerClinic = queryTyped("world.clinic", stranger, clinicType);
-  record(
-    "j4_negative_stranger_denied",
-    strangerClinic.status !== 0 && strangerClinic.stderr.toLowerCase().includes("denied"),
-  );
-
-  // Outside valid time: plant expired assignment and ensure it is excluded
-  assert.equal(mint("world.clinic", "patient.expired").status, 0);
-  const expired = kernel("plant-type-assignment", [
-    "--world",
-    "world.clinic",
-    "--principal",
-    "principal.builder",
-    "--assignment-id",
-    "type-assignment.patient.expired",
-    "--entity",
-    "patient.expired",
-    "--type",
-    clinicType,
-    "--evidence-ref",
-    "evidence.clinic.expired",
-    "--valid-start-micros",
-    "0",
-    "--valid-end-micros",
-    "10",
-    "--grants-json",
-    JSON.stringify([
-      {
-        principalId: human.principal,
-        membershipId: human.membership,
-        objectType: clinicType,
-      },
-    ]),
-  ]);
-  assert.equal(expired.status, 0, expired.stderr);
-  const afterExpire = queryTyped("world.clinic", human, clinicType);
-  assert.equal(afterExpire.status, 0, afterExpire.stderr);
-  record(
-    "j4_temporal_type_assignment",
-    afterExpire.body?.authorizedCount === 4 &&
-      !JSON.stringify(afterExpire.body).includes("patient.expired"),
-  );
-
-  // Isolation: denied IBM patients never appear
-  record(
-    "j4_isolation_ibm_absent",
-    !humanIds.includes("patient.ibm-secret") &&
-      !humanIds.includes("patient.ibm-denied") &&
-      !JSON.stringify(humanPage.body).includes("ibm"),
-  );
-  const ownerPage = queryTyped(
-    "world.clinic",
-    { principal: "principal.owner", membership: "membership.clinic.owner" },
-    clinicType,
-  );
-  assert.equal(ownerPage.status, 0, ownerPage.stderr);
-  record(
-    "j4_isolation_owner_sees_more",
-    Number(ownerPage.body?.authorizedCount) >= 6,
-  );
-
-  // Replay + recovery
-  const replayClinic = queryTyped("world.clinic", human, clinicType, "connect");
-  assert.equal(replayClinic.status, 0, replayClinic.stderr);
-  record(
-    "j4_replay_same_authorized",
-    replayClinic.body?.authorizedCount === 4,
-  );
-  const recoveryClinic = queryTyped("world.clinic", human, clinicType, "cli");
-  assert.equal(recoveryClinic.status, 0, recoveryClinic.stderr);
-  record(
-    "j4_recovery_no_widen",
-    recoveryClinic.body?.authorizedCount === 4 &&
-      !JSON.stringify(recoveryClinic.body).includes("ibm"),
-  );
-
-  // --- FIN-01: ambiguous IBM identity ---
-  const listings = [
+  crossWorldDraft.objectKey = { world: "world.other", entity: "memory.invalid.world" };
+  invalidCases.push({
+    name: "cross_world_object_key",
+    proposal: "proposal.invalid.world",
+    entity: "memory.invalid.world",
+    assignment: "type-assignment.invalid.world",
+    draft: crossWorldDraft,
+  });
+  const wrongGrantDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.grant",
+    entity: "memory.invalid.grant",
+    objectType: memoryType,
+  });
+  wrongGrantDraft.grants = [
     {
-      entity: "listing.ibm.nyse",
-      typeAssignment: "type-assignment.listing.ibm.nyse",
-      idAssignment: "identifier.ibm.nyse.ticker",
-      venue: "NYSE",
-      currency: "USD",
-      level: "listing",
+      principalId: human.principal,
+      membershipId: human.membership,
+      objectType: patientType,
     },
-    {
-      entity: "listing.ibm.london",
-      typeAssignment: "type-assignment.listing.ibm.london",
-      idAssignment: "identifier.ibm.london.ticker",
-      venue: "XLON",
-      currency: "GBP",
-      level: "listing",
-    },
-  ] as const;
-  for (const listing of listings) {
-    assert.equal(mint("world.clinic", listing.entity).status, 0);
-    assert.equal(
-      plantType(
-        "world.clinic",
-        listing.entity,
-        listing.typeAssignment,
-        "finance.Listing",
-        `evidence.finance.${listing.entity}`,
-        [],
-      ).status,
-      0,
-    );
-    const plantedId = kernel("plant-identifier", [
-      "--world",
-      "world.clinic",
-      "--principal",
-      "principal.builder",
-      "--assignment-id",
-      listing.idAssignment,
-      "--entity",
-      listing.entity,
-      "--type-assignment-id",
-      listing.typeAssignment,
-      "--scheme",
-      "ticker",
-      "--value",
-      "IBM",
-      "--venue",
-      listing.venue,
-      "--currency",
-      listing.currency,
-      "--identifier-level",
-      listing.level,
-      "--evidence-ref",
-      `evidence.ticker.${listing.entity}`,
-      "--valid-start-micros",
-      "0",
-    ]);
-    assert.equal(plantedId.status, 0, plantedId.stderr);
+  ];
+  invalidCases.push({
+    name: "grant_type_mismatch",
+    proposal: "proposal.invalid.grant",
+    entity: "memory.invalid.grant",
+    assignment: "type-assignment.invalid.grant",
+    draft: wrongGrantDraft,
+  });
+  const finalEvidenceDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.evidence",
+    entity: "memory.invalid.evidence",
+    objectType: memoryType,
+  });
+  finalEvidenceDraft.evidenceRef = "evidence.mapper.must-not-mint";
+  invalidCases.push({
+    name: "mapper_supplied_final_evidence_ref",
+    proposal: "proposal.invalid.evidence",
+    entity: "memory.invalid.evidence",
+    assignment: "type-assignment.invalid.evidence",
+    draft: finalEvidenceDraft,
+  });
+  const membershipLabelDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.membership-label",
+    entity: "memory.invalid.membership-label",
+    objectType: memoryType,
+  });
+  (membershipLabelDraft.typeAssignment as Record<string, unknown>).membership =
+    "not-a-type-assignment";
+  invalidCases.push({
+    name: "membership_label_for_type_evidence",
+    proposal: "proposal.invalid.membership-label",
+    entity: "memory.invalid.membership-label",
+    assignment: "type-assignment.invalid.membership-label",
+    draft: membershipLabelDraft,
+  });
+  const malformedTimeDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.time",
+    entity: "memory.invalid.time",
+    objectType: memoryType,
+  });
+  (malformedTimeDraft.typeAssignment as Record<string, unknown>).validEndMicros = "tomorrow";
+  invalidCases.push({
+    name: "non_integer_valid_time",
+    proposal: "proposal.invalid.time",
+    entity: "memory.invalid.time",
+    assignment: "type-assignment.invalid.time",
+    draft: malformedTimeDraft,
+  });
+  const malformedGrantsDraft = typeAssignmentDraft({
+    assignmentId: "type-assignment.invalid.grants",
+    entity: "memory.invalid.grants",
+    objectType: memoryType,
+  });
+  malformedGrantsDraft.grants = { membershipId: human.membership };
+  invalidCases.push({
+    name: "non_array_grants",
+    proposal: "proposal.invalid.grants",
+    entity: "memory.invalid.grants",
+    assignment: "type-assignment.invalid.grants",
+    draft: malformedGrantsDraft,
+  });
+
+  for (const invalid of invalidCases) {
+    assert.equal(propose(builder, invalid.proposal, invalid.draft).status, 0);
+    assert.equal(decide(owner, invalid.proposal).status, 0);
+    const rejected = commit(owner, invalid.proposal);
+    record(`${invalid.name}_is_rejected`, rejected.status !== 0);
+    await assertNoMaterialization(invalid.proposal, invalid.entity, invalid.assignment);
   }
-
-  // Denial: analyst without entitlement
-  const deniedResolve = kernel("resolve-identifier", [
-    "--world",
-    "world.clinic",
-    "--principal",
-    analyst.principal,
-    "--membership",
-    analyst.membership,
-    "--scheme",
-    "ticker",
-    "--query",
-    "IBM",
-    "--valid-at-micros",
-    String(validAt),
-  ]);
-  record(
-    "fin01_denial_no_candidates",
-    deniedResolve.status !== 0 &&
-      deniedResolve.stderr.includes("discovery denied") &&
-      !deniedResolve.stdout.includes("NYSE"),
-  );
-
-  // Grant discovery entitlement (recovery)
-  const grant = kernel("grant-discovery", [
-    "--world",
-    "world.clinic",
-    "--principal",
-    "principal.owner",
-    "--membership",
-    analyst.membership,
-    "--subject-principal",
-    analyst.principal,
-    "--scheme",
-    "ticker",
-  ]);
-  assert.equal(grant.status, 0, grant.stderr);
-
-  const resolved = kernel("resolve-identifier", [
-    "--world",
-    "world.clinic",
-    "--principal",
-    analyst.principal,
-    "--membership",
-    analyst.membership,
-    "--scheme",
-    "ticker",
-    "--query",
-    "IBM",
-    "--valid-at-micros",
-    String(validAt),
-  ]);
-  assert.equal(resolved.status, 0, resolved.stderr);
-  const candidates =
-    (resolved.body?.candidates as Array<Record<string, unknown>>) ?? [];
-  record("fin01_two_typed_candidates", candidates.length === 2);
-  record(
-    "fin01_candidates_have_venue_currency_level",
-    candidates.every(
-      (c) =>
-        typeof c.venue === "string" &&
-        typeof c.currency === "string" &&
-        c.identifierLevel === "listing" &&
-        typeof c.evidenceRef === "string" &&
-        typeof c.assignmentId === "string",
-    ),
-  );
-  record(
-    "fin01_never_silent_first_match",
-    resolved.body?.selected === null && resolved.body?.silentFirstMatch === false,
-  );
-  const artifact = resolved.body?.fin01Artifact as Record<string, unknown> | undefined;
-  record(
-    "fin01_artifact_present",
-    artifact?.gate === "FIN-01" &&
-      artifact?.silentFirstMatch === false &&
-      artifact?.selected === null &&
-      artifact?.candidateCount === 2,
-  );
 
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
     dimensions: {
       actors:
-        "Eve (surface) proposes typed knowledge; clinic human and clinic agent query typed patients; finance analyst resolves IBM",
-      isolation:
-        "stranger cannot read typed memory or clinic patients; owner-only ibm-secret/ibm-denied never enter clinic authorizedCount",
+        "builder proposes a TypeAssignment draft; owner decides and commits through durable Membership/Cedar authority; human Membership is referenced by the committed grant",
+      path: "published seven-verb CLI Propose → Decide → Commit → Explain; Commit atomically materializes ObjectKey, TypeAssignment, receipt linkage, and exact grants",
       negative:
-        "stranger propose denied; stranger typed query denied; TypeAssignment refuses Membership label; discovery without entitlement returns no candidates",
-      path: "mint ObjectKey → Eve propose/decide/commit TypeAssignment → query/explain; plant typed clinic.Patient → query-typed; plant IBM listings → resolve-identifier",
-      recovery:
-        "typed TypeAssignment survives fresh query; discovery entitlement grant recovers FIN-01 candidates with disambiguation inputs",
+        "principal/Membership mismatch, revoked Commit Membership, cross-World ObjectKey, mismatched grant type, mapper-minted evidence, Membership terminology, malformed JSON field types, and immutable assignment collision fail closed",
       replay:
-        "identical typed-knowledge propose/commit returns original proposal and receipt; repeated clinic query-typed returns the same authorized set",
-    },
-    finalGates: {
-      "FIN-01": {
-        proof:
-          "IBM ticker resolves to two typed finance.Listing candidates with venue/currency/identifierLevel/validity/evidence; selected=null; silentFirstMatch=false; denial hides candidates; grant recovers",
-        artifact,
-        candidates,
-      },
+        "Commit replay returns the same receipt and verifies one exact immutable TypeAssignment/grant materialization",
+      isolation:
+        "World is part of every ObjectKey and composite TypeAssignment/grant foreign key; a cross-World draft creates no receipt or object state",
+      recovery:
+        "a Commit denied while the owner Membership is revoked leaves no materialization; reactivation commits that same proposal exactly once",
     },
     finishedAt: new Date().toISOString(),
-    journeys: ["J2", "J4"],
+    interfacesProven: ["cli"],
+    journeySlices: ["ObjectKey/TypeAssignment governed Commit persistence"],
+    journeys: [],
+    remainingJourneyProof: [
+      "J2:Eve memory path",
+      "J4:published Query with sealed cursor, budget, compute, and explain",
+      "Connect transport",
+      "MCP transport",
+      "FIN-01:W2-09 IdentifierAssignment plus W8-04 production-shaped proof",
+    ],
+    scope:
+      "W2-08 Postgres and CLI Commit slice only; no surface label, identifier resolver, or parallel typed verb is treated as journey proof",
     sourceCommit,
     startedAt,
     unit: "W2-08",
   });
-
   const passed = Object.values(assertions).filter(Boolean).length;
   const total = Object.keys(assertions).length;
   console.log(
@@ -816,6 +765,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : error);
+  console.error(error instanceof Error ? (error.stack ?? error.message) : error);
   process.exitCode = 1;
 });

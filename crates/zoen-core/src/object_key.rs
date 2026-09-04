@@ -85,9 +85,24 @@ macro_rules! assignment_id {
 }
 
 assignment_id!(TypeAssignmentId);
-assignment_id!(TypeAssignmentRef);
 assignment_id!(EvidenceRef);
-assignment_id!(IdentifierAssignmentId);
+
+/// A reference to an admitted [`TypeAssignment`].
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TypeAssignmentRef(String);
+
+impl TypeAssignmentRef {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for TypeAssignmentRef {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 /// Explicit, temporal, attributable evidence that an object has a type.
 ///
@@ -132,16 +147,9 @@ pub struct TypeAssignment {
 
 impl TypeAssignment {
     /// Returns this assignment id as a verified `TypeAssignmentRef`.
-    ///
-    /// # Panics
-    ///
-    /// Panics only if `TypeAssignmentId` and `TypeAssignmentRef` ever diverge
-    /// in identifier grammar, which cannot happen for a value already parsed
-    /// as `TypeAssignmentId`.
     #[must_use]
     pub fn assignment_ref(&self) -> TypeAssignmentRef {
-        TypeAssignmentRef::parse(self.id.as_str())
-            .expect("TypeAssignmentId is a valid TypeAssignmentRef")
+        TypeAssignmentRef(self.id.0.clone())
     }
 
     #[must_use]
@@ -206,16 +214,9 @@ pub struct GenericTypedObjectRef<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TypedObjectError {
-    TypeMismatch {
-        expected: String,
-        observed: String,
-    },
+    TypeMismatch { expected: String, observed: String },
     OutsideValidTime,
     MissingAssignment,
-    AmbiguousIdentity {
-        query: String,
-        candidate_count: usize,
-    },
 }
 
 impl Display for TypedObjectError {
@@ -230,82 +231,11 @@ impl Display for TypedObjectError {
             Self::MissingAssignment => {
                 formatter.write_str("typed operation rejected: explicit TypeAssignment is required")
             }
-            Self::AmbiguousIdentity {
-                query,
-                candidate_count,
-            } => write!(
-                formatter,
-                "ambiguous identity for {query}: {candidate_count} typed candidates (FIN-01 refuses silent first-match)"
-            ),
         }
     }
 }
 
 impl Error for TypedObjectError {}
-
-/// Contextual identifier attached to an `ObjectKey` (ticker, CIK, FIGI, …).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IdentifierAssertion {
-    pub object: ObjectKey,
-    pub scheme: String,
-    pub value: String,
-    pub venue: Option<String>,
-    pub currency: Option<String>,
-    pub identifier_level: String,
-    pub valid_time: ValidTime,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IdentifierAssignment {
-    pub id: IdentifierAssignmentId,
-    pub assertion: IdentifierAssertion,
-    pub evidence: EvidenceRef,
-}
-
-/// One FIN-01 candidate. Never auto-selected by the resolver.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IdentityCandidate {
-    pub object: ObjectKey,
-    pub type_id: TypeId,
-    pub assignment: TypeAssignmentRef,
-    pub venue: Option<String>,
-    pub currency: Option<String>,
-    pub identifier_level: String,
-    pub valid_time: ValidTime,
-    pub evidence: EvidenceRef,
-    pub identifier_scheme: String,
-    pub identifier_value: String,
-}
-
-/// FIN-01 resolve result: all plausible candidates, never a silent first pick.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IdentityResolveResult {
-    pub query: String,
-    pub candidates: Vec<IdentityCandidate>,
-    /// Always none until a caller explicitly selects; silent first-match is forbidden.
-    pub selected: Option<TypedObjectRef>,
-}
-
-impl IdentityResolveResult {
-    #[must_use]
-    pub fn ambiguous(&self) -> bool {
-        self.candidates.len() > 1
-    }
-
-    /// # Errors
-    ///
-    /// Returns [`TypedObjectError::AmbiguousIdentity`] when more than one candidate remains.
-    pub fn refuse_silent_select(&self) -> Result<(), TypedObjectError> {
-        if self.candidates.len() > 1 {
-            Err(TypedObjectError::AmbiguousIdentity {
-                query: self.query.clone(),
-                candidate_count: self.candidates.len(),
-            })
-        } else {
-            Ok(())
-        }
-    }
-}
 
 /// Canonical digest over a `TypeAssignmentAssertion` for attribution.
 #[must_use]

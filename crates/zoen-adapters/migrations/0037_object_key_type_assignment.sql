@@ -1,4 +1,4 @@
--- W2-08 (after W2-06 sealed cursors): stable ObjectKey, temporal TypeAssignment, identifier candidates (FIN-01).
+-- W2-08 (after W2-06 sealed cursors): stable ObjectKey and temporal TypeAssignment.
 -- TypeAssignment is NOT Membership.
 
 CREATE TABLE world_object_keys (
@@ -17,11 +17,12 @@ CREATE TABLE world_type_assignments (
     valid_start_micros BIGINT NOT NULL,
     valid_end_micros BIGINT,
     evidence_ref TEXT NOT NULL,
-    receipt_id TEXT,
+    receipt_id TEXT NOT NULL UNIQUE REFERENCES world_kernel_receipts (receipt_id),
     assertion_digest TEXT NOT NULL CHECK (assertion_digest ~ '^[0-9a-f]{64}$'),
     assigned_at_micros BIGINT NOT NULL,
     FOREIGN KEY (world_id, entity_id)
         REFERENCES world_object_keys (world_id, entity_id),
+    UNIQUE (assignment_id, world_id, entity_id, object_type),
     CONSTRAINT type_assignment_valid_interval CHECK (
         valid_end_micros IS NULL OR valid_end_micros > valid_start_micros
     )
@@ -33,54 +34,25 @@ CREATE INDEX world_type_assignments_by_object
 CREATE INDEX world_type_assignments_by_type_valid
     ON world_type_assignments (world_id, object_type, valid_start_micros);
 
-CREATE TABLE world_identifier_assignments (
-    assignment_id TEXT PRIMARY KEY,
-    world_id TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    scheme TEXT NOT NULL,
-    value TEXT NOT NULL,
-    venue TEXT,
-    currency TEXT,
-    identifier_level TEXT NOT NULL,
-    valid_start_micros BIGINT NOT NULL,
-    valid_end_micros BIGINT,
-    evidence_ref TEXT NOT NULL,
-    type_assignment_id TEXT NOT NULL
-        REFERENCES world_type_assignments (assignment_id),
-    assigned_at_micros BIGINT NOT NULL,
-    FOREIGN KEY (world_id, entity_id)
-        REFERENCES world_object_keys (world_id, entity_id),
-    CONSTRAINT identifier_assignment_valid_interval CHECK (
-        valid_end_micros IS NULL OR valid_end_micros > valid_start_micros
-    )
-);
-
-CREATE INDEX world_identifier_assignments_by_value
-    ON world_identifier_assignments (world_id, scheme, lower(value), valid_start_micros);
-
 CREATE TABLE world_typed_object_grants (
+    type_assignment_id TEXT NOT NULL,
     world_id TEXT NOT NULL,
     entity_id TEXT NOT NULL,
     object_type TEXT NOT NULL,
     principal_id TEXT NOT NULL,
     membership_id TEXT NOT NULL,
-    PRIMARY KEY (world_id, entity_id, object_type, principal_id, membership_id),
-    FOREIGN KEY (world_id, entity_id)
-        REFERENCES world_object_keys (world_id, entity_id)
+    PRIMARY KEY (type_assignment_id, principal_id, membership_id),
+    FOREIGN KEY (type_assignment_id, world_id, entity_id, object_type)
+        REFERENCES world_type_assignments (
+            assignment_id, world_id, entity_id, object_type
+        )
 );
 
 CREATE INDEX world_typed_object_grants_by_principal
     ON world_typed_object_grants (
-        world_id, object_type, principal_id, membership_id, entity_id
+        world_id, object_type, principal_id, membership_id, entity_id,
+        type_assignment_id
     );
-
-CREATE TABLE world_discovery_entitlements (
-    world_id TEXT NOT NULL,
-    principal_id TEXT NOT NULL,
-    membership_id TEXT NOT NULL,
-    scheme TEXT NOT NULL,
-    PRIMARY KEY (world_id, principal_id, membership_id, scheme)
-);
 
 CREATE FUNCTION reject_object_key_mutation()
 RETURNS TRIGGER
@@ -99,16 +71,8 @@ CREATE TRIGGER world_type_assignments_are_immutable
 BEFORE UPDATE OR DELETE ON world_type_assignments
 FOR EACH ROW EXECUTE FUNCTION reject_object_key_mutation();
 
-CREATE TRIGGER world_identifier_assignments_are_immutable
-BEFORE UPDATE OR DELETE ON world_identifier_assignments
-FOR EACH ROW EXECUTE FUNCTION reject_object_key_mutation();
-
 CREATE TRIGGER world_typed_object_grants_are_immutable
 BEFORE UPDATE OR DELETE ON world_typed_object_grants
-FOR EACH ROW EXECUTE FUNCTION reject_object_key_mutation();
-
-CREATE TRIGGER world_discovery_entitlements_are_immutable
-BEFORE UPDATE OR DELETE ON world_discovery_entitlements
 FOR EACH ROW EXECUTE FUNCTION reject_object_key_mutation();
 
 CREATE TRIGGER world_object_keys_cannot_be_truncated
@@ -119,14 +83,6 @@ CREATE TRIGGER world_type_assignments_cannot_be_truncated
 BEFORE TRUNCATE ON world_type_assignments
 FOR EACH STATEMENT EXECUTE FUNCTION reject_object_key_mutation();
 
-CREATE TRIGGER world_identifier_assignments_cannot_be_truncated
-BEFORE TRUNCATE ON world_identifier_assignments
-FOR EACH STATEMENT EXECUTE FUNCTION reject_object_key_mutation();
-
 CREATE TRIGGER world_typed_object_grants_cannot_be_truncated
 BEFORE TRUNCATE ON world_typed_object_grants
-FOR EACH STATEMENT EXECUTE FUNCTION reject_object_key_mutation();
-
-CREATE TRIGGER world_discovery_entitlements_cannot_be_truncated
-BEFORE TRUNCATE ON world_discovery_entitlements
 FOR EACH STATEMENT EXECUTE FUNCTION reject_object_key_mutation();

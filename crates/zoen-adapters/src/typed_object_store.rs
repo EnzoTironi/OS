@@ -1,851 +1,448 @@
-//! `ObjectKey` mint, temporal `TypeAssignment` commit, typed query, `FIN-01` resolve.
+//! Commit-only materialization for stable `ObjectKey` and temporal `TypeAssignment` state.
 
-use sqlx::Row;
+use std::collections::BTreeSet;
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use sqlx::{Postgres, Row, Transaction};
 use zoen_core::{
-    EntityId, EvidenceRef, ObjectKey, PrincipalId, TimestampMicros, TypeAssignment,
-    TypeAssignmentAssertion, TypeAssignmentId, TypeId, TypedObjectRef, ValidTime, WorldId,
-    principal_may_activate, principal_may_publish, type_assignment_assertion_digest,
+    EvidenceRef, MembershipId, ObjectKey, PrincipalId, TimestampMicros, TypeAssignment,
+    TypeAssignmentAssertion, TypeAssignmentId, TypeId, ValidTime, WorldId, encode_hex,
+    type_assignment_assertion_digest,
 };
-use zoen_engine::{
-    KernelError, KernelIdentityCandidate, KernelIdentityResolve, KernelMintObject,
-    KernelTypedObject, KernelTypedObjectPage,
-};
+use zoen_engine::KernelError;
 
 use crate::{PostgresWorldKernel, clock_micros};
 
-/// Inputs for planting an identifier assignment.
-pub struct PlantIdentifierInput<'a> {
-    pub assignment_id: &'a str,
-    pub entity_id: &'a str,
-    pub type_assignment_id: &'a str,
-    pub scheme: &'a str,
-    pub value: &'a str,
-    pub venue: Option<&'a str>,
-    pub currency: Option<&'a str>,
-    pub identifier_level: &'a str,
-    pub evidence_ref: &'a str,
-    pub valid_start_micros: i64,
-    pub valid_end_micros: Option<i64>,
+const TYPE_ASSIGNMENT_DRAFT_SCHEMA: &str = "zoen.type-assignment-draft.v1";
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct PreparedTypedGrant {
+    principal: PrincipalId,
+    membership: MembershipId,
+    object_type: TypeId,
 }
 
-/// Inputs for planting a temporal `TypeAssignment`.
-pub struct PlantTypeAssignmentInput<'a> {
-    pub assignment_id: &'a str,
-    pub entity_id: &'a str,
-    pub object_type: &'a str,
-    pub evidence_ref: &'a str,
-    pub valid_start_micros: i64,
-    pub valid_end_micros: Option<i64>,
-    pub grants: &'a [zoen_engine::KernelTypedGrant],
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedTypeAssignment {
+    id: TypeAssignmentId,
+    assertion: TypeAssignmentAssertion,
+    valid_start_micros: i64,
+    valid_end_micros: Option<i64>,
+    grants: Vec<PreparedTypedGrant>,
+}
+
+impl PreparedTypeAssignment {
+    fn admitted_assignment(&self, receipt_id: &str) -> Result<TypeAssignment, KernelError> {
+        Ok(TypeAssignment {
+            id: self.id.clone(),
+            assertion: self.assertion.clone(),
+            evidence: evidence_ref_for_receipt(receipt_id)?,
+        })
+    }
+
+    pub(crate) fn explanation_value(
+        &self,
+        receipt_id: &str,
+    ) -> Result<serde_json::Value, KernelError> {
+        let assignment = self.admitted_assignment(receipt_id)?;
+        Ok(serde_json::json!({
+            "assignmentId": assignment.id.as_str(),
+            "evidenceRef": assignment.evidence.as_str(),
+            "objectKey": {
+                "entity": assignment.assertion.object.entity.as_str(),
+                "world": assignment.assertion.object.world.as_str(),
+            },
+            "objectType": assignment.assertion.object_type.as_str(),
+            "validEndMicros": self.valid_end_micros,
+            "validStartMicros": self.valid_start_micros,
+        }))
+    }
 }
 
 impl PostgresWorldKernel {
-    /// Mint a stable private `ObjectKey`. Builder/owner only.
+    /// Parse and validate a type-assignment draft before Commit opens a transaction.
+    ///
+    /// Non-draft proposal inputs are ignored by this materializer.
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when the principal cannot mint or the key exists.
-    pub async fn mint_object_key(
-        &self,
+    /// Returns [`KernelError`] when a typed draft is malformed or crosses Worlds.
+    pub(crate) fn prepare_type_assignment_from_commit(
         world: &WorldId,
-        principal: &PrincipalId,
-        mint: &KernelMintObject,
-    ) -> Result<ObjectKey, KernelError> {
-        if !(principal_may_publish(principal) || principal_may_activate(principal)) {
-            return Err(KernelError::Denied(
-                "only builder or owner may mint ObjectKey".to_owned(),
-            ));
-        }
-        let _ = self.catalog_basis(world).await?;
-        let entity = EntityId::parse(&mint.entity_id)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let key = ObjectKey::new(world.clone(), entity);
-        let minted_at = clock_micros();
-        let inserted = sqlx::query(
-            "INSERT INTO world_object_keys (
-                world_id, entity_id, minted_at_micros, minted_by
-             ) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (world_id, entity_id) DO NOTHING",
-        )
-        .bind(world.as_str())
-        .bind(key.entity.as_str())
-        .bind(minted_at)
-        .bind(principal.as_str())
-        .execute(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        if inserted.rows_affected() == 0 {
-            // Idempotent mint of the same key is allowed.
-            return Ok(key);
-        }
-        for grant in &mint.grants {
-            sqlx::query(
-                "INSERT INTO world_typed_object_grants (
-                    world_id, entity_id, object_type, principal_id, membership_id
-                 ) VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(world.as_str())
-            .bind(key.entity.as_str())
-            .bind(&grant.object_type)
-            .bind(&grant.principal_id)
-            .bind(&grant.membership_id)
-            .execute(self.pool())
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        }
-        Ok(key)
-    }
-
-    /// Grant discovery entitlement for an identifier scheme (`FIN-01` denial/recovery).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when the principal cannot grant or the store fails.
-    pub async fn grant_discovery(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        membership_id: &str,
-        subject_principal: &str,
-        scheme: &str,
-    ) -> Result<(), KernelError> {
-        if !principal_may_activate(principal) {
-            return Err(KernelError::Denied(
-                "only the World owner may grant discovery entitlement".to_owned(),
-            ));
-        }
-        let _ = self.catalog_basis(world).await?;
-        sqlx::query(
-            "INSERT INTO world_discovery_entitlements (
-                world_id, principal_id, membership_id, scheme
-             ) VALUES ($1, $2, $3, $4)
-             ON CONFLICT DO NOTHING",
-        )
-        .bind(world.as_str())
-        .bind(subject_principal)
-        .bind(membership_id)
-        .bind(scheme)
-        .execute(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        Ok(())
-    }
-
-    /// Plant an identifier assignment bound to an existing `TypeAssignment` (`FIN-01` fixture).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when the principal cannot plant or references are missing.
-    pub async fn plant_identifier(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        input: &PlantIdentifierInput<'_>,
-    ) -> Result<(), KernelError> {
-        if !(principal_may_publish(principal) || principal_may_activate(principal)) {
-            return Err(KernelError::Denied(
-                "only builder or owner may plant identifier assignments".to_owned(),
-            ));
-        }
-        let _ = self.catalog_basis(world).await?;
-        let assigned_at = clock_micros();
-        sqlx::query(
-            "INSERT INTO world_identifier_assignments (
-                assignment_id, world_id, entity_id, scheme, value, venue, currency,
-                identifier_level, valid_start_micros, valid_end_micros, evidence_ref,
-                type_assignment_id, assigned_at_micros
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
-        )
-        .bind(input.assignment_id)
-        .bind(world.as_str())
-        .bind(input.entity_id)
-        .bind(input.scheme)
-        .bind(input.value)
-        .bind(input.venue)
-        .bind(input.currency)
-        .bind(input.identifier_level)
-        .bind(input.valid_start_micros)
-        .bind(input.valid_end_micros)
-        .bind(input.evidence_ref)
-        .bind(input.type_assignment_id)
-        .bind(assigned_at)
-        .execute(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        Ok(())
-    }
-
-    /// Materialize a temporal `TypeAssignment` after Commit (typed knowledge path).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when JSON is malformed or the `ObjectKey` is missing.
-    pub async fn materialize_type_assignment_from_commit(
-        &self,
-        world: &WorldId,
-        receipt_id: &str,
         input_jcs: &str,
-    ) -> Result<Option<TypeAssignment>, KernelError> {
-        let Some(payload) = parse_typed_knowledge(input_jcs)? else {
-            return Ok(None);
-        };
-        if payload.world != world.as_str() {
-            return Err(KernelError::Conflict(
-                "TypeAssignment ObjectKey world does not match proposal world".to_owned(),
-            ));
-        }
-        let object = ObjectKey::parse(&payload.world, &payload.entity)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let object_type = TypeId::parse(&payload.object_type)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let valid_time = match payload.valid_end_micros {
-            Some(end) => ValidTime::interval(
-                TimestampMicros::new(payload.valid_start_micros),
-                TimestampMicros::new(end),
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-            None => ValidTime::interval(
-                TimestampMicros::new(payload.valid_start_micros),
-                TimestampMicros::new(i64::MAX),
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        };
-        let assertion = TypeAssignmentAssertion {
-            object: object.clone(),
-            object_type: object_type.clone(),
-            valid_time,
-        };
-        let assignment_id = payload.assignment_id;
-        let evidence = EvidenceRef::parse(&payload.evidence_ref)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let digest = type_assignment_assertion_digest(&assertion);
-        let assigned_at = clock_micros();
-        let end_bind = payload.valid_end_micros;
-        sqlx::query(
-            "INSERT INTO world_type_assignments (
-                assignment_id, world_id, entity_id, object_type,
-                valid_start_micros, valid_end_micros, evidence_ref, receipt_id,
-                assertion_digest, assigned_at_micros
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-             ON CONFLICT (assignment_id) DO NOTHING",
-        )
-        .bind(&assignment_id)
-        .bind(object.world.as_str())
-        .bind(object.entity.as_str())
-        .bind(object_type.as_str())
-        .bind(payload.valid_start_micros)
-        .bind(end_bind)
-        .bind(evidence.as_str())
-        .bind(receipt_id)
-        .bind(&digest)
-        .bind(assigned_at)
-        .execute(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        for grant in &payload.grants {
-            sqlx::query(
-                "INSERT INTO world_typed_object_grants (
-                    world_id, entity_id, object_type, principal_id, membership_id
-                 ) VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(object.world.as_str())
-            .bind(object.entity.as_str())
-            .bind(object_type.as_str())
-            .bind(&grant.principal_id)
-            .bind(&grant.membership_id)
-            .execute(self.pool())
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        }
-        Ok(Some(TypeAssignment {
-            id: TypeAssignmentId::parse(&assignment_id)
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-            assertion,
-            evidence,
-        }))
+    ) -> Result<Option<PreparedTypeAssignment>, KernelError> {
+        parse_type_assignment_draft(input_jcs)?
+            .map(|payload| prepare_type_assignment(world, payload))
+            .transpose()
     }
 
-    /// Query typed objects that have a verified `TypeAssignment` covering `valid_at`.
-    ///
-    /// Authorize-before-discovery: only granted `ObjectKey` values are visible.
+    /// Materialize `ObjectKey`, `TypeAssignment`, and grants inside the receipt transaction.
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when policy denies or the store fails.
-    pub async fn query_typed_objects(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        membership: &str,
-        object_type: &str,
-        valid_at_micros: i64,
-    ) -> Result<KernelTypedObjectPage, KernelError> {
-        let _ = self.catalog_basis(world).await?;
-        let is_world_authority =
-            principal_may_publish(principal) || principal_may_activate(principal);
-        if !is_world_authority
-            && !principal_has_typed_grant(self, world, principal, membership, object_type).await?
-        {
-            return Err(KernelError::Denied(
-                "typed query denied: no TypeAssignment grant for this Membership".to_owned(),
-            ));
-        }
-        let rows = if is_world_authority {
-            sqlx::query(
-                "SELECT ta.assignment_id, ta.world_id, ta.entity_id, ta.object_type,
-                        ta.evidence_ref, ta.valid_start_micros, ta.valid_end_micros
-                 FROM world_type_assignments ta
-                 WHERE ta.world_id = $1
-                   AND ta.object_type = $2
-                   AND ta.valid_start_micros <= $3
-                   AND (ta.valid_end_micros IS NULL OR ta.valid_end_micros > $3)
-                 ORDER BY ta.entity_id ASC",
-            )
-            .bind(world.as_str())
-            .bind(object_type)
-            .bind(valid_at_micros)
-            .fetch_all(self.pool())
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?
-        } else {
-            sqlx::query(
-                "SELECT ta.assignment_id, ta.world_id, ta.entity_id, ta.object_type,
-                        ta.evidence_ref, ta.valid_start_micros, ta.valid_end_micros
-                 FROM world_type_assignments ta
-                 INNER JOIN world_typed_object_grants g
-                    ON g.world_id = ta.world_id
-                   AND g.entity_id = ta.entity_id
-                   AND g.object_type = ta.object_type
-                 WHERE ta.world_id = $1
-                   AND ta.object_type = $2
-                   AND g.principal_id = $3
-                   AND g.membership_id = $4
-                   AND ta.valid_start_micros <= $5
-                   AND (ta.valid_end_micros IS NULL OR ta.valid_end_micros > $5)
-                 ORDER BY ta.entity_id ASC",
-            )
-            .bind(world.as_str())
-            .bind(object_type)
-            .bind(principal.as_str())
-            .bind(membership)
-            .bind(valid_at_micros)
-            .fetch_all(self.pool())
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?
-        };
-
-        let objects = rows
-            .iter()
-            .map(|row| row_to_typed_object(row, object_type, valid_at_micros))
-            .collect::<Result<Vec<_>, _>>()?;
-        let authorized_count = objects.len() as u64;
-        Ok(KernelTypedObjectPage {
-            world: world.as_str().to_owned(),
-            object_type: object_type.to_owned(),
-            valid_at_micros,
-            objects,
-            authorized_count,
-        })
-    }
-
-    /// `FIN-01`: resolve an identifier to typed candidates without selecting the first match.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when discovery is denied or the store fails.
-    pub async fn resolve_identifier(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        membership: &str,
-        scheme: &str,
-        query: &str,
-        valid_at_micros: i64,
-    ) -> Result<KernelIdentityResolve, KernelError> {
-        let _ = self.catalog_basis(world).await?;
-        let entitled = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*)::bigint FROM world_discovery_entitlements
-             WHERE world_id = $1 AND principal_id = $2 AND membership_id = $3 AND scheme = $4",
-        )
-        .bind(world.as_str())
-        .bind(principal.as_str())
-        .bind(membership)
-        .bind(scheme)
-        .fetch_one(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        if entitled == 0 && !(principal_may_publish(principal) || principal_may_activate(principal))
-        {
-            // Denial: no candidate, count, or distinguishing error.
-            return Err(KernelError::Denied("discovery denied".to_owned()));
-        }
-        let rows = sqlx::query(
-            "SELECT i.assignment_id AS identifier_assignment_id,
-                    i.world_id, i.entity_id, i.scheme, i.value, i.venue, i.currency,
-                    i.identifier_level, i.evidence_ref AS id_evidence,
-                    i.valid_start_micros, i.valid_end_micros,
-                    t.assignment_id AS type_assignment_id, t.object_type
-             FROM world_identifier_assignments i
-             INNER JOIN world_type_assignments t
-                ON t.assignment_id = i.type_assignment_id
-             WHERE i.world_id = $1
-               AND i.scheme = $2
-               AND lower(i.value) = lower($3)
-               AND i.valid_start_micros <= $4
-               AND (i.valid_end_micros IS NULL OR i.valid_end_micros > $4)
-               AND t.valid_start_micros <= $4
-               AND (t.valid_end_micros IS NULL OR t.valid_end_micros > $4)
-             ORDER BY i.venue NULLS LAST, i.entity_id ASC",
-        )
-        .bind(world.as_str())
-        .bind(scheme)
-        .bind(query)
-        .bind(valid_at_micros)
-        .fetch_all(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-
-        let candidates = rows
-            .iter()
-            .map(row_to_identity_candidate)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(KernelIdentityResolve {
-            query: query.to_owned(),
-            fin01_artifact: fin01_artifact(query, scheme, &candidates),
-            candidates,
-            selected: None,
-        })
-    }
-
-    /// Builder/owner plants a temporal `TypeAssignment` (clinic fixture path).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`KernelError`] when the principal cannot plant or the `ObjectKey` is missing.
-    pub async fn plant_type_assignment(
-        &self,
-        world: &WorldId,
-        principal: &PrincipalId,
-        input: &PlantTypeAssignmentInput<'_>,
+    /// Returns [`KernelError`] when immutable state conflicts or storage fails.
+    pub(crate) async fn materialize_type_assignment_from_commit(
+        transaction: &mut Transaction<'_, Postgres>,
+        receipt_id: &str,
+        minted_by: &PrincipalId,
+        prepared: &PreparedTypeAssignment,
     ) -> Result<TypeAssignment, KernelError> {
-        if !(principal_may_publish(principal) || principal_may_activate(principal)) {
-            return Err(KernelError::Denied(
-                "only builder or owner may plant TypeAssignment".to_owned(),
-            ));
-        }
-        let _ = self.catalog_basis(world).await?;
-        let object = ObjectKey::parse(world.as_str(), input.entity_id)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let object_type_id = TypeId::parse(input.object_type)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let valid_time = match input.valid_end_micros {
-            Some(end) => ValidTime::interval(
-                TimestampMicros::new(input.valid_start_micros),
-                TimestampMicros::new(end),
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-            None => ValidTime::interval(
-                TimestampMicros::new(input.valid_start_micros),
-                TimestampMicros::new(i64::MAX),
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        };
-        let assertion = TypeAssignmentAssertion {
-            object: object.clone(),
-            object_type: object_type_id.clone(),
-            valid_time,
-        };
-        let evidence = EvidenceRef::parse(input.evidence_ref)
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let digest = type_assignment_assertion_digest(&assertion);
-        let assigned_at = clock_micros();
-        sqlx::query(
-            "INSERT INTO world_type_assignments (
-                assignment_id, world_id, entity_id, object_type,
-                valid_start_micros, valid_end_micros, evidence_ref, receipt_id,
-                assertion_digest, assigned_at_micros
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8,$9)
-             ON CONFLICT (assignment_id) DO NOTHING",
-        )
-        .bind(input.assignment_id)
-        .bind(object.world.as_str())
-        .bind(object.entity.as_str())
-        .bind(object_type_id.as_str())
-        .bind(input.valid_start_micros)
-        .bind(input.valid_end_micros)
-        .bind(evidence.as_str())
-        .bind(&digest)
-        .bind(assigned_at)
-        .execute(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        for grant in input.grants {
-            sqlx::query(
-                "INSERT INTO world_typed_object_grants (
-                    world_id, entity_id, object_type, principal_id, membership_id
-                 ) VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT DO NOTHING",
-            )
-            .bind(object.world.as_str())
-            .bind(object.entity.as_str())
-            .bind(object_type_id.as_str())
-            .bind(&grant.principal_id)
-            .bind(&grant.membership_id)
-            .execute(self.pool())
-            .await
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        }
-        Ok(TypeAssignment {
-            id: TypeAssignmentId::parse(input.assignment_id)
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-            assertion,
-            evidence,
-        })
+        persist_type_assignment(transaction, receipt_id, minted_by, prepared).await
     }
 
-    /// Load a `TypeAssignment` by id for explain/query proof.
+    /// Verify replay state without repairing any missing committed artifact.
     ///
     /// # Errors
     ///
-    /// Returns [`KernelError`] when the row is missing or malformed.
-    pub async fn get_type_assignment(
-        &self,
-        assignment_id: &str,
-    ) -> Result<Option<TypeAssignment>, KernelError> {
-        let row = sqlx::query(
-            "SELECT assignment_id, world_id, entity_id, object_type,
-                    valid_start_micros, valid_end_micros, evidence_ref
-             FROM world_type_assignments WHERE assignment_id = $1",
-        )
-        .bind(assignment_id)
-        .fetch_optional(self.pool())
-        .await
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let valid_start = row
-            .try_get::<i64, _>("valid_start_micros")
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        let valid_end = row
-            .try_get::<Option<i64>, _>("valid_end_micros")
-            .map_err(|error| KernelError::Store(error.to_string()))?;
-        Ok(Some(TypeAssignment {
-            id: TypeAssignmentId::parse(
-                row.try_get::<String, _>("assignment_id")
-                    .map_err(|error| KernelError::Store(error.to_string()))?,
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-            assertion: TypeAssignmentAssertion {
-                object: ObjectKey::parse(
-                    row.try_get::<String, _>("world_id")
-                        .map_err(|error| KernelError::Store(error.to_string()))?,
-                    row.try_get::<String, _>("entity_id")
-                        .map_err(|error| KernelError::Store(error.to_string()))?,
-                )
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-                object_type: TypeId::parse(
-                    row.try_get::<String, _>("object_type")
-                        .map_err(|error| KernelError::Store(error.to_string()))?,
-                )
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-                valid_time: match valid_end {
-                    Some(end) => ValidTime::interval(
-                        TimestampMicros::new(valid_start),
-                        TimestampMicros::new(end),
-                    )
-                    .map_err(|error| KernelError::Store(error.to_string()))?,
-                    None => ValidTime::interval(
-                        TimestampMicros::new(valid_start),
-                        TimestampMicros::new(i64::MAX),
-                    )
-                    .map_err(|error| KernelError::Store(error.to_string()))?,
-                },
-            },
-            evidence: EvidenceRef::parse(
-                row.try_get::<String, _>("evidence_ref")
-                    .map_err(|error| KernelError::Store(error.to_string()))?,
-            )
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        }))
+    /// Returns [`KernelError`] unless `ObjectKey`, `TypeAssignment`, receipt link, and exact grants
+    /// already match the original Commit.
+    pub(crate) async fn validate_type_assignment_replay(
+        transaction: &mut Transaction<'_, Postgres>,
+        receipt_id: &str,
+        prepared: &PreparedTypeAssignment,
+    ) -> Result<(), KernelError> {
+        require_object_key_exists(transaction, prepared).await?;
+        require_type_assignment_matches(transaction, receipt_id, prepared).await?;
+        require_grants_match(transaction, prepared).await
     }
 }
 
-#[derive(Clone, Debug)]
-struct TypedKnowledgePayload {
-    world: String,
-    entity: String,
-    object_type: String,
-    assignment_id: String,
-    evidence_ref: String,
-    valid_start_micros: i64,
-    valid_end_micros: Option<i64>,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TypeAssignmentDraftPayload {
+    schema: String,
+    object_key: ObjectKeyPayload,
+    type_assignment: TypeAssignmentPayload,
+    #[serde(default)]
     grants: Vec<TypedGrantPayload>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ObjectKeyPayload {
+    world: String,
+    entity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TypeAssignmentPayload {
+    assignment_id: String,
+    object_type: String,
+    valid_start_micros: i64,
+    valid_end_micros: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TypedGrantPayload {
     principal_id: String,
     membership_id: String,
+    object_type: String,
+}
+
+fn parse_type_assignment_draft(
+    input_jcs: &str,
+) -> Result<Option<TypeAssignmentDraftPayload>, KernelError> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(input_jcs) else {
+        return Ok(None);
+    };
+    if value.get("schema").and_then(serde_json::Value::as_str) != Some(TYPE_ASSIGNMENT_DRAFT_SCHEMA)
+    {
+        return Ok(None);
+    }
+    if value.get("evidenceRef").is_some()
+        || value.get("typeMembership").is_some()
+        || value
+            .get("typeAssignment")
+            .and_then(|assignment| assignment.get("membership"))
+            .is_some()
+    {
+        return Err(KernelError::Conflict(
+            "a TypeAssignment draft cannot supply final evidence or call type evidence Membership"
+                .to_owned(),
+        ));
+    }
+    serde_json::from_value::<TypeAssignmentDraftPayload>(value)
+        .map(Some)
+        .map_err(|error| KernelError::Conflict(format!("invalid TypeAssignment draft: {error}")))
+}
+
+fn prepare_type_assignment(
+    world: &WorldId,
+    payload: TypeAssignmentDraftPayload,
+) -> Result<PreparedTypeAssignment, KernelError> {
+    if payload.schema != TYPE_ASSIGNMENT_DRAFT_SCHEMA {
+        return Err(KernelError::Conflict(
+            "unexpected TypeAssignment draft schema".to_owned(),
+        ));
+    }
+    if payload.object_key.world != world.as_str() {
+        return Err(KernelError::Conflict(
+            "TypeAssignment ObjectKey world does not match proposal world".to_owned(),
+        ));
+    }
+    let object = ObjectKey::parse(&payload.object_key.world, &payload.object_key.entity)
+        .map_err(|error| KernelError::Conflict(error.to_string()))?;
+    let object_type = TypeId::parse(&payload.type_assignment.object_type)
+        .map_err(|error| KernelError::Conflict(error.to_string()))?;
+    let valid_time = valid_time_from_bounds(
+        payload.type_assignment.valid_start_micros,
+        payload.type_assignment.valid_end_micros,
+    )?;
+    let grants = prepare_grants(payload.grants, &object_type)?;
+    Ok(PreparedTypeAssignment {
+        id: TypeAssignmentId::parse(&payload.type_assignment.assignment_id)
+            .map_err(|error| KernelError::Conflict(error.to_string()))?,
+        assertion: TypeAssignmentAssertion {
+            object,
+            object_type,
+            valid_time,
+        },
+        valid_start_micros: payload.type_assignment.valid_start_micros,
+        valid_end_micros: payload.type_assignment.valid_end_micros,
+        grants,
+    })
+}
+
+fn prepare_grants(
+    grants: Vec<TypedGrantPayload>,
+    expected_type: &TypeId,
+) -> Result<Vec<PreparedTypedGrant>, KernelError> {
+    let mut prepared = Vec::with_capacity(grants.len());
+    let mut unique = BTreeSet::new();
+    for grant in grants {
+        let item = PreparedTypedGrant {
+            principal: PrincipalId::parse(grant.principal_id)
+                .map_err(|error| KernelError::Conflict(error.to_string()))?,
+            membership: MembershipId::parse(grant.membership_id)
+                .map_err(|error| KernelError::Conflict(error.to_string()))?,
+            object_type: TypeId::parse(grant.object_type)
+                .map_err(|error| KernelError::Conflict(error.to_string()))?,
+        };
+        if item.object_type != *expected_type {
+            return Err(KernelError::Conflict(
+                "typed grant must name the assigned object type".to_owned(),
+            ));
+        }
+        if !unique.insert(item.clone()) {
+            return Err(KernelError::Conflict(
+                "TypeAssignment draft contains a duplicate grant".to_owned(),
+            ));
+        }
+        prepared.push(item);
+    }
+    prepared.sort();
+    Ok(prepared)
 }
 
 fn valid_time_from_bounds(start: i64, end: Option<i64>) -> Result<ValidTime, KernelError> {
-    match end {
-        Some(end) => ValidTime::interval(TimestampMicros::new(start), TimestampMicros::new(end))
-            .map_err(|error| KernelError::Store(error.to_string())),
-        None => ValidTime::interval(TimestampMicros::new(start), TimestampMicros::new(i64::MAX))
-            .map_err(|error| KernelError::Store(error.to_string())),
-    }
-}
-
-fn row_to_typed_object(
-    row: &sqlx::postgres::PgRow,
-    object_type: &str,
-    valid_at_micros: i64,
-) -> Result<KernelTypedObject, KernelError> {
-    let type_id = row
-        .try_get::<String, _>("object_type")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let assignment_id = row
-        .try_get::<String, _>("assignment_id")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let entity = row
-        .try_get::<String, _>("entity_id")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let world_id = row
-        .try_get::<String, _>("world_id")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let evidence_ref = row
-        .try_get::<String, _>("evidence_ref")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let valid_start_micros = row
-        .try_get::<i64, _>("valid_start_micros")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    let valid_end_micros = row
-        .try_get::<Option<i64>, _>("valid_end_micros")
-        .map_err(|error| KernelError::Store(error.to_string()))?;
-    if type_id != object_type {
-        return Err(KernelError::Conflict(
-            "TypeAssignment does not support requested type".to_owned(),
-        ));
-    }
-    let assignment = TypeAssignment {
-        id: TypeAssignmentId::parse(&assignment_id)
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        assertion: TypeAssignmentAssertion {
-            object: ObjectKey::parse(&world_id, &entity)
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-            object_type: TypeId::parse(&type_id)
-                .map_err(|error| KernelError::Store(error.to_string()))?,
-            valid_time: valid_time_from_bounds(valid_start_micros, valid_end_micros)?,
-        },
-        evidence: EvidenceRef::parse(&evidence_ref)
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-    };
-    let typed = TypedObjectRef::verified(
-        &assignment,
-        &TypeId::parse(object_type).map_err(|error| KernelError::Store(error.to_string()))?,
-        TimestampMicros::new(valid_at_micros),
+    ValidTime::interval(
+        TimestampMicros::new(start),
+        TimestampMicros::new(end.unwrap_or(i64::MAX)),
     )
-    .map_err(|error| KernelError::Denied(error.to_string()))?;
-    Ok(KernelTypedObject {
-        key_world: typed.key.world.as_str().to_owned(),
-        key_entity: typed.key.entity.as_str().to_owned(),
-        type_id: typed.type_id.as_str().to_owned(),
-        assignment_id: typed.assignment.as_str().to_owned(),
-        evidence_ref,
-        valid_start_micros,
-        valid_end_micros,
-    })
+    .map_err(|error| KernelError::Conflict(error.to_string()))
 }
 
-fn row_to_identity_candidate(
-    row: &sqlx::postgres::PgRow,
-) -> Result<KernelIdentityCandidate, KernelError> {
-    Ok(KernelIdentityCandidate {
-        world: row
-            .try_get::<String, _>("world_id")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        entity: row
-            .try_get::<String, _>("entity_id")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        type_id: row
-            .try_get::<String, _>("object_type")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        assignment_id: row
-            .try_get::<String, _>("type_assignment_id")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        venue: row
-            .try_get::<Option<String>, _>("venue")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        currency: row
-            .try_get::<Option<String>, _>("currency")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        identifier_level: row
-            .try_get::<String, _>("identifier_level")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        identifier_scheme: row
-            .try_get::<String, _>("scheme")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        identifier_value: row
-            .try_get::<String, _>("value")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        evidence_ref: row
-            .try_get::<String, _>("id_evidence")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        valid_start_micros: row
-            .try_get::<i64, _>("valid_start_micros")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-        valid_end_micros: row
-            .try_get::<Option<i64>, _>("valid_end_micros")
-            .map_err(|error| KernelError::Store(error.to_string()))?,
-    })
+fn evidence_ref_for_receipt(receipt_id: &str) -> Result<EvidenceRef, KernelError> {
+    let digest = encode_hex(Sha256::digest(receipt_id.as_bytes()).as_ref());
+    EvidenceRef::parse(format!("evidence.{digest}"))
+        .map_err(|error| KernelError::Store(error.to_string()))
 }
 
-fn fin01_artifact(query: &str, scheme: &str, candidates: &[KernelIdentityCandidate]) -> String {
-    format!(
-        "{{\"gate\":\"FIN-01\",\"query\":{},\"scheme\":{},\"candidateCount\":{},\"selected\":null,\"silentFirstMatch\":false,\"candidates\":[{}]}}",
-        json_escape(query),
-        json_escape(scheme),
-        candidates.len(),
-        candidates
-            .iter()
-            .map(|c| {
-                format!(
-                    "{{\"objectKey\":{{\"world\":{},\"entity\":{}}},\"typeId\":{},\"assignmentId\":{},\"venue\":{},\"currency\":{},\"identifierLevel\":{},\"evidenceRef\":{},\"validStartMicros\":{},\"validEndMicros\":{}}}",
-                    json_escape(&c.world),
-                    json_escape(&c.entity),
-                    json_escape(&c.type_id),
-                    json_escape(&c.assignment_id),
-                    opt_json(c.venue.as_deref()),
-                    opt_json(c.currency.as_deref()),
-                    json_escape(&c.identifier_level),
-                    json_escape(&c.evidence_ref),
-                    c.valid_start_micros,
-                    match c.valid_end_micros {
-                        Some(v) => v.to_string(),
-                        None => "null".to_owned(),
-                    }
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",")
+async fn persist_type_assignment(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_id: &str,
+    minted_by: &PrincipalId,
+    prepared: &PreparedTypeAssignment,
+) -> Result<TypeAssignment, KernelError> {
+    let assignment = prepared.admitted_assignment(receipt_id)?;
+    let now = clock_micros();
+    sqlx::query(
+        "INSERT INTO world_object_keys (
+            world_id, entity_id, minted_at_micros, minted_by
+         ) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (world_id, entity_id) DO NOTHING",
     )
-}
-
-fn parse_typed_knowledge(input_jcs: &str) -> Result<Option<TypedKnowledgePayload>, KernelError> {
-    let value: serde_json::Value = serde_json::from_str(input_jcs)
-        .map_err(|error| KernelError::Store(format!("proposal input is not JSON: {error}")))?;
-    let schema = value.get("schema").and_then(|v| v.as_str()).unwrap_or("");
-    if schema != "zoen.typed-knowledge.v1" {
-        return Ok(None);
-    }
-    let object = value
-        .get("objectKey")
-        .ok_or_else(|| KernelError::Store("typed knowledge missing objectKey".to_owned()))?;
-    let type_assignment = value
-        .get("typeAssignment")
-        .ok_or_else(|| KernelError::Store("typed knowledge missing typeAssignment".to_owned()))?;
-    // Hard lock: refuse the Membership label for type evidence.
-    if type_assignment.get("membership").is_some()
-        || value.get("typeMembership").is_some()
-        || schema.contains("membership")
-    {
-        return Err(KernelError::Conflict(
-            "TypeAssignment must not be called Membership".to_owned(),
-        ));
-    }
-    let mut grants = Vec::new();
-    if let Some(items) = value.get("grants").and_then(|v| v.as_array()) {
-        for item in items {
-            grants.push(TypedGrantPayload {
-                principal_id: item
-                    .get("principalId")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| KernelError::Store("grant.principalId required".to_owned()))?
-                    .to_owned(),
-                membership_id: item
-                    .get("membershipId")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| KernelError::Store("grant.membershipId required".to_owned()))?
-                    .to_owned(),
-            });
-        }
-    }
-    Ok(Some(TypedKnowledgePayload {
-        world: object
-            .get("world")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Store("objectKey.world required".to_owned()))?
-            .to_owned(),
-        entity: object
-            .get("entity")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Store("objectKey.entity required".to_owned()))?
-            .to_owned(),
-        object_type: type_assignment
-            .get("objectType")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Store("typeAssignment.objectType required".to_owned()))?
-            .to_owned(),
-        assignment_id: type_assignment
-            .get("assignmentId")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Store("typeAssignment.assignmentId required".to_owned()))?
-            .to_owned(),
-        evidence_ref: value
-            .get("evidenceRef")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| KernelError::Store("evidenceRef required".to_owned()))?
-            .to_owned(),
-        valid_start_micros: type_assignment
-            .get("validStartMicros")
-            .and_then(serde_json::Value::as_i64)
-            .ok_or_else(|| {
-                KernelError::Store("typeAssignment.validStartMicros required".to_owned())
-            })?,
-        valid_end_micros: type_assignment
-            .get("validEndMicros")
-            .and_then(|v| {
-                if v.is_null() {
-                    Some(None)
-                } else {
-                    v.as_i64().map(Some)
-                }
-            })
-            .unwrap_or(None),
-        grants,
-    }))
-}
-
-async fn principal_has_typed_grant(
-    kernel: &PostgresWorldKernel,
-    world: &WorldId,
-    principal: &PrincipalId,
-    membership: &str,
-    object_type: &str,
-) -> Result<bool, KernelError> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)::bigint FROM world_typed_object_grants
-         WHERE world_id = $1 AND principal_id = $2 AND membership_id = $3 AND object_type = $4",
-    )
-    .bind(world.as_str())
-    .bind(principal.as_str())
-    .bind(membership)
-    .bind(object_type)
-    .fetch_one(kernel.pool())
+    .bind(assignment.assertion.object.world.as_str())
+    .bind(assignment.assertion.object.entity.as_str())
+    .bind(now)
+    .bind(minted_by.as_str())
+    .execute(&mut **transaction)
     .await
     .map_err(|error| KernelError::Store(error.to_string()))?;
-    Ok(count > 0)
+
+    let assertion_digest = type_assignment_assertion_digest(&assignment.assertion);
+    sqlx::query(
+        "INSERT INTO world_type_assignments (
+            assignment_id, world_id, entity_id, object_type,
+            valid_start_micros, valid_end_micros, evidence_ref, receipt_id,
+            assertion_digest, assigned_at_micros
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT (assignment_id) DO NOTHING",
+    )
+    .bind(assignment.id.as_str())
+    .bind(assignment.assertion.object.world.as_str())
+    .bind(assignment.assertion.object.entity.as_str())
+    .bind(assignment.assertion.object_type.as_str())
+    .bind(prepared.valid_start_micros)
+    .bind(prepared.valid_end_micros)
+    .bind(assignment.evidence.as_str())
+    .bind(receipt_id)
+    .bind(&assertion_digest)
+    .bind(now)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| KernelError::Store(error.to_string()))?;
+    require_type_assignment_matches(transaction, receipt_id, prepared).await?;
+
+    for grant in &prepared.grants {
+        sqlx::query(
+            "INSERT INTO world_typed_object_grants (
+                type_assignment_id, world_id, entity_id, object_type,
+                principal_id, membership_id
+             ) VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(assignment.id.as_str())
+        .bind(assignment.assertion.object.world.as_str())
+        .bind(assignment.assertion.object.entity.as_str())
+        .bind(grant.object_type.as_str())
+        .bind(grant.principal.as_str())
+        .bind(grant.membership.as_str())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+    }
+    require_grants_match(transaction, prepared).await?;
+    Ok(assignment)
 }
 
-fn json_escape(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
+async fn require_object_key_exists(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &PreparedTypeAssignment,
+) -> Result<(), KernelError> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT true FROM world_object_keys
+         WHERE world_id = $1 AND entity_id = $2
+         FOR SHARE",
+    )
+    .bind(prepared.assertion.object.world.as_str())
+    .bind(prepared.assertion.object.entity.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|error| KernelError::Store(error.to_string()))?;
+    if exists.is_none() {
+        return Err(KernelError::Conflict(
+            "committed TypeAssignment is missing its ObjectKey".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
-fn opt_json(value: Option<&str>) -> String {
-    value.map_or_else(|| "null".to_owned(), json_escape)
+async fn require_type_assignment_matches(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_id: &str,
+    prepared: &PreparedTypeAssignment,
+) -> Result<(), KernelError> {
+    let expected = prepared.admitted_assignment(receipt_id)?;
+    let row = sqlx::query(
+        "SELECT world_id, entity_id, object_type, valid_start_micros,
+                valid_end_micros, evidence_ref, receipt_id, assertion_digest
+         FROM world_type_assignments WHERE assignment_id = $1 FOR SHARE",
+    )
+    .bind(expected.id.as_str())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|error| KernelError::Store(error.to_string()))?
+    .ok_or_else(|| KernelError::Conflict("TypeAssignment was not materialized".to_owned()))?;
+    let matches = row
+        .try_get::<String, _>("world_id")
+        .map_err(|error| KernelError::Store(error.to_string()))?
+        == expected.assertion.object.world.as_str()
+        && row
+            .try_get::<String, _>("entity_id")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == expected.assertion.object.entity.as_str()
+        && row
+            .try_get::<String, _>("object_type")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == expected.assertion.object_type.as_str()
+        && row
+            .try_get::<i64, _>("valid_start_micros")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == prepared.valid_start_micros
+        && row
+            .try_get::<Option<i64>, _>("valid_end_micros")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == prepared.valid_end_micros
+        && row
+            .try_get::<String, _>("evidence_ref")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == expected.evidence.as_str()
+        && row
+            .try_get::<String, _>("receipt_id")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == receipt_id
+        && row
+            .try_get::<String, _>("assertion_digest")
+            .map_err(|error| KernelError::Store(error.to_string()))?
+            == type_assignment_assertion_digest(&expected.assertion);
+    if !matches {
+        return Err(KernelError::Conflict(
+            "TypeAssignment replay does not match immutable state".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn require_grants_match(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &PreparedTypeAssignment,
+) -> Result<(), KernelError> {
+    let rows = sqlx::query(
+        "SELECT principal_id, membership_id, object_type
+         FROM world_typed_object_grants
+         WHERE type_assignment_id = $1
+           AND world_id = $2
+           AND entity_id = $3
+         ORDER BY principal_id, membership_id, object_type",
+    )
+    .bind(prepared.id.as_str())
+    .bind(prepared.assertion.object.world.as_str())
+    .bind(prepared.assertion.object.entity.as_str())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| KernelError::Store(error.to_string()))?;
+    let observed = rows
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("principal_id")
+                    .map_err(|error| KernelError::Store(error.to_string()))?,
+                row.try_get::<String, _>("membership_id")
+                    .map_err(|error| KernelError::Store(error.to_string()))?,
+                row.try_get::<String, _>("object_type")
+                    .map_err(|error| KernelError::Store(error.to_string()))?,
+            ))
+        })
+        .collect::<Result<BTreeSet<_>, KernelError>>()?;
+    let expected = prepared
+        .grants
+        .iter()
+        .map(|grant| {
+            (
+                grant.principal.as_str().to_owned(),
+                grant.membership.as_str().to_owned(),
+                grant.object_type.as_str().to_owned(),
+            )
+        })
+        .collect::<BTreeSet<_>>();
+    if observed != expected {
+        return Err(KernelError::Conflict(
+            "TypeAssignment replay grants do not match immutable state".to_owned(),
+        ));
+    }
+    Ok(())
 }

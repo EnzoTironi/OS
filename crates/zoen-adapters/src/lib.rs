@@ -67,7 +67,6 @@ pub use pack_store::{PostgresPackStore, admit_pack};
 pub use release_cedar::{ReleaseCedarEvaluator, require_loadable_policy_catalog};
 pub use restate::{RestateEffectScheduler, restate_effect_key};
 pub use session_door::SessionDoor;
-pub use typed_object_store::{PlantIdentifierInput, PlantTypeAssignmentInput};
 use value_store::row_to_valid_time;
 pub(crate) use value_store::{row_to_value, valid_time_columns, value_columns};
 pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};

@@ -74,9 +74,8 @@ pub use migration::{
     MigrationRuleKind, MigrationStatus,
 };
 pub use object_key::{
-    EvidenceRef, GenericTypedObjectRef, IdentifierAssertion, IdentifierAssignment,
-    IdentifierAssignmentId, IdentityCandidate, IdentityResolveResult, ObjectKey, TypeAssignment,
-    TypeAssignmentAssertion, TypeAssignmentId, TypeAssignmentRef, TypedObjectError, TypedObjectRef,
+    EvidenceRef, GenericTypedObjectRef, ObjectKey, TypeAssignment, TypeAssignmentAssertion,
+    TypeAssignmentId, TypeAssignmentRef, TypedObjectError, TypedObjectRef,
     type_assignment_assertion_digest,
 };
 pub use pack::{
