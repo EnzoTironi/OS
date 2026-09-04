@@ -480,6 +480,32 @@ async function main(): Promise<void> {
       scenario: "effect-runtime",
       sourceCommit,
       startedAt,
+      canonicalJourneyVerdict: "NOT_EVALUATED",
+      journeyCoverage: {
+        J6: {
+          proofPending: [
+            "a generic AutomationDefinition creating exactly two content-addressed ExecutorCall records",
+            "each ExecutorCall delivering once through its verified conversation origin",
+          ],
+          proven: [
+            "production ZoenEffect dispatches a durable EffectRequest through Restate",
+            "Restate resumes one invocation after restart without a second provider operation",
+            "an ambiguous provider outcome is reconciled before another effect",
+          ],
+          status: "SUBSTRATE_ONLY",
+        },
+        J8: {
+          proofPending: [
+            "the complete J8 ceremony on one production image after every product dependency lands",
+          ],
+          proven: [
+            "ZoenEffect registration survives a Restate container recreation on its persistent volume",
+            "missing handler and runtime dependencies fail readiness closed",
+            "dispatcher, handler, Restate, connector, and zoend restart recovery converges",
+          ],
+          status: "SUBSTRATE_ONLY",
+        },
+      },
       targets: {
         humanEffectRequestId: human.effectRequestId,
         normalEffectRequestId: normal.effectRequestId,
@@ -498,6 +524,14 @@ async function main(): Promise<void> {
     observe(
       "artifactCarriesAssertionsAndSourceCommit",
       sourceCommit.length >= 7 && Object.keys(assertions).length >= 12,
+    );
+    observe(
+      "artifactDeclaresCanonicalJourneyBoundary",
+      manifest.canonicalJourneyVerdict === "NOT_EVALUATED" &&
+        manifest.journeyCoverage.J6.status === "SUBSTRATE_ONLY" &&
+        manifest.journeyCoverage.J8.status === "SUBSTRATE_ONLY" &&
+        manifest.journeyCoverage.J6.proofPending.length > 0 &&
+        manifest.journeyCoverage.J8.proofPending.length > 0,
     );
     await writeScenarioArtifact(repositoryRoot, "effect-runtime", manifest);
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
