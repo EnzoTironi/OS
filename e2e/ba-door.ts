@@ -30,7 +30,7 @@ const FIXED_CHILD_PATH =
   "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const DETACH_CHILDREN =
   process.platform !== "win32" && !e2eRunnerIsolatedProcessGroup;
-export const E2E_DOOR_PASSWORD = "E2e-session-door-1";
+export const E2E_DOOR_PASSWORD = randomBytes(32).toString("base64url");
 const INVITE_EXPIRES_AT_MICROS = 4_102_444_800_000_000;
 
 export type InvitePersona = {

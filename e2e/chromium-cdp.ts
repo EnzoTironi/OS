@@ -181,7 +181,7 @@ export class CdpPage {
   #receive(raw: unknown): void {
     try {
       if (typeof raw !== "string") {
-        throw new Error("Chromium CDP sent a non-text message");
+        throw new TypeError("Chromium CDP sent a non-text message");
       }
       const parsed: unknown = JSON.parse(raw);
       const message = cdpEnvelopeSchema.parse(parsed);
