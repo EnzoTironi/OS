@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import path from "node:path";
+import { writeScenarioArtifact } from "./host-env.js";
 import {
-  e2eGeneratedDirectory,
-  e2ePostgresUrl,
-  writeScenarioArtifact,
-} from "./host-env.js";
+  kernelJourneyPaths,
+  kernelSurfaces,
+  sevenVerbs,
+  worldActionId,
+  worldDefinitionDigest,
+} from "./kernel-journey.js";
 import { gitHead } from "./scenario-evidence.js";
 import {
   constructWorldRelease,
@@ -16,25 +18,11 @@ import {
 } from "./zoen-cli.js";
 
 const scenario = "object-key";
-const repositoryRoot = process.cwd();
-const postgresPortFallback = 55_493;
-const databaseUrl = e2ePostgresUrl("postgres", "postgres", postgresPortFallback);
-const generatedDirectory = e2eGeneratedDirectory(repositoryRoot, scenario);
-const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repositoryRoot, "target");
-const zoenPath = path.join(targetDir, "debug", "zoen");
-
-const worldDefinitionDigest = "a".repeat(64);
-const worldActionId = "zoen.world.discover";
-const sevenVerbs = [
-  "Discover",
-  "Query",
-  "Propose",
-  "Decide",
-  "Commit",
-  "Explain",
-  "Execute",
-] as const;
-const surfaces = ["cli", "connect", "mcp", "eve"] as const;
+const { repositoryRoot, databaseUrl, generatedDirectory, zoenPath } = kernelJourneyPaths(
+  scenario,
+  55_493,
+);
+const surfaces = kernelSurfaces;
 const clinicType = "clinic.Patient";
 const memoryType = "personal.Memory";
 const validAt = 1_700_000_000_000_000;
