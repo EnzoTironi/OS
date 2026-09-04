@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "c9d602eaa0babfef52668849774439310a0cb4c1",
-    "observedAt": "2026-09-04T11:36:47Z"
+    "sha": "6fae261e475576d2ec858ead6082bd985487f837",
+    "observedAt": "2026-09-04T13:59:26Z"
   },
   "roadmapAudit": {
-    "observedAt": "2026-09-04T11:36:47Z",
+    "observedAt": "2026-09-04T13:59:26Z",
     "issueRange": "#626-#669",
     "totalIssues": 44,
-    "openIssues": 41,
-    "verifiedClosedIssues": [630, 631, 632],
-    "reopenedIssues": [626, 627, 628, 629, 633, 634, 635, 636],
+    "openIssues": 40,
+    "verifiedClosedIssues": [630, 631, 632, 633],
+    "reopenedIssues": [626, 627, 628, 629, 634, 635, 636],
     "report": "orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md",
     "rule": "Merged code and green CI are inputs; completion requires the issue's named journey and negative, replay, isolation, and recovery proof."
   },
@@ -29,13 +29,6 @@
       "sourceHead": null,
       "pr": null,
       "fact": "Issue #629 reopened: one-Fly J1 still exercises the retired DefinitionRevision path rather than the four-catalog WorldRelease flow."
-    },
-    {
-      "unit": "W2-04",
-      "branch": null,
-      "sourceHead": null,
-      "pr": null,
-      "fact": "Issue #633 reopened: suffix-based owner authorization and first-activation concurrency do not prove governed atomic activation."
     },
     {
       "unit": "W2-05",
@@ -86,7 +79,6 @@
     }
   ],
   "landingOrder": [
-    "W2-04",
     "W1-06",
     "W1-07",
     "W2-05",
@@ -223,6 +215,15 @@
       "verification": "journey-verified",
       "currentVerification": "audit-rejected",
       "fact": "The historical 94/94 journey passed, but the current audit found suffix-based owner authorization and an unlocked first-activation race."
+    },
+    {
+      "number": 688,
+      "unit": "W2-04",
+      "head": "28b5e72ddf114ee5a7c38b0f0688b882eaf1dff2",
+      "merge": "6fae261e475576d2ec858ead6082bd985487f837",
+      "mergedAt": "2026-09-04T13:48:39Z",
+      "verification": "journey-verified",
+      "fact": "Repaired release authority with exact Membership, actor, workload, World, release, operation, policy, and preview binding; atomic immutable evidence; and stable first-activation locking. Exact-head world-release passed 132/132 across all six J1 dimensions."
     },
     {
       "number": 679,
