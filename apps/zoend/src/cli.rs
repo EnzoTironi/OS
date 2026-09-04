@@ -10,7 +10,7 @@ use std::{
 };
 
 use base64::Engine;
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, SET_COOKIE,
 };
@@ -606,6 +606,40 @@ pub enum WorldCommand {
     },
 }
 
+#[derive(Args, Debug)]
+pub(crate) struct KernelQueryArgs {
+    #[arg(long)]
+    world: String,
+    #[arg(long)]
+    principal: String,
+    #[arg(long)]
+    membership: String,
+    #[arg(long = "type")]
+    object_type: Option<String>,
+    #[arg(long)]
+    identifier: Option<String>,
+    #[arg(long)]
+    scheme: Option<String>,
+    #[arg(long = "venue-entity")]
+    venue_entity: Option<String>,
+    #[arg(long)]
+    mic: Option<String>,
+    #[arg(long)]
+    currency: Option<String>,
+    #[arg(long = "share-class")]
+    share_class: Option<String>,
+    #[arg(long)]
+    provider: Option<String>,
+    #[arg(long = "identifier-level")]
+    identifier_level: Option<String>,
+    #[arg(long = "valid-at-micros")]
+    valid_at_micros: Option<i64>,
+    #[arg(long)]
+    cursor: Option<String>,
+    #[arg(long)]
+    limit: Option<u32>,
+}
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum KernelCommand {
     /// Discover the seven public verbs on the active governed catalog
@@ -621,38 +655,7 @@ pub(crate) enum KernelCommand {
         membership: String,
     },
     /// Query the active catalog basis, or page sealed entitled objects
-    Query {
-        #[arg(long)]
-        world: String,
-        #[arg(long)]
-        principal: String,
-        #[arg(long)]
-        membership: String,
-        #[arg(long = "type")]
-        object_type: Option<String>,
-        #[arg(long)]
-        identifier: Option<String>,
-        #[arg(long)]
-        scheme: Option<String>,
-        #[arg(long = "venue-entity")]
-        venue_entity: Option<String>,
-        #[arg(long)]
-        mic: Option<String>,
-        #[arg(long)]
-        currency: Option<String>,
-        #[arg(long = "share-class")]
-        share_class: Option<String>,
-        #[arg(long)]
-        provider: Option<String>,
-        #[arg(long = "identifier-level")]
-        identifier_level: Option<String>,
-        #[arg(long = "valid-at-micros")]
-        valid_at_micros: Option<i64>,
-        #[arg(long)]
-        cursor: Option<String>,
-        #[arg(long)]
-        limit: Option<u32>,
-    },
+    Query(Box<KernelQueryArgs>),
     /// Propose a catalog-bound operation
     Propose {
         #[arg(long)]
@@ -1663,39 +1666,23 @@ fn map_kernel_command(command: KernelCommand) -> crate::kernel_cli::KernelComman
             principal,
             membership,
         },
-        KernelCommand::Query {
-            world,
-            principal,
-            membership,
-            object_type,
-            identifier,
-            scheme,
-            venue_entity,
-            mic,
-            currency,
-            share_class,
-            provider,
-            identifier_level,
-            valid_at_micros,
-            cursor,
-            limit,
-        } => K::Query {
-            world,
-            principal,
-            membership,
-            object_type,
-            identifier,
-            scheme,
-            venue_entity,
-            mic,
-            currency,
-            share_class,
-            provider,
-            identifier_level,
-            valid_at_micros,
-            cursor,
-            limit,
-        },
+        KernelCommand::Query(args) => K::Query(Box::new(crate::kernel_cli::KernelQueryRequest {
+            world: args.world,
+            principal: args.principal,
+            membership: args.membership,
+            object_type: args.object_type,
+            identifier: args.identifier,
+            scheme: args.scheme,
+            venue_entity: args.venue_entity,
+            mic: args.mic,
+            currency: args.currency,
+            share_class: args.share_class,
+            provider: args.provider,
+            identifier_level: args.identifier_level,
+            valid_at_micros: args.valid_at_micros,
+            cursor: args.cursor,
+            limit: args.limit,
+        })),
         KernelCommand::Propose {
             world,
             principal,

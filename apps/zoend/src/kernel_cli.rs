@@ -49,29 +49,32 @@ pub struct KernelCliResult {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct KernelQueryRequest {
+    pub(crate) world: String,
+    pub(crate) principal: String,
+    pub(crate) membership: String,
+    pub(crate) object_type: Option<String>,
+    pub(crate) identifier: Option<String>,
+    pub(crate) scheme: Option<String>,
+    pub(crate) venue_entity: Option<String>,
+    pub(crate) mic: Option<String>,
+    pub(crate) currency: Option<String>,
+    pub(crate) share_class: Option<String>,
+    pub(crate) provider: Option<String>,
+    pub(crate) identifier_level: Option<String>,
+    pub(crate) valid_at_micros: Option<i64>,
+    pub(crate) cursor: Option<String>,
+    pub(crate) limit: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
 pub enum KernelCommand {
     Discover {
         world: String,
         principal: String,
         membership: String,
     },
-    Query {
-        world: String,
-        principal: String,
-        membership: String,
-        object_type: Option<String>,
-        identifier: Option<String>,
-        scheme: Option<String>,
-        venue_entity: Option<String>,
-        mic: Option<String>,
-        currency: Option<String>,
-        share_class: Option<String>,
-        provider: Option<String>,
-        identifier_level: Option<String>,
-        valid_at_micros: Option<i64>,
-        cursor: Option<String>,
-        limit: Option<u32>,
-    },
+    Query(Box<KernelQueryRequest>),
     Propose {
         world: String,
         principal: String,
@@ -117,43 +120,7 @@ pub async fn run(
             principal,
             membership,
         } => discover(&world, &principal, &membership, surface).await,
-        KernelCommand::Query {
-            world,
-            principal,
-            membership,
-            object_type,
-            identifier,
-            scheme,
-            venue_entity,
-            mic,
-            currency,
-            share_class,
-            provider,
-            identifier_level,
-            valid_at_micros,
-            cursor,
-            limit,
-        } => {
-            query(
-                &world,
-                &principal,
-                &membership,
-                object_type.as_deref(),
-                identifier.as_deref(),
-                scheme.as_deref(),
-                venue_entity.as_deref(),
-                mic.as_deref(),
-                currency.as_deref(),
-                share_class.as_deref(),
-                provider.as_deref(),
-                identifier_level.as_deref(),
-                valid_at_micros,
-                cursor.as_deref(),
-                limit,
-                surface,
-            )
-            .await
-        }
+        KernelCommand::Query(request) => query(*request, surface).await,
         KernelCommand::Propose {
             world,
             principal,
@@ -215,43 +182,29 @@ async fn discover(
 }
 
 async fn query(
-    world: &str,
-    principal: &str,
-    membership: &str,
-    object_type: Option<&str>,
-    identifier: Option<&str>,
-    scheme: Option<&str>,
-    venue_entity: Option<&str>,
-    mic: Option<&str>,
-    currency: Option<&str>,
-    share_class: Option<&str>,
-    provider: Option<&str>,
-    identifier_level: Option<&str>,
-    valid_at_micros: Option<i64>,
-    cursor: Option<&str>,
-    limit: Option<u32>,
+    request: KernelQueryRequest,
     surface: KernelSurface,
 ) -> Result<KernelCliResult, Box<dyn Error + Send + Sync>> {
     let kernel = kernel().await?;
-    let world = WorldId::parse(world)?;
-    let principal = PrincipalId::parse(principal)?;
-    let membership = MembershipId::parse(membership)?;
-    if let Some(identifier) = identifier {
-        let Some(valid_at_micros) = valid_at_micros else {
+    let world = WorldId::parse(&request.world)?;
+    let principal = PrincipalId::parse(&request.principal)?;
+    let membership = MembershipId::parse(&request.membership)?;
+    if let Some(identifier) = request.identifier {
+        let Some(valid_at_micros) = request.valid_at_micros else {
             return Ok(map_error(KernelError::Conflict(
                 "--valid-at-micros is required for identifier queries".to_owned(),
             )));
         };
         let selector = KernelIdentifierSelector {
-            value: identifier.to_owned(),
-            scheme: scheme.map(str::to_owned),
-            object_type: object_type.map(str::to_owned),
-            venue_entity_id: venue_entity.map(str::to_owned),
-            mic: mic.map(str::to_owned),
-            currency: currency.map(str::to_owned),
-            share_class: share_class.map(str::to_owned),
-            provider: provider.map(str::to_owned),
-            identifier_level: identifier_level.map(str::to_owned),
+            value: identifier,
+            scheme: request.scheme,
+            object_type: request.object_type,
+            venue_entity_id: request.venue_entity,
+            mic: request.mic,
+            currency: request.currency,
+            share_class: request.share_class,
+            provider: request.provider,
+            identifier_level: request.identifier_level,
             valid_at_micros,
         };
         return match kernel
@@ -260,8 +213,8 @@ async fn query(
                 &principal,
                 &membership,
                 selector,
-                cursor.unwrap_or(""),
-                limit.unwrap_or(5),
+                request.cursor.as_deref().unwrap_or(""),
+                request.limit.unwrap_or(5),
                 surface,
             )
             .await
@@ -270,28 +223,31 @@ async fn query(
             Err(error) => Ok(map_error(error)),
         };
     }
-    if scheme.is_some()
-        || venue_entity.is_some()
-        || mic.is_some()
-        || currency.is_some()
-        || share_class.is_some()
-        || provider.is_some()
-        || identifier_level.is_some()
-        || valid_at_micros.is_some()
+    if request.scheme.is_some()
+        || request.venue_entity.is_some()
+        || request.mic.is_some()
+        || request.currency.is_some()
+        || request.share_class.is_some()
+        || request.provider.is_some()
+        || request.identifier_level.is_some()
+        || request.valid_at_micros.is_some()
     {
         return Ok(map_error(KernelError::Conflict(
             "identifier context flags require --identifier".to_owned(),
         )));
     }
-    if object_type.is_none() {
+    if request.object_type.is_none() {
         return match kernel.query(&world, &principal, &membership, surface).await {
             Ok(result) => Ok(ok(discover_json(&result))),
             Err(error) => Ok(map_error(error)),
         };
     }
-    let object_type = object_type.ok_or("type is required for sealed object query")?;
-    let page_token = cursor.unwrap_or("");
-    let requested_limit = limit.unwrap_or(5);
+    let object_type = request
+        .object_type
+        .as_deref()
+        .ok_or("type is required for sealed object query")?;
+    let page_token = request.cursor.as_deref().unwrap_or("");
+    let requested_limit = request.limit.unwrap_or(5);
     match kernel
         .query_objects(
             &world,
