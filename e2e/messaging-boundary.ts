@@ -108,7 +108,7 @@ async function admin(
 
 async function seedBoundAccount(): Promise<{
   accountId: string;
-  tenantId: string;
+  worldId: string;
   principalId: string;
   membershipId: string;
   telegramBindingId: string;
@@ -126,7 +126,7 @@ async function seedBoundAccount(): Promise<{
   );
   assert.equal(bootstrap.status, 200, JSON.stringify(bootstrap.body));
   const accountId = String(bootstrap.body.accountId);
-  const tenantId = String(bootstrap.body.worldId);
+  const worldId = String(bootstrap.body.worldId);
   const principalId = String(bootstrap.body.principalId);
   const membershipId = String(bootstrap.body.membershipId);
 
@@ -160,7 +160,7 @@ async function seedBoundAccount(): Promise<{
     membershipId,
     principalId,
     telegramBindingId: String(telegramBind.body.bindingId),
-    tenantId,
+    worldId,
   };
 }
 
@@ -341,22 +341,22 @@ async function main(): Promise<void> {
     const seed = await seedBoundAccount();
     const resolved = await admin(
       "GET",
-      `/identity/admin/resolve-context?world=${encodeURIComponent(seed.tenantId)}`,
+      `/identity/admin/resolve-context?world=${encodeURIComponent(seed.worldId)}`,
     );
     record(
       "membership resolves from the Better Auth session",
       resolved.status === 200 &&
         resolved.body.membershipId === seed.membershipId &&
-        resolved.body.worldId === seed.tenantId,
+        resolved.body.worldId === seed.worldId,
     );
     killMutant("Bootstrap a Membership that the active door session cannot resolve");
 
     record(
-      "thread_is_not_tenant",
-      seed.tenantId !== "9900001" &&
-        seed.tenantId !== "chat_guid_linq_demo",
+      "thread_is_not_world",
+      seed.worldId !== "9900001" &&
+        seed.worldId !== "chat_guid_linq_demo",
     );
-    killMutant("Treat channel.thread as tenantId");
+    killMutant("Treat channel.thread as WorldId");
 
     record(
       "provider_user_is_not_principal",
@@ -366,12 +366,12 @@ async function main(): Promise<void> {
     killMutant("Treat channel.providerUser as principalId");
 
     record(
-      "channel_identity_distinct_from_tenant_and_principal",
+      "channel_identity_distinct_from_world_and_principal",
       seed.telegramBindingId.length > 0 &&
         seed.linqBindingId.length > 0 &&
-        seed.telegramBindingId !== seed.tenantId &&
+        seed.telegramBindingId !== seed.worldId &&
         seed.linqBindingId !== seed.principalId &&
-        seed.tenantId !== seed.principalId,
+        seed.worldId !== seed.principalId,
     );
 
     const unresolved = await admin(
@@ -395,11 +395,11 @@ async function main(): Promise<void> {
       linqChannelProviderMapping: "linq",
       mutantsKilled,
       note:
-        "Eve owns channel ingress; zoend has no legacy gateway or conversation-stage routes.",
+        "Eve is the configured channel-ingress owner and zoend has no legacy gateway routes; signed provider ingress is not exercised here.",
       telegramIdentityRecording: {
         count: telegramRecording.accountIds.length,
-        providerCeremony:
-          "external acceptance: two owned Telegram accounts cross /eve/v1/telegram",
+        proofBoundary:
+          "internal provisional identity recording only; signed /eve/v1/telegram ingress is NOT_EVALUATED and remains with #655",
         status: "provisional",
         subjectIdsIncluded: false,
       },
@@ -407,7 +407,7 @@ async function main(): Promise<void> {
         accountId: seed.accountId,
         membershipId: seed.membershipId,
         principalId: seed.principalId,
-        tenantId: seed.tenantId,
+        worldId: seed.worldId,
       },
       startedAt,
       verdict: "PASS",
