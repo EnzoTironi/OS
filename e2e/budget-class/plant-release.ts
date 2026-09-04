@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { e2eHttpUrl } from "../host-env.js";
-import { provisionWorldReleaseActors, releaseAuthorityPolicies } from "../kernel-world-support.js";
+import {
+  provisionWorldReleaseActors,
+  releaseAuthorityPolicies,
+  type WorldReleaseActors,
+} from "../kernel-world-support.js";
 import { parseZoenJson, runZoenCli } from "../zoen-cli.js";
 
 export interface BudgetClassSpec {
@@ -131,9 +135,11 @@ export async function plantBudgetRelease(input: {
   world: string;
   zoenPath: string;
 }): Promise<{
+  actors: WorldReleaseActors;
   budgetClassIds: string[];
   digest: string;
   policyCatalogDigest: string;
+  previewDigest: string;
 }> {
   const budgets = input.budgets ?? defaultBudgetClasses;
   await mkdir(input.generatedDirectory, { recursive: true });
@@ -246,9 +252,11 @@ export async function plantBudgetRelease(input: {
   assert.equal(activated.status, 0, activated.stderr || activated.stdout);
 
   return {
+    actors,
     budgetClassIds: budgets.map((entry) => entry.id),
     digest,
     policyCatalogDigest: sha256Hex(bytes.policy),
+    previewDigest,
   };
 }
 

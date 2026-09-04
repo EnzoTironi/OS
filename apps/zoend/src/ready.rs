@@ -3,9 +3,10 @@ use std::{path::PathBuf, time::Duration};
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
 use reqwest::Client;
 use zoen_adapters::{
-    ActiveReleaseStatus, CedarPolicyEvaluator, PostgresAuthorityStore, ProjectionWatermarkStatus,
+    CedarPolicyEvaluator, PostgresAuthorityStore, PostgresWorldReleaseStore,
+    ProjectionWatermarkStatus, require_loadable_policy_catalog,
 };
-use zoen_core::TenantId;
+use zoen_core::{TenantId, WorldId, WorldReleaseError};
 use zoen_query::ObjectStoreConfig;
 use zoend::{config, integrity::StateClassification};
 
@@ -14,16 +15,18 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 #[derive(Clone)]
 pub struct ReadyState {
     pub auth_origin: String,
-    pub cedar_manifest: PathBuf,
+    pub cedar_manifest_path: PathBuf,
     pub classification: std::sync::Arc<StateClassification>,
     pub eve_origin: String,
     pub effect_registration_health_url: Option<String>,
     pub http: Client,
     pub object_store: Option<ObjectStoreConfig>,
     pub require_reference: bool,
+    pub releases: PostgresWorldReleaseStore,
     pub store: PostgresAuthorityStore,
     pub tenant_id: Option<TenantId>,
     pub watermark_max_age: Duration,
+    pub world_id: Option<WorldId>,
 }
 
 impl ReadyState {
@@ -48,18 +51,21 @@ impl ReadyState {
                     format!("ready HTTP client failed: {error}"),
                 )
             })?;
+        let releases = PostgresWorldReleaseStore::new(store.pool());
         Ok(Self {
             auth_origin: config::auth_base_url()?,
-            cedar_manifest: config::cedar_manifest_path()?,
+            cedar_manifest_path: config::cedar_manifest_path()?,
             classification,
             eve_origin: config::eve_base_url()?,
             effect_registration_health_url: config::effect_registration_health_url()?,
             http,
             object_store: config::object_store_config()?,
             require_reference,
+            releases,
             store,
             tenant_id: config::ready_tenant_id()?,
             watermark_max_age: config::projection_watermark_max_age()?,
+            world_id: config::ready_world_id()?,
         })
     }
 }
@@ -73,19 +79,25 @@ pub async fn ready(State(state): State<ReadyState>) -> impl IntoResponse {
 
 async fn evaluate(state: &ReadyState) -> Result<(), String> {
     let integrity = check_integrity(state);
-    let cedar = async { check_cedar(&state.cedar_manifest) };
+    let bootstrap_policy = check_bootstrap_policy(state);
     let release = check_release(state);
     let watermark = check_watermark(state);
     let effect = check_effect(state);
     let eve = check_eve(state);
     let auth = check_auth(state);
     let storage = check_storage(state);
-    let (integrity, cedar, release, watermark, effect, eve, auth, storage) = tokio::join!(
-        integrity, cedar, release, watermark, effect, eve, auth, storage
-    );
+    let (integrity, release, watermark, effect, eve, auth, storage) =
+        tokio::join!(integrity, release, watermark, effect, eve, auth, storage);
     let mut reasons = Vec::new();
     for result in [
-        integrity, cedar, release, watermark, effect, eve, auth, storage,
+        integrity,
+        bootstrap_policy,
+        release,
+        watermark,
+        effect,
+        eve,
+        auth,
+        storage,
     ] {
         if let Err(reason) = result {
             reasons.push(reason);
@@ -95,6 +107,14 @@ async fn evaluate(state: &ReadyState) -> Result<(), String> {
         Ok(())
     } else {
         Err(reasons.join("\n"))
+    }
+}
+
+fn check_bootstrap_policy(state: &ReadyState) -> Result<(), String> {
+    match CedarPolicyEvaluator::from_path(&state.cedar_manifest_path) {
+        Ok(policy) if !policy.is_empty() => Ok(()),
+        Ok(_) => Err("bootstrap Cedar is broken: policy manifest is empty".to_owned()),
+        Err(error) => Err(format!("bootstrap Cedar is broken: {error}")),
     }
 }
 
@@ -110,30 +130,28 @@ async fn check_integrity(state: &ReadyState) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn check_cedar(path: &std::path::Path) -> Result<(), String> {
-    match CedarPolicyEvaluator::from_path(path) {
-        Err(error) => {
-            let message = error.to_string();
-            if message.contains("failed to read") {
-                Err("cedar policy is missing".to_owned())
-            } else {
-                Err(format!("cedar policy is broken: {error}"))
-            }
-        }
-        Ok(policies) if policies.is_empty() => Err("cedar policy is missing".to_owned()),
-        Ok(_) => Ok(()),
-    }
-}
-
 async fn check_release(state: &ReadyState) -> Result<(), String> {
-    let Some(tenant_id) = state.tenant_id.as_ref() else {
+    let Some(world_id) = state.world_id.as_ref() else {
         return Err("active WorldRelease is missing".to_owned());
     };
-    match state.store.active_release(tenant_id).await {
-        Ok(ActiveReleaseStatus::Active) => Ok(()),
-        Ok(ActiveReleaseStatus::Missing) => Err("active WorldRelease is missing".to_owned()),
-        Ok(ActiveReleaseStatus::Stale) => Err("active WorldRelease is stale".to_owned()),
-        Err(error) => Err(format!("active WorldRelease is broken: {error}")),
+    let snapshot = state
+        .releases
+        .get_active_policy_snapshot(world_id)
+        .await
+        .map_err(active_release_error)?
+        .ok_or_else(|| "active WorldRelease is missing".to_owned())?;
+    require_loadable_policy_catalog(snapshot.policy().bytes())
+        .map(|_| ())
+        .map_err(|error| format!("active PolicyCatalog is broken: {error}"))
+}
+
+fn active_release_error(error: WorldReleaseError) -> String {
+    match error {
+        WorldReleaseError::MissingCatalog => "active PolicyCatalog is missing".to_owned(),
+        WorldReleaseError::InvalidPolicyCatalog(message) => {
+            format!("active PolicyCatalog is broken: {message}")
+        }
+        error => format!("active WorldRelease is broken: {error}"),
     }
 }
 

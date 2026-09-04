@@ -291,11 +291,7 @@ async function main(): Promise<void> {
 
     const readiness = await proveProductReadiness({
       admin,
-      adminAToken,
-      adminBToken,
       door,
-      fixture,
-      humanFixture,
       observe,
       policyManifestPath,
       processes,
@@ -474,8 +470,24 @@ async function main(): Promise<void> {
         deploymentId: registration.deploymentId,
         uri: persistedBuildBUri,
       },
+      dimensions: {
+        actors:
+          "the configured World is activated by its durable Owner Membership through the governed CLI before zoend evaluates readiness",
+        isolation:
+          "corrupting another World's distinct active PolicyCatalog leaves the configured World's readiness unchanged",
+        negative:
+          "broken bootstrap Cedar, invalid or policy-mismatched active publication evidence, missing or corrupt active release authority, and missing, corrupt, or unloadable release-bound catalogs fail readiness closed",
+        path:
+          "governed WorldRelease activation -> one-statement active release, full publication, and four-catalog snapshot -> publication evidence verification -> fresh Cedar compilation -> /ready",
+        recovery:
+          "publication identity and policy evidence are restored in place; governed CLI activation restores a deleted active pointer; dependency, Restate, and zoend restarts converge only after exact authority recovers",
+        replay:
+          "identical governed activation reports replay and concurrent readiness probes do not mutate release authority",
+      },
       finishedAt: new Date().toISOString(),
       invocationIdentity: identity,
+      journeys: ["J8"],
+      readinessAuthority: readiness.authority,
       registration,
       scenario: "effect-runtime",
       sourceCommit,
@@ -500,6 +512,8 @@ async function main(): Promise<void> {
           ],
           proven: [
             "ZoenEffect registration survives a Restate container recreation on its persistent volume",
+            "readiness reconstructs the full active publication, verifies its policy evidence against the release-bound catalog, and checks all four catalog blobs without mutation",
+            "broken bootstrap Cedar and release-bound catalogs fail closed while another World's corruption remains isolated",
             "missing handler and runtime dependencies fail readiness closed",
             "dispatcher, handler, Restate, connector, and zoend restart recovery converges",
           ],
