@@ -49,8 +49,19 @@ const budgetTemplate = {
   tables: 2,
 } as const;
 const budgets: BudgetClassSpec[] = [
-  { ...budgetTemplate, id: defaultBudget },
-  { ...budgetTemplate, fuel: 2_500_000, id: alternateBudget },
+  {
+    ...budgetTemplate,
+    id: defaultBudget,
+    priority: 10,
+    resourceId: "zoen.query.budget.default",
+  },
+  {
+    ...budgetTemplate,
+    fuel: 2_500_000,
+    id: alternateBudget,
+    priority: 20,
+    resourceId: "zoen.query.budget.alternate",
+  },
 ];
 
 interface CursorServerConfig {
