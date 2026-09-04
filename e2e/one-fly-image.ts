@@ -368,26 +368,25 @@ async function main(): Promise<void> {
     );
     inject("publish without matching Cedar evidence");
 
-    await expectConnectCode(
-      () =>
-        agent.activateRevision({
-          activeRevisionPrecondition: {
-            case: "expectedActiveDigest",
-            value: "cd".repeat(32),
-          },
-          definitionId: commercial.definition.definitionId,
-          digest: commercial.digest,
-          tenantId: tenantA,
-        }),
-      Code.FailedPrecondition,
-    );
+    // Already-active digest is idempotent (#546); a stale expectedActiveDigest
+    // must not move the pointer.
+    const idempotent = await agent.activateRevision({
+      activeRevisionPrecondition: {
+        case: "expectedActiveDigest",
+        value: "cd".repeat(32),
+      },
+      definitionId: commercial.definition.definitionId,
+      digest: commercial.digest,
+      tenantId: tenantA,
+    });
     const stillActive = await agent.getActiveRevision({
       definitionId: commercial.definition.definitionId,
       tenantId: tenantA,
     });
     observe(
-      "staleActivationFails",
-      stillActive.definitionRevision?.digest === commercial.digest,
+      "alreadyActiveActivateKeepsPointer",
+      idempotent.activation?.active?.digest === commercial.digest &&
+        stillActive.definitionRevision?.digest === commercial.digest,
     );
     inject("stale expectedActiveDigest overwrites the pointer");
 
