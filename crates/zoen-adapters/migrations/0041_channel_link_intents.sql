@@ -35,7 +35,7 @@ CREATE TABLE channel_link_receipts (
 CREATE FUNCTION protect_channel_link_intent() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF TG_OP = 'DELETE' THEN
+    IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
         RAISE EXCEPTION 'channel LinkIntent rows are immutable';
     END IF;
     IF OLD.intent_id IS DISTINCT FROM NEW.intent_id
@@ -59,6 +59,10 @@ CREATE TRIGGER channel_link_intents_immutable
 BEFORE UPDATE OR DELETE ON channel_link_intents
 FOR EACH ROW EXECUTE FUNCTION protect_channel_link_intent();
 
+CREATE TRIGGER channel_link_intents_cannot_be_truncated
+BEFORE TRUNCATE ON channel_link_intents
+FOR EACH STATEMENT EXECUTE FUNCTION protect_channel_link_intent();
+
 CREATE FUNCTION reject_channel_link_receipt_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -69,5 +73,9 @@ $$;
 CREATE TRIGGER channel_link_receipts_immutable
 BEFORE UPDATE OR DELETE ON channel_link_receipts
 FOR EACH ROW EXECUTE FUNCTION reject_channel_link_receipt_mutation();
+
+CREATE TRIGGER channel_link_receipts_cannot_be_truncated
+BEFORE TRUNCATE ON channel_link_receipts
+FOR EACH STATEMENT EXECUTE FUNCTION reject_channel_link_receipt_mutation();
 
 DROP TABLE onboard_tokens;

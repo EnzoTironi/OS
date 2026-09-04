@@ -448,6 +448,19 @@ async function waitForBlockedDoorAccountResolution(
   throw new Error("stale unbind did not pause on Door-account resolution");
 }
 
+async function assertTruncateRejected(
+  client: PostgresClient,
+  statement: string,
+  expected: RegExp,
+): Promise<void> {
+  await client.query("BEGIN");
+  try {
+    await assert.rejects(client.query(statement), expected);
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   let auth: Awaited<ReturnType<typeof startAuthDoor>> | undefined;
@@ -817,7 +830,18 @@ async function main(): Promise<void> {
         [String(intentA.intentId)],
       ),
     );
+    await assertTruncateRejected(
+      pg,
+      "TRUNCATE TABLE channel_link_intents, channel_link_receipts",
+      /channel LinkIntent rows are immutable/,
+    );
+    await assertTruncateRejected(
+      pg,
+      "TRUNCATE TABLE channel_link_receipts",
+      /channel LinkIntent receipts are immutable/,
+    );
     record("link_intent_and_receipt_are_immutable", true);
+    record("link_intent_and_receipt_truncation_is_rejected", true);
 
     const principalA = String(bootstrapA.body.principalId);
     const releaseDigest = await activateReleaseForWorld(
