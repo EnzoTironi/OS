@@ -261,8 +261,8 @@ jobs:
             durable_runner_pid="$(pgrep -P "$durable_wrapper_pid" -f 'node dist/e2e/durable-commit.js' | head -n 1 || true)"
             governed_runner_pid="$(pgrep -P "$governed_wrapper_pid" -f 'node dist/e2e/governed-action.js' | head -n 1 || true)"
             if [[ -n "$durable_runner_pid" && -n "$governed_runner_pid" ]] \
-              && port_in_use 58101 && port_in_use 59205 \
-              && port_in_use 58083 && port_in_use 59209; then
+              && port_in_use 55440 && port_in_use 58101 && port_in_use 59205 \
+              && port_in_use 55434 && port_in_use 58083 && port_in_use 59209; then
               break
             fi
             sleep 0.1
