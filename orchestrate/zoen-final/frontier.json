@@ -2,16 +2,37 @@
   "schemaVersion": 1,
   "repository": "EnzoTironi/OS",
   "main": {
-    "sha": "4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3",
-    "observedAt": "2026-09-03T19:30:00Z"
+    "sha": "13395c50f2c4aa458497f01bb2350f49883a37e4",
+    "observedAt": "2026-09-04T05:05:00Z"
   },
   "activeCandidates": [
     {
-      "unit": "W2-01",
-      "branch": "codex/w2-01-world-release-contract",
-      "sourceHead": "f00efc7f245db80ff0d0d9051986d4d61e0e20e8",
+      "unit": "W2-05",
+      "branch": "coder/w2-05-seven-verbs",
+      "sourceHead": null,
       "pr": null,
-      "fact": "A separate Codex task owns the corrective derivative."
+      "fact": "Execute started after W2-04 land; ready-for-agent #634"
+    },
+    {
+      "unit": "W2-06",
+      "branch": "coder/w2-06-sealed-cursors",
+      "sourceHead": null,
+      "pr": null,
+      "fact": "Execute started after W2-04 land; ready-for-agent #635"
+    },
+    {
+      "unit": "W2-07",
+      "branch": "coder/w2-07-budget-class",
+      "sourceHead": null,
+      "pr": null,
+      "fact": "Execute started after W2-04 land; ready-for-agent #636"
+    },
+    {
+      "unit": "W2-08",
+      "branch": "coder/w2-08-object-key",
+      "sourceHead": null,
+      "pr": null,
+      "fact": "Execute started after W2-04 land; ready-for-agent #637"
     }
   ],
   "journeyInfrastructure": [
@@ -26,7 +47,13 @@
       "fact": "Concurrent journey isolation infrastructure; separate from the canonical 52-unit product program."
     }
   ],
-  "landingOrder": ["W1-06", "W2-01"],
+  "landingOrder": [
+    "W2-05",
+    "W2-06",
+    "W2-07",
+    "W2-08",
+    "W3-01"
+  ],
   "mergedPullRequests": [
     {
       "number": 602,
@@ -101,6 +128,57 @@
       "mergedAt": "2026-09-03T17:02:36Z",
       "verification": "journey-verified",
       "fact": "Rust production ZoenEffect runtime landed; independent 44/44 effect-runtime proof at 665e2b8; tip harness fixes for e2e process-group."
+    },
+    {
+      "number": 672,
+      "unit": "W1-06",
+      "head": "b7379dac92cee3e5824e1b80990f5d9d1cf60670",
+      "merge": "50370d2c9e54af767a4f7ec3d2428fec0e303035",
+      "mergedAt": "2026-09-03T20:22:07Z",
+      "verification": "pending-ledger-row",
+      "fact": "Readiness fail-closed on product dependencies; ledger row still owed."
+    },
+    {
+      "number": 674,
+      "unit": "W1-07",
+      "head": "ac604bfdb3ff6724efddf82a67acf158e9860eb2",
+      "merge": "0fcb200a69090ff8e4aebb54053914988926adaa",
+      "mergedAt": "2026-09-04T02:52:05Z",
+      "verification": "pending-ledger-row",
+      "fact": "One-Fly image in required CI; ledger row still owed."
+    },
+    {
+      "number": 673,
+      "unit": "W2-01",
+      "head": "630dddd948d8f1a7b2da553d54fb3b4e7526fee1",
+      "merge": "fce9bc524b8c54b388968a12e0b918ff2f5d6fe5",
+      "mergedAt": "2026-09-03T22:30:02Z",
+      "verification": "journey-verified"
+    },
+    {
+      "number": 675,
+      "unit": "W2-02",
+      "head": "61b92229f4951d68e4871bf9a68ac5983deaffbb",
+      "merge": "26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d",
+      "mergedAt": "2026-09-04T01:37:18Z",
+      "verification": "journey-verified"
+    },
+    {
+      "number": 676,
+      "unit": "W2-03",
+      "head": "e7cfb16ba00e594bfb4543ad59474c6233881571",
+      "merge": "5d6134d4b0d4d97c8f493ed0c22fcf8416887da5",
+      "mergedAt": "2026-09-04T03:58:36Z",
+      "verification": "journey-verified"
+    },
+    {
+      "number": 678,
+      "unit": "W2-04",
+      "head": "eb33b4162f061cdcee3858e164a9f834d54fd50d",
+      "merge": "13395c50f2c4aa458497f01bb2350f49883a37e4",
+      "mergedAt": "2026-09-04T05:04:46Z",
+      "verification": "journey-verified",
+      "fact": "Preview, Decide, and gated WorldRelease activation; 94/94 world-release journey."
     }
   ],
   "initialPullRequestDispositionsDigest": "sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38",

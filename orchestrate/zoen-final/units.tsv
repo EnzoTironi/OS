@@ -11,14 +11,14 @@ W1-04	Use Eve's internal Ontology URL and delete legacy conversation paths	runti
 W1-05	Record two Telegram identities through the existing browser without copying secrets	integration	1	S	done	W1-01	J5		codex/w1-05-telegram-identities	621	c3e819c15e6aa4109a86a18d1b8e0915c208ceb9
 W1-06	Make readiness cover policy, release, projection, ZoenEffect, Eve, Auth, and storage	runtime-truth	1	L	queued	W1-02,W1-03,W1-04	J8				
 W1-07	Build and run the one-Fly image in CI and restore all live scenarios	integration	1	L	queued	W1-02,W1-03,W1-04,W1-06	J1,J8				
-W2-01	Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS	world-authority	2	M	active	W0-05,W1-01,W1-03,W1-04	J1		codex/w2-01-world-release-contract		f00efc7f245db80ff0d0d9051986d4d61e0e20e8
-W2-02	Store immutable release candidates and their four content-addressed catalogs	world-authority	2	L	queued	W2-01	J1				
-W2-03	Publish Cedar bundles inside candidates and remove boot policy as authority	world-authority	2	L	queued	W2-02	J1				
-W2-04	Preview, decide, publish, and atomically activate one WorldRelease	world-authority	2	L	queued	W2-03	J1				
-W2-05	Implement the seven public verbs on one governed catalog	world-authority	2	L	queued	W2-04	J1,J7				
-W2-06	Authorize before discovery and seal cursors to authority, query, release, and budget	world-authority	2	L	queued	W2-04	J4	FIN-05			
-W2-07	Replace client computation limits with release-owned BudgetClass	world-authority	2	M	queued	W2-04	J4,J7				
-W2-08	Add ObjectKey, private typed references, and temporal TypeAssignment	world-authority	2	L	queued	W2-04	J2,J4	FIN-01			
+W2-01	Define private WorldRelease content types and derive ReleaseDigest with domain-tagged RFC 8785 JCS	world-authority	2	M	done	W0-05,W1-01,W1-03,W1-04	J1		feat/w2-01-world-release	673	630dddd948d8f1a7b2da553d54fb3b4e7526fee1
+W2-02	Store immutable release candidates and their four content-addressed catalogs	world-authority	2	L	done	W2-01	J1		coder/w2-02-release-catalogs	675	61b92229f4951d68e4871bf9a68ac5983deaffbb
+W2-03	Publish Cedar bundles inside candidates and remove boot policy as authority	world-authority	2	L	done	W2-02	J1		coder/w2-03-cedar-policy-catalog	676	e7cfb16ba00e594bfb4543ad59474c6233881571
+W2-04	Preview, decide, publish, and atomically activate one WorldRelease	world-authority	2	L	done	W2-03	J1		coder/w2-04-world-release-activate	678	eb33b4162f061cdcee3858e164a9f834d54fd50d
+W2-05	Implement the seven public verbs on one governed catalog	world-authority	2	L	active	W2-04	J1,J7		coder/w2-05-seven-verbs		
+W2-06	Authorize before discovery and seal cursors to authority, query, release, and budget	world-authority	2	L	active	W2-04	J4	FIN-05	coder/w2-06-sealed-cursors		
+W2-07	Replace client computation limits with release-owned BudgetClass	world-authority	2	M	active	W2-04	J4,J7		coder/w2-07-budget-class		
+W2-08	Add ObjectKey, private typed references, and temporal TypeAssignment	world-authority	2	L	active	W2-04	J2,J4	FIN-01	coder/w2-08-object-key		
 W2-09	Validate typed links and contextual identifier assignments over their valid intervals	world-authority	2	L	queued	W2-08	J4	FIN-01,FIN-04			
 W3-01	Align Account, ExternalSubject, ChannelBinding, Membership, and World storage	identity-eve	3	L	queued	W2-04	J5				
 W3-02	Add one-time LinkIntent confirmation through Better Auth and channel possession	identity-eve	3	L	queued	W3-01	J5				
