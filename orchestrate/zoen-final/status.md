@@ -3,8 +3,8 @@
 Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 
 - Repository: `EnzoTironi/OS`
-- Base: `main@13395c50f2c4aa458497f01bb2350f49883a37e4`
-- Units: 52 total, 14 done, 4 active, 0 proof pending, 34 queued
+- Base: `main@c9d602eaa0babfef52668849774439310a0cb4c1`
+- Units: 52 total, 11 done, 8 active, 2 proof pending, 31 queued
 - Canonical journeys: 8, J1 through J8
 - Journey proof dimensions: actors, path, negative, replay, isolation, and recovery
 - Final gates: 9, FIN-01 through FIN-09
@@ -13,14 +13,30 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 - WorldRelease catalogs: ontology, policy, executors, components
 - Initial PR disposition digest: `sha256:6ffc3492284f65b32c62cd69f53d539cd538bd623a17a6bd3a20cd965eb48b38`
 
+## Roadmap audit
+
+- Scope: #626-#669 (44 units)
+- Observed at: 2026-09-04T11:36:47Z
+- GitHub state: 41 open; 3 verified closed
+- Verified closed: #630, #631, #632
+- Reopened by this audit: #626, #627, #628, #629, #633, #634, #635, #636
+- Rule: Merged code and green CI are inputs; completion requires the issue's named journey and negative, replay, isolation, and recovery proof.
+- Evidence: `orchestrate/zoen-final/reports/roadmap-validation-2026-09-04.md`
+
 ## Active and proof-pending units
 
 | Unit | Status | Branch | Head or source | Pull request |
 | --- | --- | --- | --- | --- |
-| W2-05 | active | coder/w2-05-seven-verbs | not recorded | not open |
-| W2-06 | active | coder/w2-06-sealed-cursors | not recorded | not open |
-| W2-07 | active | coder/w2-07-budget-class | not recorded | not open |
-| W2-08 | active | coder/w2-08-object-key | not recorded | not open |
+| W1-03 | proof_pending | codex/w1-03-rust-recovery | 6683cdcf47af02464a01aa021b34977f450da5d2 | #625 |
+| W1-04 | proof_pending | codex/w1-04-eve-runtime-boundary | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | #618 |
+| W1-06 | active | not assigned | not recorded | not open |
+| W1-07 | active | not assigned | not recorded | not open |
+| W2-04 | active | not assigned | not recorded | not open |
+| W2-05 | active | not assigned | not recorded | not open |
+| W2-06 | active | not assigned | not recorded | not open |
+| W2-07 | active | not assigned | not recorded | not open |
+| W2-08 | active | coder/w2-08-object-key | 8ee0d0708f65ba9aed5dd123326bc3b88aee7b73 | #686 |
+| W3-01 | active | coder/w3-01-identity-storage | ed949bd9fe8e6f8edc7ad71fead3fabaf1ea9c8a | #683 |
 
 ## Merged pull requests
 
@@ -33,16 +49,22 @@ Generated from `program.json`, `frontier.json`, and `ledger.tsv`.
 | #619 | journey infrastructure | 3c0d26f1c0778c58ef32b5450258941bbb4d6191 | daba8615f5ed39c1d84f4cd64ac8d830999e16b6 | 2026-09-03T05:04:58Z | not applicable |
 | #620 | W0-05 | 1cb0609561fcf00f9c5412a2dfb4cb28235c5c11 | d8843d7effe2822dc69568319a3e01c177648b89 | 2026-09-03T06:17:12Z | journey-verified |
 | #622 | Better Auth device-flow repair | 4c45b95482e5b49a06b5cd05755495b6ff6aed9b | be24e0956e0bfb681634c796b5410afc5eef2e38 | 2026-09-03T06:42:21Z | not applicable |
-| #618 | W1-04 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 2026-09-03T11:30:11Z | journey-verified |
-| #625 | W1-03 | 6683cdcf47af02464a01aa021b34977f450da5d2 | 4e33c57151ec8e3e28ee4c43a894da63173febc0 | 2026-09-03T17:02:36Z | journey-verified |
-| #672 | W1-06 | b7379dac92cee3e5824e1b80990f5d9d1cf60670 | 50370d2c9e54af767a4f7ec3d2428fec0e303035 | 2026-09-03T20:22:07Z | pending-ledger-row |
-| #674 | W1-07 | ac604bfdb3ff6724efddf82a67acf158e9860eb2 | 0fcb200a69090ff8e4aebb54053914988926adaa | 2026-09-04T02:52:05Z | pending-ledger-row |
+| #618 | W1-04 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 4dc06a4ac3161ce747f3d46c88d47e101dcdb4b3 | 2026-09-03T11:30:11Z | proof-pending |
+| #625 | W1-03 | 6683cdcf47af02464a01aa021b34977f450da5d2 | 4e33c57151ec8e3e28ee4c43a894da63173febc0 | 2026-09-03T17:02:36Z | proof-pending |
+| #672 | W1-06 | b7379dac92cee3e5824e1b80990f5d9d1cf60670 | 50370d2c9e54af767a4f7ec3d2428fec0e303035 | 2026-09-03T20:22:07Z | audit-rejected |
+| #674 | W1-07 | ac604bfdb3ff6724efddf82a67acf158e9860eb2 | 0fcb200a69090ff8e4aebb54053914988926adaa | 2026-09-04T02:52:05Z | audit-rejected |
 | #673 | W2-01 | 630dddd948d8f1a7b2da553d54fb3b4e7526fee1 | fce9bc524b8c54b388968a12e0b918ff2f5d6fe5 | 2026-09-03T22:30:02Z | journey-verified |
 | #675 | W2-02 | 61b92229f4951d68e4871bf9a68ac5983deaffbb | 26de4966c0afbf9bf57a433776cf3f6dfdbf0a1d | 2026-09-04T01:37:18Z | journey-verified |
 | #676 | W2-03 | e7cfb16ba00e594bfb4543ad59474c6233881571 | 5d6134d4b0d4d97c8f493ed0c22fcf8416887da5 | 2026-09-04T03:58:36Z | journey-verified |
-| #678 | W2-04 | eb33b4162f061cdcee3858e164a9f834d54fd50d | 13395c50f2c4aa458497f01bb2350f49883a37e4 | 2026-09-04T05:04:46Z | journey-verified |
+| #678 | W2-04 | eb33b4162f061cdcee3858e164a9f834d54fd50d | 13395c50f2c4aa458497f01bb2350f49883a37e4 | 2026-09-04T05:04:46Z | audit-rejected |
+| #679 | program ledger | 7d4703524cc16f3da816e2cc1720500d2810f710 | 604f1245e24f9132400c88241952148e7e8b3dc1 | 2026-09-04T08:38:05Z | not applicable |
+| #680 | journey infrastructure | 569313b68e3ae6b160c12d66108e9c7454d3effc | ae1e474539e5075b02d54398a72ff9e4aa9fcada | 2026-09-04T06:10:04Z | not applicable |
+| #681 | W2-07 | d4d22e3b31e9f937bf3e47c754e29dfc0ca810e0 | c49da90e7d126a98de29d5e7f24d9b6ec20baded | 2026-09-04T08:39:11Z | audit-rejected |
+| #682 | W2-05 | 8e36a702b100d2f3488331a9ed793c261c93af83 | 91bc4fcb6d0056c3c01c5b93a119ec3e7ae995e0 | 2026-09-04T06:53:53Z | audit-rejected |
+| #684 | journey infrastructure | a0403e43166e981d3f2db336a9de75673a27d93e | c9d602eaa0babfef52668849774439310a0cb4c1 | 2026-09-04T10:19:26Z | not applicable |
+| #685 | W2-06 | b2954ccc881b102d0f92b3ad123764b2535f5946 | e619afee948558c7cca6784ea400aa074d4807a0 | 2026-09-04T09:05:37Z | audit-rejected |
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04. PRs #673–#678 completed W2-01 through W2-04 with journey proof on main@13395c50, which is the recorded current main. W1-06 and W1-07 remain queued for ledger rows. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. The roadmap audit keeps the useful merged substrate while reopening or marking proof pending wherever the named journey is not yet proved. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

@@ -428,7 +428,31 @@ const counts = Object.fromEntries(
 const currentUnits = program.units.filter(({ status: unitStatus }) =>
   ["active", "proof_pending"].includes(unitStatus)
 );
+const activeUnitIds = program.units
+  .filter(({ status: unitStatus }) => unitStatus === "active")
+  .map(({ id }) => id)
+  .sort();
+const activeCandidateIds = frontier.activeCandidates
+  .map(({ unit }) => unit)
+  .sort();
+unique(activeCandidateIds, "active candidate units");
+if (activeCandidateIds.join("|") !== activeUnitIds.join("|")) {
+  fail("frontier active candidates must match active program units");
+}
+const activeCandidatesByUnit = new Map(
+  frontier.activeCandidates.map((candidate) => [candidate.unit, candidate])
+);
+const currentUnitRow = (unit) => {
+  const candidate = activeCandidatesByUnit.get(unit.id);
+  const branch = candidate ? candidate.branch : unit.branch;
+  const head = candidate
+    ? candidate.sourceHead
+    : (unit.headSha ?? unit.sourceHeadSha);
+  const pullRequest = candidate ? candidate.pr : unit.pr;
+  return `| ${unit.id} | ${unit.status} | ${escapeCell(branch ?? "not assigned")} | ${escapeCell(head ?? "not recorded")} | ${pullRequestCell(pullRequest)} |`;
+};
 const merged = frontier.mergedPullRequests;
+const audit = frontier.roadmapAudit;
 const status = `# Zoen final program status
 
 Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
@@ -444,19 +468,29 @@ Generated from \`program.json\`, \`frontier.json\`, and \`ledger.tsv\`.
 - WorldRelease catalogs: ${program.worldReleaseCatalogs.join(", ")}
 - Initial PR disposition digest: \`${initialPullRequestDispositionsDigest}\`
 
+## Roadmap audit
+
+- Scope: ${audit.issueRange} (${audit.totalIssues} units)
+- Observed at: ${audit.observedAt}
+- GitHub state: ${audit.openIssues} open; ${audit.verifiedClosedIssues.length} verified closed
+- Verified closed: ${audit.verifiedClosedIssues.map((number) => `#${number}`).join(", ")}
+- Reopened by this audit: ${audit.reopenedIssues.map((number) => `#${number}`).join(", ")}
+- Rule: ${audit.rule}
+- Evidence: \`${audit.report}\`
+
 ## Active and proof-pending units
 
 | Unit | Status | Branch | Head or source | Pull request |
 | --- | --- | --- | --- | --- |
-${currentUnits.map((unit) => `| ${unit.id} | ${unit.status} | ${escapeCell(unit.branch ?? "not assigned")} | ${escapeCell(unit.headSha ?? unit.sourceHeadSha ?? "not recorded")} | ${pullRequestCell(unit.pr)} |`).join("\n")}
+${currentUnits.map(currentUnitRow).join("\n")}
 
 ## Merged pull requests
 
 | Pull request | Unit | Head | Merge | Merged at | Verification |
 | --- | --- | --- | --- | --- | --- |
-${merged.map((item) => `| #${item.number} | ${item.unit ?? item.scope ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
+${merged.map((item) => `| #${item.number} | ${item.unit ?? item.scope ?? "toolchain"} | ${item.head} | ${item.merge} | ${item.mergedAt} | ${item.currentVerification ?? ledgerRows.find(({ unitId }) => unitId === item.unit)?.verdict ?? item.verification ?? "not applicable"} |`).join("\n")}
 
-PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. PR 625 completed W1-03. PR 618 completed W1-04. PRs #673–#678 completed W2-01 through W2-04 with journey proof on main@13395c50, which is the recorded current main. W1-06 and W1-07 remain queued for ledger rows. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
+PR 611 activated Rust 1.98 with Kache. PR 620 completed W0-05. PR 621 completed W1-05 with its live two-account Telegram ceremony. PR 622 repaired Better Auth device flow without changing the W1-02 verdict. The roadmap audit keeps the useful merged substrate while reopening or marking proof pending wherever the named journey is not yet proved. PR 619 landed the concurrent journey isolation barrier outside the 52-unit graph.
 
 ## Immutable journey-infrastructure audit evidence
 

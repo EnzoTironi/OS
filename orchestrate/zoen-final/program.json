@@ -3,7 +3,7 @@
   "repository": "EnzoTironi/OS",
   "base": {
     "branch": "main",
-    "sha": "13395c50f2c4aa458497f01bb2350f49883a37e4"
+    "sha": "c9d602eaa0babfef52668849774439310a0cb4c1"
   },
   "products": ["Ontology", "Eve", "Better Auth"],
   "verbs": [
@@ -325,7 +325,7 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "L",
-      "status": "done",
+      "status": "proof_pending",
       "dependencies": ["W1-01"],
       "journeys": ["J6", "J8"],
       "branch": "codex/w1-03-rust-recovery",
@@ -339,7 +339,7 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "M",
-      "status": "done",
+      "status": "proof_pending",
       "dependencies": ["W1-01", "W1-03"],
       "journeys": ["J5", "J8"],
       "branch": "codex/w1-04-eve-runtime-boundary",
@@ -367,9 +367,13 @@
       "track": "runtime-truth",
       "wave": 1,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W1-02", "W1-03", "W1-04"],
-      "journeys": ["J8"]
+      "journeys": ["J8"],
+      "branch": "codex/w1-06-product-readiness",
+      "pr": 672,
+      "headSha": "b7379dac92cee3e5824e1b80990f5d9d1cf60670",
+      "mergeSha": "50370d2c9e54af767a4f7ec3d2428fec0e303035"
     },
     {
       "id": "W1-07",
@@ -377,9 +381,13 @@
       "track": "integration",
       "wave": 1,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W1-02", "W1-03", "W1-04", "W1-06"],
-      "journeys": ["J1", "J8"]
+      "journeys": ["J1", "J8"],
+      "branch": "coder/w1-07-one-fly-ci",
+      "pr": 674,
+      "headSha": "ac604bfdb3ff6724efddf82a67acf158e9860eb2",
+      "mergeSha": "0fcb200a69090ff8e4aebb54053914988926adaa"
     },
     {
       "id": "W2-01",
@@ -430,7 +438,7 @@
       "track": "world-authority",
       "wave": 2,
       "size": "L",
-      "status": "done",
+      "status": "active",
       "dependencies": ["W2-03"],
       "journeys": ["J1"],
       "branch": "coder/w2-04-world-release-activate",
@@ -447,7 +455,10 @@
       "status": "active",
       "dependencies": ["W2-04"],
       "journeys": ["J1", "J7"],
-      "branch": "coder/w2-05-seven-verbs"
+      "branch": "coder/w2-05-seven-verbs",
+      "pr": 682,
+      "headSha": "8e36a702b100d2f3488331a9ed793c261c93af83",
+      "mergeSha": "91bc4fcb6d0056c3c01c5b93a119ec3e7ae995e0"
     },
     {
       "id": "W2-06",
@@ -459,7 +470,10 @@
       "dependencies": ["W2-04"],
       "journeys": ["J4"],
       "finalGates": ["FIN-05"],
-      "branch": "coder/w2-06-sealed-cursors"
+      "branch": "coder/w2-06-sealed-cursors",
+      "pr": 685,
+      "headSha": "b2954ccc881b102d0f92b3ad123764b2535f5946",
+      "mergeSha": "e619afee948558c7cca6784ea400aa074d4807a0"
     },
     {
       "id": "W2-07",
@@ -470,7 +484,10 @@
       "status": "active",
       "dependencies": ["W2-04"],
       "journeys": ["J4", "J7"],
-      "branch": "coder/w2-07-budget-class"
+      "branch": "coder/w2-07-budget-class",
+      "pr": 681,
+      "headSha": "d4d22e3b31e9f937bf3e47c754e29dfc0ca810e0",
+      "mergeSha": "c49da90e7d126a98de29d5e7f24d9b6ec20baded"
     },
     {
       "id": "W2-08",
@@ -482,7 +499,9 @@
       "dependencies": ["W2-04"],
       "journeys": ["J2", "J4"],
       "finalGates": ["FIN-01"],
-      "branch": "coder/w2-08-object-key"
+      "branch": "coder/w2-08-object-key",
+      "pr": 686,
+      "sourceHeadSha": "8ee0d0708f65ba9aed5dd123326bc3b88aee7b73"
     },
     {
       "id": "W2-09",
@@ -501,9 +520,12 @@
       "track": "identity-eve",
       "wave": 3,
       "size": "L",
-      "status": "queued",
+      "status": "active",
       "dependencies": ["W2-04"],
-      "journeys": ["J5"]
+      "journeys": ["J5"],
+      "branch": "coder/w3-01-identity-storage",
+      "pr": 683,
+      "sourceHeadSha": "ed949bd9fe8e6f8edc7ad71fead3fabaf1ea9c8a"
     },
     {
       "id": "W3-02",

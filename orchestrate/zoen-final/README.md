@@ -10,4 +10,12 @@ node orchestrate/zoen-final/render-status.mjs --write
 
 Commit the resulting `status.md`, `units.tsv`, `dependencies.tsv`, `journeys.tsv`, and `final-gates.tsv`. CI and reviewers can run the command without `--write` to reject stale generated files.
 
+After changing a roadmap issue or unit status, verify the live GitHub state against the canonical record:
+
+```sh
+node orchestrate/zoen-final/verify-roadmap-state.mjs
+```
+
+This check requires an authenticated `gh` CLI. It rejects missing issue numbers, duplicate or unknown unit titles, state/count drift, and open issues without an execution label.
+
 The reports directory contains historical evidence. A report does not override the current program source.
