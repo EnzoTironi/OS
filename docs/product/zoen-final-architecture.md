@@ -403,7 +403,7 @@ Delete rather than wrap:
 
 ## Launch proof examples
 
-These seven examples illustrate product behavior. They are not the acceptance catalog. [`program.json`](../../orchestrate/zoen-final/program.json) defines the eight canonical journeys, J1 through J8. J1 proves governed release and bootstrap. J8 proves production recovery.
+These seven examples illustrate product behavior. They are not the acceptance catalog.
 
 1. J5: One person signs in, links WhatsApp and Telegram, and gets one identity across both channels.
 2. J2: Eve remembers a fact only after a governed receipt exists.

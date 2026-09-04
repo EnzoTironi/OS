@@ -71,7 +71,7 @@ The specification does not fix these choices:
 - The order in which providers ship.
 - A terminal-style user interface.
 
-Sections 3.1 and 3.2 are normative. The seven decisions in section 23 resolve the questions that were open in the review draft. `orchestrate/zoen-final/decisions.tsv` records the same decisions in machine-readable form.
+Sections 3.1 and 3.2 are normative. The seven decisions in section 23 resolve the questions that were open in the review draft.
 
 ## 4. System invariants
 
@@ -1326,8 +1326,6 @@ Recovery: after trusted session and membership admission, a new operation resolv
 
 ## 21. Program integration
 
-`orchestrate/zoen-final/program.json` incorporates this specification into one 52-unit program. It does not create a parallel finance program.
-
 | Requirement | Program units | Required result |
 |---|---|---|
 | Four-catalog release closure | W2-01 through W2-04 | Derive the private release identity from canonical content, keep publication metadata separate, and activate one release per World |
@@ -1367,8 +1365,6 @@ W0-05
   -> W8-02
 ```
 
-The generated `dependencies.tsv` records every edge. The generated `journeys.tsv` records the eight canonical journeys, J1 through J8. The generated `final-gates.tsv` records FIN-01 through FIN-09.
-
 ## 22. Prohibited designs
 
 The following designs violate this specification:
@@ -1406,7 +1402,7 @@ W0-05 accepts this specification with these seven decisions:
 
 Verdict: Accept with the corrections incorporated in this version.
 
-`orchestrate/zoen-final/decisions.tsv` is the machine-readable decision record. `orchestrate/zoen-final/program.json` assigns the work to the 52-unit delivery program.
+The seven decisions in section 23 are the ratified decision record; delivery is tracked in GitHub Issues and stacked pull requests.
 
 ## 24. Traceability
 
@@ -1414,7 +1410,6 @@ This specification derives from:
 
 - [`AGENTS.md`](../../AGENTS.md).
 - [`zoen-final-architecture.md`](./zoen-final-architecture.md).
-- [Ratified delivery program](../../orchestrate/zoen-final/overview.md).
 - [Research provenance](../research/2026-09-02-openbb-ontology/README.md).
 - [Canonical research source](../research/2026-09-02-openbb-ontology/report-source.md).
 - [OpenBB repository forensics](../research/2026-09-02-openbb-ontology/subagent-reports/01-openbb-repository-forensics.md).
