@@ -67,13 +67,18 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const DOCKER_BIN = "/usr/bin/docker";
+const FIXED_CHILD_PATH =
+  "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 function compose(args: readonly string[], input?: string): string {
   return execFileSync(
-    "docker",
+    DOCKER_BIN,
     ["compose", "--project-name", project, "--file", composeFile, ...args],
     {
       cwd: repositoryRoot,
       encoding: "utf8",
+      env: { ...process.env, PATH: FIXED_CHILD_PATH },
       input,
     },
   );
@@ -213,8 +218,12 @@ function supervisorctl(command: string, program: string): string {
 
 function projectionEnvironment(): string {
   const pid = containerExec(["supervisorctl", "pid", "projection"]).trim();
-  assert.match(pid, /^[1-9][0-9]*$/);
-  return containerExec(["sh", "-c", `tr '\\0' '\\n' < /proc/${pid}/environ`]);
+  assert.match(pid, /^[1-9]\d*$/);
+  return containerExec([
+    "sh",
+    "-c",
+    String.raw`tr '\0' '\n' < /proc/${pid}/environ`,
+  ]);
 }
 
 async function main(): Promise<void> {
@@ -526,9 +535,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+try {
+  await main();
+} catch (error: unknown) {
   process.stderr.write(
     `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
   );
   process.exitCode = 1;
-});
+}
