@@ -67,7 +67,9 @@ pub use wasmtime_adapter::{WasmtimeComputationExecutor, WasmtimeConfigError};
 pub use workload_credential_store::{
     IssueWorkloadCredential, IssuedWorkloadCredential, PostgresWorkloadCredentialStore,
 };
-pub use world_release_store::{PostgresWorldReleaseStore, PublicationPut};
+pub use world_release_store::{
+    ActivatePut, DecisionPut, PostgresWorldReleaseStore, PreviewPut, PublicationPut,
+};
 
 pub(crate) async fn set_tenant(
     transaction: &mut Transaction<'_, Postgres>,

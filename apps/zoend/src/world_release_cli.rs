@@ -7,17 +7,18 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 use zoen_adapters::{
-    PostgresAuthorityStore, PostgresWorldReleaseStore, PublicationPut,
-    require_loadable_policy_catalog,
+    ActivatePut, DecisionPut, PostgresAuthorityStore, PostgresWorldReleaseStore, PreviewPut,
+    PublicationPut, require_loadable_policy_catalog,
 };
 use zoen_core::{
     ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, ExecutorCatalog,
     OntologyCatalog, PolicyCatalog, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
-    PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest, ResourceId, TenantId,
-    TimestampMicros, TrustedExecutionContext, WORLD_RELEASE_SCHEMA, WorkloadId, WorldId,
-    WorldRelease, WorldReleaseCatalogs, WorldReleaseError, WorldReleasePublication,
-    principal_may_activate, principal_may_publish,
+    PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDecisionOutcome, ReleaseDigest,
+    ReleasePreviewDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
+    WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA, WorkloadId, WorldId, WorldRelease,
+    WorldReleaseCatalogs, WorldReleaseDecision, WorldReleaseError, WorldReleasePreview,
+    WorldReleasePublication, principal_may_activate, principal_may_decide, principal_may_publish,
 };
 use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
@@ -57,11 +58,22 @@ pub async fn run(
             )
             .await
         }
-        ReleaseCommand::Activate {
+        ReleaseCommand::Preview {
             world,
             digest,
             principal,
-        } => activate(&world, &digest, &principal).await,
+        } => preview(&world, &digest, &principal).await,
+        ReleaseCommand::Decide {
+            preview_digest,
+            principal,
+            decision,
+        } => decide(&preview_digest, &principal, &decision).await,
+        ReleaseCommand::Activate {
+            world,
+            digest,
+            preview_digest,
+            principal,
+        } => activate(&world, &digest, &preview_digest, &principal).await,
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
         ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
@@ -159,9 +171,73 @@ async fn publish(
     )))
 }
 
+async fn preview(
+    world: &str,
+    digest: &str,
+    principal: &str,
+) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let actor = PrincipalId::parse(principal)?;
+    if !principal_may_decide(&actor) {
+        return Ok(fail(1, "principal is not the owner of this World"));
+    }
+    let world = WorldId::parse(world)?;
+    let digest = ReleaseDigest::parse(digest)?;
+    let store = store().await?;
+    let PreviewPut { preview, replay } = match store.preview(&world, &digest).await {
+        Ok(value) => value,
+        Err(WorldReleaseError::NotFound) => {
+            return Ok(fail(1, "world release was not found"));
+        }
+        Err(WorldReleaseError::MissingPolicy) => {
+            return Ok(fail(
+                1,
+                "world release publication requires policy evidence",
+            ));
+        }
+        Err(WorldReleaseError::WorldMismatch) => {
+            return Ok(fail(1, "release digest does not belong to this World"));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(ok(preview_json(&preview, replay)))
+}
+
+async fn decide(
+    preview_digest: &str,
+    principal: &str,
+    decision: &str,
+) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let actor = PrincipalId::parse(principal)?;
+    if !principal_may_decide(&actor) {
+        return Ok(fail(1, "principal is not the owner of this World"));
+    }
+    let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
+    let outcome = match ReleaseDecisionOutcome::parse(decision) {
+        Ok(value) => value,
+        Err(error) => return Ok(fail(2, &error.to_string())),
+    };
+    let store = store().await?;
+    let DecisionPut { decision, replay } =
+        match store.decide(&preview_digest, &actor, outcome, now()).await {
+            Ok(value) => value,
+            Err(WorldReleaseError::NotFound) => {
+                return Ok(fail(1, "world release was not found"));
+            }
+            Err(WorldReleaseError::StalePreview) => {
+                return Ok(fail(1, "release preview is stale"));
+            }
+            Err(WorldReleaseError::NotOwner) => {
+                return Ok(fail(1, "principal is not the owner of this World"));
+            }
+            Err(error) => return Err(error.into()),
+        };
+    Ok(ok(decision_json(&decision, replay)))
+}
+
 async fn activate(
     world: &str,
     digest: &str,
+    preview_digest: &str,
     principal: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
@@ -170,6 +246,7 @@ async fn activate(
     }
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
+    let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
     let store = store().await?;
     let Some(catalogs) = store.get_catalogs(&digest).await? else {
         return Ok(fail(1, "world release was not found"));
@@ -180,7 +257,34 @@ async fn activate(
             &format!("active release lacks a loadable Cedar bundle: {error}"),
         ));
     }
-    let previous = store.activate(&world, &digest, now()).await?;
+    let ActivatePut { previous, replay } = match store
+        .activate(&world, &digest, &preview_digest, now())
+        .await
+    {
+        Ok(value) => value,
+        Err(WorldReleaseError::NotFound) => {
+            return Ok(fail(1, "world release was not found"));
+        }
+        Err(WorldReleaseError::MissingApproval) => {
+            return Ok(fail(1, "activation requires an approving decision"));
+        }
+        Err(WorldReleaseError::Rejected) => {
+            return Ok(fail(1, "release activation was rejected"));
+        }
+        Err(WorldReleaseError::StalePreview) => {
+            return Ok(fail(1, "release preview is stale"));
+        }
+        Err(WorldReleaseError::WorldMismatch) => {
+            return Ok(fail(1, "release digest does not belong to this World"));
+        }
+        Err(WorldReleaseError::MissingPolicy) => {
+            return Ok(fail(
+                1,
+                "world release publication requires policy evidence",
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
     let release = store
         .get(&digest)
         .await?
@@ -190,6 +294,8 @@ async fn activate(
         "activated": true,
         "digest": digest.as_str(),
         "previousDigest": previous.as_ref().map(ReleaseDigest::as_str),
+        "previewDigest": preview_digest.as_str(),
+        "replay": replay,
         "world": world.as_str(),
         "release": release_json(
             &release,
@@ -199,6 +305,43 @@ async fn activate(
             Some(&catalogs),
         ),
     })))
+}
+
+fn preview_json(preview: &WorldReleasePreview, replay: bool) -> Value {
+    let content = preview.content();
+    json!({
+        "canonicalJcs": preview.canonical_jcs(),
+        "candidate": {
+            "components": content.candidate().components().as_str(),
+            "executors": content.candidate().executors().as_str(),
+            "ontology": content.candidate().ontology().as_str(),
+            "policy": content.candidate().policy().as_str(),
+        },
+        "current": content.current().map(|snapshot| json!({
+            "components": snapshot.components().as_str(),
+            "executors": snapshot.executors().as_str(),
+            "ontology": snapshot.ontology().as_str(),
+            "policy": snapshot.policy().as_str(),
+        })),
+        "currentActive": content.current_active().map(ReleaseDigest::as_str),
+        "digest": content.release().as_str(),
+        "previewDigest": preview.id().as_str(),
+        "replay": replay,
+        "schema": WORLD_RELEASE_PREVIEW_SCHEMA,
+        "world": content.world().as_str(),
+    })
+}
+
+fn decision_json(decision: &WorldReleaseDecision, replay: bool) -> Value {
+    json!({
+        "decision": decision.outcome().as_str(),
+        "decidedAtMicros": decision.decided_at().get(),
+        "decidedBy": decision.decided_by().as_str(),
+        "digest": decision.release().as_str(),
+        "previewDigest": decision.preview().as_str(),
+        "replay": replay,
+        "world": decision.world().as_str(),
+    })
 }
 
 async fn get(digest: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
