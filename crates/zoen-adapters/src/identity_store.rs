@@ -16,8 +16,9 @@ use zoen_core::{
     MembershipKind, MembershipStatus, PrincipalId, ResourceId, RevocationReason, TenantId,
     TimestampMicros, TrustedExecutionContext, UnbindReason, WORKLOAD_CREDENTIALS_RESOURCE,
     WORKLOAD_MANAGE_CREDENTIALS_ACTION, WORLD_INVITE_ACTION, WORLD_READ_ACTION,
-    WORLD_RESERVE_ACTION, WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId,
-    trusted_context_from_membership,
+    WORLD_RELEASE_ACTIVATE_ACTION, WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION,
+    WORLD_RELEASE_PREVIEW_ACTION, WORLD_RELEASE_PUBLISH_ACTION, WORLD_RESERVE_ACTION,
+    WORLD_SHARE_ACTION, WorkloadId, ZoenAccount, ZoenAccountId, trusted_context_from_membership,
 };
 
 #[derive(Clone)]
@@ -741,6 +742,80 @@ impl PostgresIdentityStore {
         Ok(membership)
     }
 
+    /// Resolve one durable Membership authority cut.
+    ///
+    /// The caller-supplied principal and tenant are only selectors: the stored
+    /// active Membership remains authoritative, and its terminal delegation
+    /// grant must cover the requested Action, resource, workload, and time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::MembershipNotFound`] when the Membership does
+    /// not bind the requested principal/tenant, [`IdentityError::MembershipInactive`]
+    /// when it has ended, or [`IdentityError::IngressNotAllowed`] when its
+    /// delegation does not cover the requested operation.
+    pub async fn resolve_membership_authority(
+        &self,
+        id: &MembershipId,
+        tenant_id: &TenantId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<TrustedExecutionContext, IdentityError> {
+        let (_, context) = self
+            .load_membership_authority(id, tenant_id, principal_id, action_id, resource_id, at)
+            .await?;
+        Ok(context)
+    }
+
+    /// Resolve one durable Personal-owner authority cut.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::resolve_membership_authority`], or
+    /// [`IdentityError::MembershipNotFound`] when the Membership is not Personal.
+    pub async fn resolve_personal_membership_authority(
+        &self,
+        id: &MembershipId,
+        tenant_id: &TenantId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<TrustedExecutionContext, IdentityError> {
+        let (membership, context) = self
+            .load_membership_authority(id, tenant_id, principal_id, action_id, resource_id, at)
+            .await?;
+        if !matches!(membership.kind, MembershipKind::Personal) {
+            return Err(IdentityError::MembershipNotFound);
+        }
+        Ok(context)
+    }
+
+    async fn load_membership_authority(
+        &self,
+        id: &MembershipId,
+        tenant_id: &TenantId,
+        principal_id: &PrincipalId,
+        action_id: &ActionId,
+        resource_id: &ResourceId,
+        at: TimestampMicros,
+    ) -> Result<(Membership, TrustedExecutionContext), IdentityError> {
+        let membership = self.get_membership(id).await?;
+        if membership.tenant_id != *tenant_id || membership.principal_id != *principal_id {
+            return Err(IdentityError::MembershipNotFound);
+        }
+        let context = trusted_context_from_membership(&membership)?;
+        if !context
+            .delegation()
+            .permits(action_id, resource_id, context.workload_id(), at)
+        {
+            return Err(IdentityError::IngressNotAllowed);
+        }
+        Ok((membership, context))
+    }
+
     /// # Errors
     ///
     /// Returns [`IdentityError`] when `PostgreSQL` is unavailable, a unique constraint conflicts, or a stored row cannot be parsed.
@@ -1270,6 +1345,14 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
             ActionId::parse(WORKLOAD_MANAGE_CREDENTIALS_ACTION)
                 .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_PUBLISH_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_PREVIEW_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_DECIDE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
+            ActionId::parse(WORLD_RELEASE_ACTIVATE_ACTION)
+                .map_err(|_| IdentityError::Conflict("invalid action".to_owned()))?,
         ]),
         BTreeSet::from([
             ResourceId::parse("zoen.personal.workspace")
@@ -1281,6 +1364,8 @@ fn personal_delegation(workload_id: &WorkloadId) -> Result<DelegationChain, Iden
             ResourceId::parse("personal.reminder")
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
             ResourceId::parse(WORKLOAD_CREDENTIALS_RESOURCE)
+                .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
+            ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE)
                 .map_err(|_| IdentityError::Conflict("invalid resource".to_owned()))?,
         ]),
         BTreeSet::from([workload_id.clone()]),

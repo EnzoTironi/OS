@@ -34,12 +34,16 @@ pub use state_basis::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyOperation {
+    ActivateRelease,
     ActivateRevision,
     ApplyMigrationBatch,
     Approve,
     Commit,
+    DecideRelease,
     Discover,
     PrepareMigration,
+    PreviewRelease,
+    PublishRelease,
     PublishDefinition,
     Read,
     RequestApproval,

@@ -10,7 +10,10 @@ import {
   buildDiscoverPolicyCatalog,
   createZoenRunner,
   ontologyCatalogBytes,
+  provisionPersonalReleaseOwner,
   recordAssertion,
+  startReleaseIdentityServer,
+  stopReleaseIdentityServer,
   writeGeneratedJson,
   zoenBinaryPath,
   type ZoenResult,
@@ -87,6 +90,31 @@ function catalogFingerprint(body: Record<string, unknown>): string {
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourceCommit = gitHead(repositoryRoot);
+  const identityServer = await startReleaseIdentityServer({
+    databaseUrl,
+    generatedDirectory,
+    portFallback: 58_491,
+    zoenPath: zoenBinaryPath(repositoryRoot),
+  });
+  const [alphaOwner, betaOwner] = await (async () => {
+    try {
+      const alpha = await provisionPersonalReleaseOwner({
+        baseUrl: identityServer.baseUrl,
+        databaseUrl,
+        subjectKey: "agent-parity-alpha-owner",
+        world: "world.alpha",
+      });
+      const beta = await provisionPersonalReleaseOwner({
+        baseUrl: identityServer.baseUrl,
+        databaseUrl,
+        subjectKey: "agent-parity-beta-owner",
+        world: "world.beta",
+      });
+      return [alpha, beta] as const;
+    } finally {
+      await stopReleaseIdentityServer(identityServer);
+    }
+  })();
   const policy = buildDiscoverPolicyCatalog();
   const alphaBytes: CatalogBytes = {
     ontology: ontologyCatalogBytes("agent-parity.alpha"),
@@ -105,18 +133,18 @@ async function main(): Promise<void> {
   const betaPath = await writeContent("beta.json", contentFromBytes("world.beta", betaBytes));
   const alphaRelease = construct(alphaPath);
   const betaRelease = construct(betaPath);
-  assert.equal(publish(alphaPath, "principal.builder", policy.evidenceDigest).status, 0);
-  assert.equal(publish(betaPath, "principal.builder", policy.evidenceDigest).status, 0);
+  assert.equal(publish(alphaPath, alphaOwner).status, 0);
+  assert.equal(publish(betaPath, betaOwner).status, 0);
   const alphaCeremony = approveAndActivate(
     "world.alpha",
     String(alphaRelease.digest),
-    "principal.owner",
+    alphaOwner,
   );
   assert.equal(alphaCeremony.activate.status, 0, alphaCeremony.activate.stderr);
   const betaCeremony = approveAndActivate(
     "world.beta",
     String(betaRelease.digest),
-    "principal.owner",
+    betaOwner,
   );
   assert.equal(betaCeremony.activate.status, 0, betaCeremony.activate.stderr);
 

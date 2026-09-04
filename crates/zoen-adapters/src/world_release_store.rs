@@ -637,6 +637,27 @@ async fn activate_tx(
     preview_digest: &ReleasePreviewDigest,
     at: TimestampMicros,
 ) -> Result<ActivatePut, WorldReleaseError> {
+    // The active-pointer row does not exist for a World's first activation.
+    // Materialize and lock a stable World row before reading either candidate.
+    sqlx::query(
+        "INSERT INTO world_release_activation_locks (world_id)
+         VALUES ($1)
+         ON CONFLICT (world_id) DO NOTHING",
+    )
+    .bind(world.as_str())
+    .execute(&mut **transaction)
+    .await
+    .map_err(store)?;
+    sqlx::query(
+        "SELECT world_id
+         FROM world_release_activation_locks
+         WHERE world_id = $1
+         FOR UPDATE",
+    )
+    .bind(world.as_str())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(store)?;
     let preview_row = sqlx::query(
         "SELECT preview_digest, world_id, release_digest, current_active_digest,
                 candidate_ontology_digest, candidate_policy_digest,

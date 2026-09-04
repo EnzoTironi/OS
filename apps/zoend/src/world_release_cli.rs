@@ -7,18 +7,21 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 use zoen_adapters::{
-    ActivatePut, DecisionPut, PostgresAuthorityStore, PostgresWorldReleaseStore, PreviewPut,
-    PublicationPut, require_loadable_ontology_catalog, require_loadable_policy_catalog,
+    ActivatePut, DecisionPut, PostgresAuthorityStore, PostgresIdentityStore,
+    PostgresWorldReleaseStore, PreviewPut, PublicationPut, require_loadable_ontology_catalog,
+    require_loadable_policy_catalog,
 };
 use zoen_core::{
     ActionId, ActorId, ComponentCatalog, DefinitionDigest, DefinitionId, DefinitionReference,
     DefinitionRevisionNumber, DelegationChain, DelegationGrant, DelegationId, ExecutorCatalog,
-    OntologyCatalog, PolicyCatalog, PolicyDigest, PolicyEvaluation, PolicyEvidence, PolicyId,
-    PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDecisionOutcome, ReleaseDigest,
-    ReleasePreviewDigest, ResourceId, TenantId, TimestampMicros, TrustedExecutionContext,
-    WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_SCHEMA, WorkloadId, WorldId, WorldRelease,
-    WorldReleaseCatalogs, WorldReleaseDecision, WorldReleaseError, WorldReleasePreview,
-    WorldReleasePublication, principal_may_activate, principal_may_decide, principal_may_publish,
+    MembershipId, OntologyCatalog, PolicyCatalog, PolicyEvaluation, PolicyEvidence, PrincipalId,
+    ReleaseDecisionOutcome, ReleaseDigest, ReleasePreviewDigest, ResourceId, TenantId,
+    TimestampMicros, TrustedExecutionContext, WORLD_RELEASE_ACTIVATE_ACTION,
+    WORLD_RELEASE_AUTHORITY_DEFINITION, WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST,
+    WORLD_RELEASE_AUTHORITY_RESOURCE, WORLD_RELEASE_DECIDE_ACTION, WORLD_RELEASE_PREVIEW_ACTION,
+    WORLD_RELEASE_PREVIEW_SCHEMA, WORLD_RELEASE_PUBLISH_ACTION, WORLD_RELEASE_SCHEMA, WorkloadId,
+    WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseDecision, WorldReleaseError,
+    WorldReleasePreview, WorldReleasePublication,
 };
 use zoen_engine::{PolicyOperation, PolicyRequest, directory_projection};
 
@@ -43,37 +46,27 @@ pub async fn run(
         ReleaseCommand::Publish {
             file,
             principal,
-            policy_id,
-            policy_digest,
-            policy_revision,
-            determining_policy,
-        } => {
-            publish(
-                &read_json(&file)?,
-                &principal,
-                &policy_id,
-                &policy_digest,
-                policy_revision,
-                &determining_policy,
-            )
-            .await
-        }
+            membership,
+        } => publish(&read_json(&file)?, &principal, &membership).await,
         ReleaseCommand::Preview {
             world,
             digest,
             principal,
-        } => preview(&world, &digest, &principal).await,
+            membership,
+        } => preview(&world, &digest, &principal, &membership).await,
         ReleaseCommand::Decide {
             preview_digest,
             principal,
+            membership,
             decision,
-        } => decide(&preview_digest, &principal, &decision).await,
+        } => decide(&preview_digest, &principal, &membership, &decision).await,
         ReleaseCommand::Activate {
             world,
             digest,
             preview_digest,
             principal,
-        } => activate(&world, &digest, &preview_digest, &principal).await,
+            membership,
+        } => activate(&world, &digest, &preview_digest, &principal, &membership).await,
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
         ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
@@ -115,24 +108,10 @@ fn construct(value: &Value) -> Result<ReleaseCliResult, Box<dyn Error + Send + S
 async fn publish(
     value: &Value,
     principal: &str,
-    policy_id: &str,
-    policy_digest: &str,
-    policy_revision: u64,
-    determining_policy: &[String],
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
-    if determining_policy.is_empty() || policy_id.is_empty() || policy_digest.is_empty() {
-        return Ok(fail(
-            2,
-            "world release publication requires policy evidence\n  zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world",
-        ));
-    }
-    let Some(revision) = PolicyRevisionNumber::new(policy_revision) else {
-        return Ok(fail(2, "policy revision must be greater than zero"));
-    };
     let published_by = PrincipalId::parse(principal)?;
-    if !principal_may_publish(&published_by) {
-        return Ok(fail(1, "principal is not a builder for this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let parsed = parse_release_document(value)?;
     let Some(catalogs) = parsed.catalogs else {
         return Ok(fail(2, "world release publish requires catalog bytes"));
@@ -149,20 +128,26 @@ async fn publish(
             &format!("policy catalog must contain a loadable Cedar bundle: {error}"),
         ));
     }
+    let (store, identity) = authority_stores().await?;
+    let policy_evidence = match authorize_candidate_owner(
+        &identity,
+        parsed.release.content().world(),
+        catalogs.policy().bytes(),
+        &published_by,
+        &membership,
+        ReleaseAuthorityOperation::Publish,
+    )
+    .await
+    {
+        Ok(evidence) => evidence,
+        Err(message) => return Ok(fail(1, &message)),
+    };
     let publication = WorldReleasePublication::new(
         parsed.release.id().clone(),
         now(),
         published_by,
-        PolicyEvidence {
-            determining_policies: determining_policy.to_vec(),
-            revision: PolicyRevision {
-                digest: PolicyDigest::parse(policy_digest)?,
-                id: PolicyId::parse(policy_id)?,
-                revision,
-            },
-        },
+        policy_evidence,
     )?;
-    let store = store().await?;
     let PublicationPut {
         publication: stored,
         replay,
@@ -182,14 +167,26 @@ async fn preview(
     world: &str,
     digest: &str,
     principal: &str,
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_decide(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
-    let store = store().await?;
+    let (store, identity) = authority_stores().await?;
+    if let Err(message) = authorize_owner(
+        &store,
+        &identity,
+        &world,
+        &digest,
+        &actor,
+        &membership,
+        ReleaseAuthorityOperation::Preview,
+    )
+    .await
+    {
+        return Ok(fail(1, &message));
+    }
     let PreviewPut { preview, replay } = match store.preview(&world, &digest).await {
         Ok(value) => value,
         Err(WorldReleaseError::NotFound) => {
@@ -212,18 +209,33 @@ async fn preview(
 async fn decide(
     preview_digest: &str,
     principal: &str,
+    membership: &str,
     decision: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_decide(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
     let outcome = match ReleaseDecisionOutcome::parse(decision) {
         Ok(value) => value,
         Err(error) => return Ok(fail(2, &error.to_string())),
     };
-    let store = store().await?;
+    let (store, identity) = authority_stores().await?;
+    let Some(preview) = store.get_preview(&preview_digest).await? else {
+        return Ok(fail(1, "world release was not found"));
+    };
+    if let Err(message) = authorize_owner(
+        &store,
+        &identity,
+        preview.content().world(),
+        preview.content().release(),
+        &actor,
+        &membership,
+        ReleaseAuthorityOperation::Decide,
+    )
+    .await
+    {
+        return Ok(fail(1, &message));
+    }
     let DecisionPut { decision, replay } =
         match store.decide(&preview_digest, &actor, outcome, now()).await {
             Ok(value) => value,
@@ -246,15 +258,27 @@ async fn activate(
     digest: &str,
     preview_digest: &str,
     principal: &str,
+    membership: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
     let actor = PrincipalId::parse(principal)?;
-    if !principal_may_activate(&actor) {
-        return Ok(fail(1, "principal is not the owner of this World"));
-    }
+    let membership = MembershipId::parse(membership)?;
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
     let preview_digest = ReleasePreviewDigest::parse(preview_digest)?;
-    let store = store().await?;
+    let (store, identity) = authority_stores().await?;
+    if let Err(message) = authorize_owner(
+        &store,
+        &identity,
+        &world,
+        &digest,
+        &actor,
+        &membership,
+        ReleaseAuthorityOperation::Activate,
+    )
+    .await
+    {
+        return Ok(fail(1, &message));
+    }
     let Some(catalogs) = store.get_catalogs(&digest).await? else {
         return Ok(fail(1, "world release was not found"));
     };
@@ -763,6 +787,148 @@ fn parse_policy_operation(value: &str) -> Result<PolicyOperation, WorldReleaseEr
     }
 }
 
+#[derive(Clone, Copy)]
+enum ReleaseAuthorityOperation {
+    Publish,
+    Preview,
+    Decide,
+    Activate,
+}
+
+impl ReleaseAuthorityOperation {
+    fn action_id(self) -> &'static str {
+        match self {
+            Self::Publish => WORLD_RELEASE_PUBLISH_ACTION,
+            Self::Preview => WORLD_RELEASE_PREVIEW_ACTION,
+            Self::Decide => WORLD_RELEASE_DECIDE_ACTION,
+            Self::Activate => WORLD_RELEASE_ACTIVATE_ACTION,
+        }
+    }
+
+    fn policy_operation(self) -> PolicyOperation {
+        match self {
+            Self::Publish => PolicyOperation::PublishRelease,
+            Self::Preview => PolicyOperation::PreviewRelease,
+            Self::Decide => PolicyOperation::DecideRelease,
+            Self::Activate => PolicyOperation::ActivateRelease,
+        }
+    }
+}
+
+async fn authorize_owner(
+    releases: &PostgresWorldReleaseStore,
+    identities: &PostgresIdentityStore,
+    world: &WorldId,
+    release_digest: &ReleaseDigest,
+    principal: &PrincipalId,
+    membership_id: &MembershipId,
+    operation: ReleaseAuthorityOperation,
+) -> Result<PolicyEvidence, String> {
+    let (action, resource, context) =
+        resolve_owner_authority(identities, world, principal, membership_id, operation).await?;
+    let release = releases
+        .get(release_digest)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "world release was not found".to_owned())?;
+    if release.content().world() != world {
+        return Err("release digest does not belong to this World".to_owned());
+    }
+    let catalogs = releases
+        .get_catalogs(release_digest)
+        .await
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "world release catalogs were not found".to_owned())?;
+    evaluate_owner_policy(
+        catalogs.policy().bytes(),
+        &action,
+        &resource,
+        &context,
+        operation,
+    )
+}
+
+async fn authorize_candidate_owner(
+    identities: &PostgresIdentityStore,
+    world: &WorldId,
+    policy_catalog: &[u8],
+    principal: &PrincipalId,
+    membership_id: &MembershipId,
+    operation: ReleaseAuthorityOperation,
+) -> Result<PolicyEvidence, String> {
+    let (action, resource, context) =
+        resolve_owner_authority(identities, world, principal, membership_id, operation).await?;
+    evaluate_owner_policy(policy_catalog, &action, &resource, &context, operation)
+}
+
+async fn resolve_owner_authority(
+    identities: &PostgresIdentityStore,
+    world: &WorldId,
+    principal: &PrincipalId,
+    membership_id: &MembershipId,
+    operation: ReleaseAuthorityOperation,
+) -> Result<(ActionId, ResourceId, TrustedExecutionContext), String> {
+    const DENIED: &str = "principal is not an active owner Membership for this World";
+
+    let action = ActionId::parse(operation.action_id()).map_err(|_| DENIED.to_owned())?;
+    let resource =
+        ResourceId::parse(WORLD_RELEASE_AUTHORITY_RESOURCE).map_err(|_| DENIED.to_owned())?;
+    let tenant = TenantId::parse(world.as_str()).map_err(|_| DENIED.to_owned())?;
+    let context = identities
+        .resolve_personal_membership_authority(
+            membership_id,
+            &tenant,
+            principal,
+            &action,
+            &resource,
+            now(),
+        )
+        .await
+        .map_err(|_| DENIED.to_owned())?;
+    Ok((action, resource, context))
+}
+
+fn evaluate_owner_policy(
+    policy_catalog: &[u8],
+    action: &ActionId,
+    resource: &ResourceId,
+    context: &TrustedExecutionContext,
+    operation: ReleaseAuthorityOperation,
+) -> Result<PolicyEvidence, String> {
+    let evaluator = require_loadable_policy_catalog(policy_catalog)
+        .map_err(|error| format!("release owner policy is broken: {error}"))?;
+    let definition = DefinitionReference {
+        definition_id: DefinitionId::parse(WORLD_RELEASE_AUTHORITY_DEFINITION)
+            .map_err(|error| error.to_string())?,
+        digest: DefinitionDigest::parse(WORLD_RELEASE_AUTHORITY_DEFINITION_DIGEST)
+            .map_err(|error| error.to_string())?,
+        revision: DefinitionRevisionNumber::new(1)
+            .ok_or_else(|| "release authority revision must be positive".to_owned())?,
+    };
+    let projection = directory_projection(context, resource)?;
+    match evaluator.evaluate_request(&PolicyRequest {
+        action_id: action,
+        approved: matches!(
+            operation,
+            ReleaseAuthorityOperation::Decide | ReleaseAuthorityOperation::Activate
+        ),
+        classification: None,
+        context,
+        definition: &definition,
+        inputs: &[],
+        operation: operation.policy_operation(),
+        projection: Some(&projection),
+        resource_id: resource,
+        written_classification: None,
+    }) {
+        PolicyEvaluation::Permit(evidence) => Ok(evidence),
+        PolicyEvaluation::Deny(_) => Err("release owner policy denied this operation".to_owned()),
+        PolicyEvaluation::EvaluationError { message, .. } => {
+            Err(format!("release owner policy evaluation failed: {message}"))
+        }
+    }
+}
+
 fn authorize_context(
     world: &WorldId,
     principal: &PrincipalId,
@@ -793,6 +959,18 @@ async fn store() -> Result<PostgresWorldReleaseStore, Box<dyn Error + Send + Syn
         .map_err(|_| "DATABASE_URL is required for world release store commands")?;
     let authority = PostgresAuthorityStore::connect(&database_url).await?;
     Ok(PostgresWorldReleaseStore::new(authority.pool()))
+}
+
+async fn authority_stores()
+-> Result<(PostgresWorldReleaseStore, PostgresIdentityStore), Box<dyn Error + Send + Sync>> {
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| "DATABASE_URL is required for world release store commands")?;
+    let authority = PostgresAuthorityStore::connect(&database_url).await?;
+    let pool = authority.pool();
+    Ok((
+        PostgresWorldReleaseStore::new(pool.clone()),
+        PostgresIdentityStore::new(pool),
+    ))
 }
 
 fn read_json(path: &std::path::Path) -> Result<Value, Box<dyn Error + Send + Sync>> {

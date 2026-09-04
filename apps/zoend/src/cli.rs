@@ -168,40 +168,44 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
     },
     SchemaEntry {
         command: "world.release.publish",
-        required_flags: &[
-            "--file",
-            "--principal",
-            "--policy-id",
-            "--policy-digest",
-            "--policy-revision",
-            "--determining-policy",
-        ],
+        required_flags: &["--file", "--principal", "--membership"],
         examples: &[
-            "zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world",
+            "zoen world release publish --file content.json --principal principal.owner --membership membership.alpha.owner",
         ],
         stdout_json: r#"{"format":"json","fields":["digest","publication"]}"#,
     },
     SchemaEntry {
         command: "world.release.preview",
-        required_flags: &["--world", "--digest", "--principal"],
+        required_flags: &["--world", "--digest", "--principal", "--membership"],
         examples: &[
-            "zoen world release preview --world world.alpha --digest <digest> --principal principal.owner",
+            "zoen world release preview --world world.alpha --digest <digest> --principal principal.owner --membership membership.alpha.owner",
         ],
         stdout_json: r#"{"format":"json","fields":["previewDigest","digest","world","currentActive","replay"]}"#,
     },
     SchemaEntry {
         command: "world.release.decide",
-        required_flags: &["--preview-digest", "--principal", "--decision"],
+        required_flags: &[
+            "--preview-digest",
+            "--principal",
+            "--membership",
+            "--decision",
+        ],
         examples: &[
-            "zoen world release decide --preview-digest <digest> --principal principal.owner --decision approve",
+            "zoen world release decide --preview-digest <digest> --principal principal.owner --membership membership.alpha.owner --decision approve",
         ],
         stdout_json: r#"{"format":"json","fields":["previewDigest","decision","digest","world","replay"]}"#,
     },
     SchemaEntry {
         command: "world.release.activate",
-        required_flags: &["--world", "--digest", "--preview-digest", "--principal"],
+        required_flags: &[
+            "--world",
+            "--digest",
+            "--preview-digest",
+            "--principal",
+            "--membership",
+        ],
         examples: &[
-            "zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner",
+            "zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner --membership membership.alpha.owner",
         ],
         stdout_json: r#"{"format":"json","fields":["activated","digest","previousDigest","world","replay"]}"#,
     },
@@ -717,25 +721,19 @@ pub enum ReleaseCommand {
     },
     /// Store content and separate publication metadata
     #[command(
-        after_help = "Examples:\n  zoen world release publish --file content.json --principal principal.owner --policy-id policy.world --policy-digest <digest> --policy-revision 1 --determining-policy policy.world"
+        after_help = "Examples:\n  zoen world release publish --file content.json --principal principal.owner --membership membership.alpha.owner"
     )]
     Publish {
         #[arg(long)]
         file: PathBuf,
         #[arg(long)]
         principal: String,
-        #[arg(long = "policy-id")]
-        policy_id: String,
-        #[arg(long = "policy-digest")]
-        policy_digest: String,
-        #[arg(long = "policy-revision")]
-        policy_revision: u64,
-        #[arg(long = "determining-policy", num_args = 0..)]
-        determining_policy: Vec<String>,
+        #[arg(long)]
+        membership: String,
     },
     /// Derive a deterministic activation preview for a published candidate
     #[command(
-        after_help = "Examples:\n  zoen world release preview --world world.alpha --digest <digest> --principal principal.owner"
+        after_help = "Examples:\n  zoen world release preview --world world.alpha --digest <digest> --principal principal.owner --membership membership.alpha.owner"
     )]
     Preview {
         #[arg(long)]
@@ -744,10 +742,12 @@ pub enum ReleaseCommand {
         digest: String,
         #[arg(long)]
         principal: String,
+        #[arg(long)]
+        membership: String,
     },
     /// Record an owner Decide over one activation preview
     #[command(
-        after_help = "Examples:\n  zoen world release decide --preview-digest <digest> --principal principal.owner --decision approve"
+        after_help = "Examples:\n  zoen world release decide --preview-digest <digest> --principal principal.owner --membership membership.alpha.owner --decision approve"
     )]
     Decide {
         #[arg(long = "preview-digest")]
@@ -755,11 +755,13 @@ pub enum ReleaseCommand {
         #[arg(long)]
         principal: String,
         #[arg(long)]
+        membership: String,
+        #[arg(long)]
         decision: String,
     },
     /// Atomically replace the active release pointer after an approving Decide
     #[command(
-        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner"
+        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest> --preview-digest <preview> --principal principal.owner --membership membership.alpha.owner"
     )]
     Activate {
         #[arg(long)]
@@ -770,6 +772,8 @@ pub enum ReleaseCommand {
         preview_digest: String,
         #[arg(long)]
         principal: String,
+        #[arg(long)]
+        membership: String,
     },
     /// Fetch a release by derived digest
     #[command(after_help = "Examples:\n  zoen world release get --digest <digest>")]

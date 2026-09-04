@@ -10,7 +10,10 @@ import {
   buildDiscoverPolicyCatalog,
   createZoenRunner,
   ontologyCatalogBytes,
+  provisionPersonalReleaseOwner,
   recordAssertion,
+  startReleaseIdentityServer,
+  stopReleaseIdentityServer,
   writeGeneratedJson,
   zoenBinaryPath,
 } from "./kernel-world-support.js";
@@ -124,8 +127,26 @@ const content = {
 };
 const contentPath = await writeGeneratedJson(generatedDirectory, "clinic.json", content);
 const release = zoen.construct(contentPath);
-assert.equal(zoen.publish(contentPath, "principal.builder", policy.evidenceDigest).status, 0);
-zoen.approveAndActivate("world.clinic", asString(release.digest), "principal.owner");
+const identityServer = await startReleaseIdentityServer({
+  databaseUrl,
+  generatedDirectory,
+  portFallback: 58_492,
+  zoenPath: zoenBinaryPath(repositoryRoot),
+});
+const releaseOwner = await (async () => {
+  try {
+    return await provisionPersonalReleaseOwner({
+      baseUrl: identityServer.baseUrl,
+      databaseUrl,
+      subjectKey: "governed-clinic-release-owner",
+      world: "world.clinic",
+    });
+  } finally {
+    await stopReleaseIdentityServer(identityServer);
+  }
+})();
+assert.equal(zoen.publish(contentPath, releaseOwner).status, 0);
+zoen.approveAndActivate("world.clinic", asString(release.digest), releaseOwner);
 
 const humanGrant = `${human.principal}:${human.membership}`;
 const agentGrant = `${agent.principal}:${agent.membership}`;
