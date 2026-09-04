@@ -58,6 +58,127 @@ catalog_digest!(PolicyCatalogDigest);
 catalog_digest!(ExecutorCatalogDigest);
 catalog_digest!(ComponentCatalogDigest);
 
+macro_rules! catalog_blob {
+    ($name:ident, $digest:ident) => {
+        /// Immutable content-addressed catalog blob. Digest is derived from bytes.
+        #[derive(Clone, Debug, Eq, PartialEq)]
+        pub struct $name {
+            digest: $digest,
+            bytes: Vec<u8>,
+        }
+
+        impl $name {
+            /// Hash `bytes` with SHA-256 and assign the catalog digest.
+            ///
+            /// Callers cannot supply an unrelated digest.
+            #[must_use]
+            pub fn from_bytes(bytes: Vec<u8>) -> Self {
+                let digest = $digest::from_sha256(sha256(&bytes));
+                Self { digest, bytes }
+            }
+
+            #[must_use]
+            pub fn digest(&self) -> &$digest {
+                &self.digest
+            }
+
+            #[must_use]
+            pub fn bytes(&self) -> &[u8] {
+                &self.bytes
+            }
+        }
+    };
+}
+
+catalog_blob!(OntologyCatalog, OntologyCatalogDigest);
+catalog_blob!(PolicyCatalog, PolicyCatalogDigest);
+catalog_blob!(ExecutorCatalog, ExecutorCatalogDigest);
+catalog_blob!(ComponentCatalog, ComponentCatalogDigest);
+
+/// The four catalog blobs bound by one `WorldRelease`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorldReleaseCatalogs {
+    ontology: OntologyCatalog,
+    policy: PolicyCatalog,
+    executors: ExecutorCatalog,
+    components: ComponentCatalog,
+}
+
+impl WorldReleaseCatalogs {
+    #[must_use]
+    pub fn new(
+        ontology: OntologyCatalog,
+        policy: PolicyCatalog,
+        executors: ExecutorCatalog,
+        components: ComponentCatalog,
+    ) -> Self {
+        Self {
+            ontology,
+            policy,
+            executors,
+            components,
+        }
+    }
+
+    #[must_use]
+    pub fn ontology(&self) -> &OntologyCatalog {
+        &self.ontology
+    }
+
+    #[must_use]
+    pub fn policy(&self) -> &PolicyCatalog {
+        &self.policy
+    }
+
+    #[must_use]
+    pub fn executors(&self) -> &ExecutorCatalog {
+        &self.executors
+    }
+
+    #[must_use]
+    pub fn components(&self) -> &ComponentCatalog {
+        &self.components
+    }
+
+    /// Derive release content from these blobs. Catalog digests cannot drift.
+    #[must_use]
+    pub fn content(&self, world: WorldId, parent: Option<ReleaseDigest>) -> WorldReleaseContent {
+        WorldReleaseContent::new(
+            world,
+            parent,
+            self.ontology.digest().clone(),
+            self.policy.digest().clone(),
+            self.executors.digest().clone(),
+            self.components.digest().clone(),
+        )
+    }
+
+    /// True when `release` binds exactly these four catalog digests.
+    #[must_use]
+    pub fn binds(&self, release: &WorldRelease) -> bool {
+        release.content().ontology() == self.ontology.digest()
+            && release.content().policy() == self.policy.digest()
+            && release.content().executors() == self.executors.digest()
+            && release.content().components() == self.components.digest()
+    }
+}
+
+fn last_principal_label(principal: &PrincipalId) -> &str {
+    principal.as_str().rsplit('.').next().unwrap_or("")
+}
+
+/// Builder or World owner may publish a candidate.
+#[must_use]
+pub fn principal_may_publish(principal: &PrincipalId) -> bool {
+    matches!(last_principal_label(principal), "builder" | "owner")
+}
+
+/// Only the World owner may activate a published candidate.
+#[must_use]
+pub fn principal_may_activate(principal: &PrincipalId) -> bool {
+    last_principal_label(principal) == "owner"
+}
+
 /// World identity for release content. Distinct from legacy `TenantId` spelling.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorldId(String);
@@ -296,6 +417,10 @@ pub enum WorldReleaseError {
     Digest(DigestError),
     Identifier(IdentifierError),
     MissingPolicy,
+    MissingCatalog,
+    MixedCatalogs,
+    NotBuilder,
+    NotOwner,
     CallerSuppliedDigest,
     WorldMismatch,
     NotFound,
@@ -312,6 +437,13 @@ impl Display for WorldReleaseError {
             Self::MissingPolicy => {
                 formatter.write_str("world release publication requires policy evidence")
             }
+            Self::MissingCatalog => {
+                formatter.write_str("world release publish requires catalog bytes")
+            }
+            Self::MixedCatalogs => formatter
+                .write_str("cannot mix catalog bytes from one candidate with digests from another"),
+            Self::NotBuilder => formatter.write_str("principal is not a builder for this World"),
+            Self::NotOwner => formatter.write_str("principal is not the owner of this World"),
             Self::CallerSuppliedDigest => {
                 formatter.write_str("caller cannot supply a ReleaseDigest for WorldRelease content")
             }

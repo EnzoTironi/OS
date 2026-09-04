@@ -183,21 +183,29 @@ const SCHEMA_REGISTRY: &[SchemaEntry] = &[
     },
     SchemaEntry {
         command: "world.release.activate",
-        required_flags: &["--world", "--digest"],
-        examples: &["zoen world release activate --world world.alpha --digest <digest>"],
+        required_flags: &["--world", "--digest", "--principal"],
+        examples: &[
+            "zoen world release activate --world world.alpha --digest <digest> --principal principal.owner",
+        ],
         stdout_json: r#"{"format":"json","fields":["activated","digest","previousDigest","world"]}"#,
     },
     SchemaEntry {
         command: "world.release.get",
         required_flags: &["--digest"],
         examples: &["zoen world release get --digest <digest>"],
-        stdout_json: r#"{"format":"json","fields":["digest","world","publication"]}"#,
+        stdout_json: r#"{"format":"json","fields":["digest","world","publication","catalogs"]}"#,
     },
     SchemaEntry {
         command: "world.release.active",
         required_flags: &["--world"],
         examples: &["zoen world release active --world world.alpha"],
         stdout_json: r#"{"format":"json","fields":["digest","active"]}"#,
+    },
+    SchemaEntry {
+        command: "world.release.catalogs",
+        required_flags: &["--digest"],
+        examples: &["zoen world release catalogs --digest <digest> --world world.alpha"],
+        stdout_json: r#"{"format":"json","fields":["digest","world","catalogs"]}"#,
     },
     SchemaEntry {
         command: "definition.publish",
@@ -580,13 +588,15 @@ pub enum ReleaseCommand {
     },
     /// Atomically replace the active release pointer for one World
     #[command(
-        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest>"
+        after_help = "Examples:\n  zoen world release activate --world world.alpha --digest <digest> --principal principal.owner"
     )]
     Activate {
         #[arg(long)]
         world: String,
         #[arg(long)]
         digest: String,
+        #[arg(long)]
+        principal: String,
     },
     /// Fetch a release by derived digest
     #[command(after_help = "Examples:\n  zoen world release get --digest <digest>")]
@@ -599,6 +609,16 @@ pub enum ReleaseCommand {
     Active {
         #[arg(long)]
         world: String,
+    },
+    /// Fetch the four catalog blobs bound by a release digest
+    #[command(
+        after_help = "Examples:\n  zoen world release catalogs --digest <digest>\n  zoen world release catalogs --digest <digest> --world world.alpha"
+    )]
+    Catalogs {
+        #[arg(long)]
+        digest: String,
+        #[arg(long)]
+        world: Option<String>,
     },
 }
 

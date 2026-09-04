@@ -37,6 +37,34 @@ const catalog = {
   components: "d".repeat(64),
 } as const;
 
+interface CatalogBytes {
+  ontology: string;
+  policy: string;
+  executors: string;
+  components: string;
+}
+
+const alphaBytes: CatalogBytes = {
+  ontology: "ontology catalog for world.alpha v1\n",
+  policy: "policy catalog for world.alpha v1\n",
+  executors: "executor catalog for world.alpha v1\n",
+  components: "component catalog for world.alpha v1\n",
+};
+
+const secondBytes: CatalogBytes = {
+  ...alphaBytes,
+  ontology: "ontology catalog for world.alpha v2\n",
+};
+
+const recoveryBytes: CatalogBytes = {
+  ...alphaBytes,
+  executors: "executor catalog for world.alpha recovery\n",
+};
+
+const betaBytes = alphaBytes;
+
+const policyEvidenceDigest = "b".repeat(64);
+
 const assertions: Record<string, boolean> = {};
 
 function record(name: string, observed: boolean): void {
@@ -81,6 +109,10 @@ function parseJson(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function sha256Hex(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 function content(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     world: "world.alpha",
@@ -90,6 +122,21 @@ function content(overrides: Record<string, unknown> = {}): Record<string, unknow
     executors: catalog.executors,
     components: catalog.components,
     ...overrides,
+  };
+}
+
+function contentFromBytes(
+  world: string,
+  bytes: CatalogBytes,
+  parent: string | null = null,
+): Record<string, unknown> {
+  return {
+    world,
+    parent,
+    ontology: { bytes: bytes.ontology },
+    policy: { bytes: bytes.policy },
+    executors: { bytes: bytes.executors },
+    components: { bytes: bytes.components },
   };
 }
 
@@ -123,13 +170,44 @@ function expectedDigest(body: Record<string, unknown>): {
   };
 }
 
+function catalogDigests(bytes: CatalogBytes): Record<string, string> {
+  return {
+    ontology: sha256Hex(bytes.ontology),
+    policy: sha256Hex(bytes.policy),
+    executors: sha256Hex(bytes.executors),
+    components: sha256Hex(bytes.components),
+  };
+}
+
+function expectedFromBytes(
+  world: string,
+  bytes: CatalogBytes,
+  parent: string | null = null,
+): { digest: string; jcs: string; catalogs: Record<string, string> } {
+  const catalogs = catalogDigests(bytes);
+  return {
+    catalogs,
+    ...expectedDigest({
+      world,
+      parent,
+      ontology: catalogs.ontology,
+      policy: catalogs.policy,
+      executors: catalogs.executors,
+      components: catalogs.components,
+    }),
+  };
+}
+
 function construct(file: string): Record<string, unknown> {
   const result = runZoen(["world", "release", "construct", "--file", file]);
   assert.equal(result.status, 0, result.stderr);
   return parseJson(result.stdout);
 }
 
-function publish(file: string, principal: string): Record<string, unknown> {
+function publish(
+  file: string,
+  principal: string,
+): ZoenResult & { body?: Record<string, unknown> } {
   const result = runZoen([
     "world",
     "release",
@@ -141,14 +219,53 @@ function publish(file: string, principal: string): Record<string, unknown> {
     "--policy-id",
     "policy.world",
     "--policy-digest",
-    catalog.policy,
+    policyEvidenceDigest,
     "--policy-revision",
     "1",
     "--determining-policy",
     "policy.world",
   ]);
-  assert.equal(result.status, 0, result.stderr);
-  return parseJson(result.stdout);
+  if (result.status === 0) {
+    return { ...result, body: parseJson(result.stdout) };
+  }
+  return result;
+}
+
+function activate(
+  world: string,
+  digest: string,
+  principal: string,
+): ZoenResult {
+  return runZoen([
+    "world",
+    "release",
+    "activate",
+    "--world",
+    world,
+    "--digest",
+    digest,
+    "--principal",
+    principal,
+  ]);
+}
+
+function catalogEntry(
+  catalogs: Record<string, Record<string, unknown> | undefined>,
+  key: string,
+): Record<string, unknown> {
+  const entry = catalogs[key];
+  assert.ok(entry, `${key} catalog is required`);
+  return entry;
+}
+
+function boundCatalogBytes(body: Record<string, unknown>): Record<string, string> {
+  const catalogs = body.catalogs as Record<string, Record<string, unknown> | undefined>;
+  return {
+    ontology: String(catalogEntry(catalogs, "ontology").bytes),
+    policy: String(catalogEntry(catalogs, "policy").bytes),
+    executors: String(catalogEntry(catalogs, "executors").bytes),
+    components: String(catalogEntry(catalogs, "components").bytes),
+  };
 }
 
 async function main(): Promise<void> {
@@ -220,6 +337,13 @@ async function main(): Promise<void> {
     callerId.stderr.includes("caller cannot supply a ReleaseDigest"),
   );
 
+  const hexOnlyPublish = publish(alphaPath, "principal.builder");
+  record("hex_only_publish_rejected", hexOnlyPublish.status !== 0);
+  record(
+    "hex_only_publish_message",
+    hexOnlyPublish.stderr.includes("requires catalog bytes"),
+  );
+
   const missingPolicy = runZoen([
     "world",
     "release",
@@ -227,11 +351,11 @@ async function main(): Promise<void> {
     "--file",
     alphaPath,
     "--principal",
-    "principal.owner",
+    "principal.builder",
     "--policy-id",
     "policy.world",
     "--policy-digest",
-    catalog.policy,
+    policyEvidenceDigest,
     "--policy-revision",
     "1",
   ]);
@@ -241,113 +365,223 @@ async function main(): Promise<void> {
     missingPolicy.stderr.includes("requires policy evidence"),
   );
 
-  const unpublishedActivate = runZoen([
-    "world",
-    "release",
-    "activate",
-    "--world",
+  const liveAlphaPath = await writeContent(
+    "live-alpha.json",
+    contentFromBytes("world.alpha", alphaBytes),
+  );
+  const liveExpected = expectedFromBytes("world.alpha", alphaBytes);
+  const liveConstruct = construct(liveAlphaPath);
+  record(
+    "byte_catalogs_derive_digest",
+    liveConstruct.digest === liveExpected.digest &&
+      liveConstruct.ontology === liveExpected.catalogs.ontology,
+  );
+  record(
+    "byte_catalogs_present_on_construct",
+    boundCatalogBytes(liveConstruct).ontology === alphaBytes.ontology,
+  );
+
+  const nonBuilder = publish(liveAlphaPath, "principal.member");
+  record("non_builder_publish_fails", nonBuilder.status !== 0);
+  record(
+    "non_builder_publish_message",
+    nonBuilder.stderr.includes("not a builder"),
+  );
+
+  const unpublishedActivate = activate(
     "world.alpha",
-    "--digest",
-    String(first.digest),
-  ]);
+    String(liveConstruct.digest),
+    "principal.owner",
+  );
   record(
     "unpublished_activate_fails",
     unpublishedActivate.status !== 0 &&
       unpublishedActivate.stderr.includes("was not found"),
   );
 
-  const ownerPublish = publish(alphaPath, "principal.owner");
-  record("owner_publish_stores_digest", ownerPublish.digest === first.digest);
-  record("publish_replay_is_false_first", ownerPublish.replay === false);
-  const publication = ownerPublish.publication as Record<string, unknown>;
-  record("publication_is_separate", publication.digest === first.digest);
+  const ownerPublish = publish(liveAlphaPath, "principal.builder");
+  assert.equal(ownerPublish.status, 0, ownerPublish.stderr);
+  const published = ownerPublish.body ?? {};
+  record("owner_publish_stores_digest", published.digest === liveConstruct.digest);
+  record("publish_replay_is_false_first", published.replay === false);
+  const publication = published.publication as Record<string, unknown>;
+  record("publication_is_separate", publication.digest === liveConstruct.digest);
   record(
     "publication_time_present",
     typeof publication.publishedAtMicros === "number",
   );
+  record(
+    "stored_catalog_bytes_match",
+    boundCatalogBytes(published).ontology === alphaBytes.ontology &&
+      boundCatalogBytes(published).policy === alphaBytes.policy &&
+      boundCatalogBytes(published).executors === alphaBytes.executors &&
+      boundCatalogBytes(published).components === alphaBytes.components,
+  );
 
-  const ownerReplay = publish(alphaPath, "principal.other");
-  record("identical_candidate_replay", ownerReplay.replay === true);
-  record("replay_keeps_original_digest", ownerReplay.digest === first.digest);
-  const replayPublication = ownerReplay.publication as Record<string, unknown>;
+  const ownerReplay = publish(liveAlphaPath, "principal.owner");
+  assert.equal(ownerReplay.status, 0, ownerReplay.stderr);
+  const replayed = ownerReplay.body ?? {};
+  record("identical_candidate_replay", replayed.replay === true);
+  record("replay_keeps_original_digest", replayed.digest === liveConstruct.digest);
+  const replayPublication = replayed.publication as Record<string, unknown>;
   record(
     "replay_keeps_original_publication_time",
     replayPublication.publishedAtMicros === publication.publishedAtMicros,
   );
   record(
     "publication_metadata_does_not_change_digest",
-    ownerReplay.digest === ownerPublish.digest,
+    replayed.digest === published.digest,
   );
 
-  const firstActivate = runZoen([
-    "world",
-    "release",
-    "activate",
-    "--world",
+  const builderActivate = activate(
     "world.alpha",
-    "--digest",
-    String(first.digest),
-  ]);
+    String(liveConstruct.digest),
+    "principal.builder",
+  );
+  record(
+    "builder_cannot_activate",
+    builderActivate.status !== 0 &&
+      builderActivate.stderr.includes("not the owner"),
+  );
+
+  const firstActivate = activate(
+    "world.alpha",
+    String(liveConstruct.digest),
+    "principal.owner",
+  );
   assert.equal(firstActivate.status, 0, firstActivate.stderr);
   const firstActivation = parseJson(firstActivate.stdout);
   record("first_activation_succeeds", firstActivation.activated === true);
   record("first_activation_has_no_previous", firstActivation.previousDigest === null);
 
-  const betaPath = await writeContent("beta.json", content({ world: "world.beta" }));
-  const beta = construct(betaPath);
-  publish(betaPath, "principal.owner");
-  const crossWorld = runZoen([
+  const fetchedCatalogs = runZoen([
     "world",
     "release",
-    "activate",
+    "catalogs",
+    "--digest",
+    String(liveConstruct.digest),
     "--world",
     "world.alpha",
-    "--digest",
-    String(beta.digest),
   ]);
+  assert.equal(fetchedCatalogs.status, 0, fetchedCatalogs.stderr);
+  const catalogBody = parseJson(fetchedCatalogs.stdout);
+  record(
+    "catalogs_command_returns_bound_bytes",
+    boundCatalogBytes(catalogBody).ontology === alphaBytes.ontology &&
+      boundCatalogBytes(catalogBody).components === alphaBytes.components,
+  );
+
+  const mixedPath = await writeContent("mixed.json", {
+    world: "world.alpha",
+    parent: null,
+    ontology: { bytes: alphaBytes.ontology },
+    policy: catalog.policy,
+    executors: { bytes: alphaBytes.executors },
+    components: { bytes: alphaBytes.components },
+  });
+  const mixedConstruct = runZoen([
+    "world",
+    "release",
+    "construct",
+    "--file",
+    mixedPath,
+  ]);
+  record("mixed_candidate_catalogs_fail", mixedConstruct.status !== 0);
+  record(
+    "mixed_candidate_catalogs_message",
+    mixedConstruct.stderr.includes("cannot mix catalog bytes"),
+  );
+
+  const betaPath = await writeContent(
+    "beta.json",
+    contentFromBytes("world.beta", betaBytes),
+  );
+  const beta = construct(betaPath);
+  const betaPublish = publish(betaPath, "principal.builder");
+  assert.equal(betaPublish.status, 0, betaPublish.stderr);
+  record(
+    "identical_catalog_bytes_converge",
+    beta.ontology === liveConstruct.ontology &&
+      beta.policy === liveConstruct.policy &&
+      beta.executors === liveConstruct.executors &&
+      beta.components === liveConstruct.components &&
+      beta.digest !== liveConstruct.digest,
+  );
+  const crossWorld = activate("world.alpha", String(beta.digest), "principal.owner");
   record(
     "other_world_cannot_activate_for_this_world",
     crossWorld.status !== 0 &&
       crossWorld.stderr.includes("does not belong to this World"),
   );
-
-  const secondContent = content({ ontology: "e".repeat(64) });
-  const secondPath = await writeContent("second.json", secondContent);
-  const secondRelease = construct(secondPath);
-  publish(secondPath, "principal.owner");
-  const secondActivate = runZoen([
+  const crossCatalogs = runZoen([
     "world",
     "release",
-    "activate",
+    "catalogs",
+    "--digest",
+    String(beta.digest),
     "--world",
     "world.alpha",
-    "--digest",
-    String(secondRelease.digest),
   ]);
+  record(
+    "cross_world_catalog_access_fails",
+    crossCatalogs.status !== 0 &&
+      crossCatalogs.stderr.includes("does not belong to this World"),
+  );
+
+  const secondPath = await writeContent(
+    "second.json",
+    contentFromBytes("world.alpha", secondBytes),
+  );
+  const secondRelease = construct(secondPath);
+  const secondPublish = publish(secondPath, "principal.builder");
+  assert.equal(secondPublish.status, 0, secondPublish.stderr);
+  const secondActivate = activate(
+    "world.alpha",
+    String(secondRelease.digest),
+    "principal.owner",
+  );
   assert.equal(secondActivate.status, 0, secondActivate.stderr);
   const secondActivation = parseJson(secondActivate.stdout);
   record("second_activation_replaces_pointer", secondActivation.activated === true);
   record(
     "second_activation_reports_previous",
-    secondActivation.previousDigest === first.digest,
+    secondActivation.previousDigest === liveConstruct.digest,
   );
 
-  const prior = runZoen(["world", "release", "get", "--digest", String(first.digest)]);
+  const prior = runZoen([
+    "world",
+    "release",
+    "get",
+    "--digest",
+    String(liveConstruct.digest),
+  ]);
   assert.equal(prior.status, 0, prior.stderr);
   const priorRelease = parseJson(prior.stdout);
-  record("prior_release_queryable_by_digest", priorRelease.digest === first.digest);
+  record("prior_release_queryable_by_digest", priorRelease.digest === liveConstruct.digest);
   record("prior_release_is_not_active", priorRelease.active === false);
+  record(
+    "historical_catalogs_remain_addressable",
+    boundCatalogBytes(priorRelease).ontology === alphaBytes.ontology,
+  );
 
   const active = runZoen(["world", "release", "active", "--world", "world.alpha"]);
   assert.equal(active.status, 0, active.stderr);
   const activeRelease = parseJson(active.stdout);
   record("active_pointer_is_second_release", activeRelease.digest === secondRelease.digest);
   record("one_active_release_per_world", activeRelease.active === true);
+  record(
+    "active_release_binds_its_own_catalogs",
+    boundCatalogBytes(activeRelease).ontology === secondBytes.ontology &&
+      boundCatalogBytes(activeRelease).ontology !== alphaBytes.ontology,
+  );
 
-  const recoveryContent = content({ executors: "f".repeat(64) });
-  const recoveryPath = await writeContent("recovery.json", recoveryContent);
+  const recoveryPath = await writeContent(
+    "recovery.json",
+    contentFromBytes("world.alpha", recoveryBytes),
+  );
   const recovery = construct(recoveryPath);
-  publish(recoveryPath, "principal.owner");
+  const recoveryPublish = publish(recoveryPath, "principal.builder");
+  assert.equal(recoveryPublish.status, 0, recoveryPublish.stderr);
   const afterCrash = runZoen(["world", "release", "active", "--world", "world.alpha"]);
   const stillActive = parseJson(afterCrash.stdout);
   record(
@@ -362,34 +596,46 @@ async function main(): Promise<void> {
     String(recovery.digest),
   ]);
   record("candidate_survives_without_activation", storedCandidate.status === 0);
-  const retryActivate = runZoen([
-    "world",
-    "release",
-    "activate",
-    "--world",
+  const retryActivate = activate(
     "world.alpha",
-    "--digest",
     String(recovery.digest),
-  ]);
+    "principal.owner",
+  );
   assert.equal(retryActivate.status, 0, retryActivate.stderr);
   const recovered = parseJson(
     runZoen(["world", "release", "active", "--world", "world.alpha"]).stdout,
   );
   record("retry_converges_to_one_active", recovered.digest === recovery.digest);
 
+  const unpublishedMix = expectedFromBytes("world.alpha", {
+    ontology: alphaBytes.ontology,
+    policy: alphaBytes.policy,
+    executors: recoveryBytes.executors,
+    components: "component catalog never published as this mix\n",
+  });
+  const mixActivate = activate(
+    "world.alpha",
+    unpublishedMix.digest,
+    "principal.owner",
+  );
+  record(
+    "unpublished_mixed_tuple_cannot_activate",
+    mixActivate.status !== 0 && mixActivate.stderr.includes("was not found"),
+  );
+
   const artifactPath = await writeScenarioArtifact(repositoryRoot, scenario, {
     assertions,
     dimensions: {
-      actors: "builder constructs; owner publishes and activates",
-      isolation: "another World cannot activate this World's digest",
-      negative: "caller-supplied digest, missing policy, unpublished activate",
-      path: "construct, publish policy evidence, activate one WorldRelease",
-      recovery: "publication without activation keeps the prior pointer",
-      replay: "identical content and publish replay keep one digest and publication",
+      actors: "builder publishes catalog bytes; owner activates one WorldRelease",
+      isolation: "another World cannot activate or read this World's catalogs",
+      negative: "non-builder, missing policy, hex-only publish, mixed catalogs, unpublished activate",
+      path: "store four catalog blobs, publish policy evidence, activate one WorldRelease",
+      recovery: "publication without activation keeps the prior pointer and candidate catalogs",
+      replay: "identical catalog bytes and publish replay keep one digest and publication",
     },
     fixtureDigest,
     finishedAt: new Date().toISOString(),
-    firstDigest: first.digest,
+    firstDigest: liveConstruct.digest,
     startedAt,
   });
   console.log(`world-release PASS artifact=${artifactPath}`);

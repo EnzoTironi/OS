@@ -1,9 +1,10 @@
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
-    ComponentCatalogDigest, ExecutorCatalogDigest, OntologyCatalogDigest, PolicyCatalogDigest,
-    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ReleaseDigest, TimestampMicros, WorldId, WorldRelease, WorldReleaseContent, WorldReleaseError,
-    WorldReleasePublication,
+    ComponentCatalog, ComponentCatalogDigest, ExecutorCatalog, ExecutorCatalogDigest,
+    OntologyCatalog, OntologyCatalogDigest, PolicyCatalog, PolicyCatalogDigest, PolicyDigest,
+    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest,
+    TimestampMicros, WorldId, WorldRelease, WorldReleaseCatalogs, WorldReleaseContent,
+    WorldReleaseError, WorldReleasePublication,
 };
 
 use crate::clock_micros;
@@ -27,9 +28,73 @@ impl PostgresWorldReleaseStore {
     /// collides with different content.
     pub async fn put_release(&self, release: &WorldRelease) -> Result<(), WorldReleaseError> {
         let mut transaction = self.pool.begin().await.map_err(store)?;
+        require_catalogs_tx(&mut transaction, release).await?;
         put_release_tx(&mut transaction, release).await?;
         transaction.commit().await.map_err(store)?;
         Ok(())
+    }
+
+    /// Store four catalog blobs, the release, and publication in one transaction.
+    ///
+    /// Identical catalog bytes are idempotent. A digest bound to different bytes
+    /// fails closed. `release` must bind exactly these catalog digests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::MixedCatalogs`] when the release does not bind
+    /// these blobs, [`WorldReleaseError::Conflict`] on digest collision, or a
+    /// store error.
+    pub async fn publish_candidate(
+        &self,
+        catalogs: &WorldReleaseCatalogs,
+        release: &WorldRelease,
+        publication: &WorldReleasePublication,
+    ) -> Result<PublicationPut, WorldReleaseError> {
+        if !catalogs.binds(release) {
+            return Err(WorldReleaseError::MixedCatalogs);
+        }
+        if publication.release() != release.id() {
+            return Err(WorldReleaseError::Conflict(
+                "publication digest does not match release".to_owned(),
+            ));
+        }
+        let mut transaction = self.pool.begin().await.map_err(store)?;
+        put_catalog_tx(
+            &mut transaction,
+            INSERT_ONTOLOGY,
+            SELECT_ONTOLOGY,
+            catalogs.ontology().digest().as_str(),
+            catalogs.ontology().bytes(),
+        )
+        .await?;
+        put_catalog_tx(
+            &mut transaction,
+            INSERT_POLICY,
+            SELECT_POLICY,
+            catalogs.policy().digest().as_str(),
+            catalogs.policy().bytes(),
+        )
+        .await?;
+        put_catalog_tx(
+            &mut transaction,
+            INSERT_EXECUTORS,
+            SELECT_EXECUTORS,
+            catalogs.executors().digest().as_str(),
+            catalogs.executors().bytes(),
+        )
+        .await?;
+        put_catalog_tx(
+            &mut transaction,
+            INSERT_COMPONENTS,
+            SELECT_COMPONENTS,
+            catalogs.components().digest().as_str(),
+            catalogs.components().bytes(),
+        )
+        .await?;
+        put_release_tx(&mut transaction, release).await?;
+        let stored = put_publication_tx(&mut transaction, publication).await?;
+        transaction.commit().await.map_err(store)?;
+        Ok(stored)
     }
 
     /// Record publication metadata for an already stored release.
@@ -127,6 +192,22 @@ impl PostgresWorldReleaseStore {
             .map(ReleaseDigest::parse)
             .transpose()
             .map_err(Into::into)
+    }
+
+    /// Load the four catalog blobs bound by `digest`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldReleaseError::MissingCatalog`] when a bound digest has no
+    /// blob, or a store error.
+    pub async fn get_catalogs(
+        &self,
+        digest: &ReleaseDigest,
+    ) -> Result<Option<WorldReleaseCatalogs>, WorldReleaseError> {
+        let Some(release) = self.get(digest).await? else {
+            return Ok(None);
+        };
+        load_bound_catalogs(&self.pool, &release).await.map(Some)
     }
 }
 
@@ -354,4 +435,162 @@ fn i64_from_u64(value: u64) -> Result<i64, WorldReleaseError> {
     i64::try_from(value).map_err(|_| {
         WorldReleaseError::Store("policy revision exceeds PostgreSQL BIGINT".to_owned())
     })
+}
+
+const INSERT_ONTOLOGY: &str =
+    "INSERT INTO world_ontology_catalogs (digest, content, stored_at_micros)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (digest) DO NOTHING";
+const SELECT_ONTOLOGY: &str = "SELECT content FROM world_ontology_catalogs WHERE digest = $1";
+const INSERT_POLICY: &str = "INSERT INTO world_policy_catalogs (digest, content, stored_at_micros)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (digest) DO NOTHING";
+const SELECT_POLICY: &str = "SELECT content FROM world_policy_catalogs WHERE digest = $1";
+const INSERT_EXECUTORS: &str =
+    "INSERT INTO world_executor_catalogs (digest, content, stored_at_micros)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (digest) DO NOTHING";
+const SELECT_EXECUTORS: &str = "SELECT content FROM world_executor_catalogs WHERE digest = $1";
+const INSERT_COMPONENTS: &str =
+    "INSERT INTO world_component_catalogs (digest, content, stored_at_micros)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (digest) DO NOTHING";
+const SELECT_COMPONENTS: &str = "SELECT content FROM world_component_catalogs WHERE digest = $1";
+const EXISTS_ONTOLOGY: &str = "SELECT true FROM world_ontology_catalogs WHERE digest = $1";
+const EXISTS_POLICY: &str = "SELECT true FROM world_policy_catalogs WHERE digest = $1";
+const EXISTS_EXECUTORS: &str = "SELECT true FROM world_executor_catalogs WHERE digest = $1";
+const EXISTS_COMPONENTS: &str = "SELECT true FROM world_component_catalogs WHERE digest = $1";
+
+async fn put_catalog_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    insert_sql: &'static str,
+    select_sql: &'static str,
+    digest: &str,
+    bytes: &[u8],
+) -> Result<(), WorldReleaseError> {
+    let inserted = sqlx::query(insert_sql)
+        .bind(digest)
+        .bind(bytes)
+        .bind(clock_micros())
+        .execute(&mut **transaction)
+        .await
+        .map_err(store)?;
+    if inserted.rows_affected() == 1 {
+        return Ok(());
+    }
+    let existing = sqlx::query_scalar::<_, Vec<u8>>(select_sql)
+        .bind(digest)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(store)?;
+    match existing {
+        Some(content) if content == bytes => Ok(()),
+        Some(_) => Err(WorldReleaseError::Conflict(
+            "catalog digest already bound to different bytes".to_owned(),
+        )),
+        None => Err(WorldReleaseError::Store(
+            "catalog insert conflicted then vanished".to_owned(),
+        )),
+    }
+}
+
+async fn require_catalogs_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    release: &WorldRelease,
+) -> Result<(), WorldReleaseError> {
+    let ontology = catalog_exists(
+        transaction,
+        EXISTS_ONTOLOGY,
+        release.content().ontology().as_str(),
+    )
+    .await?;
+    let policy = catalog_exists(
+        transaction,
+        EXISTS_POLICY,
+        release.content().policy().as_str(),
+    )
+    .await?;
+    let executors = catalog_exists(
+        transaction,
+        EXISTS_EXECUTORS,
+        release.content().executors().as_str(),
+    )
+    .await?;
+    let components = catalog_exists(
+        transaction,
+        EXISTS_COMPONENTS,
+        release.content().components().as_str(),
+    )
+    .await?;
+    if ontology && policy && executors && components {
+        Ok(())
+    } else {
+        Err(WorldReleaseError::MissingCatalog)
+    }
+}
+
+async fn catalog_exists(
+    transaction: &mut Transaction<'_, Postgres>,
+    sql: &'static str,
+    digest: &str,
+) -> Result<bool, WorldReleaseError> {
+    let found = sqlx::query_scalar::<_, bool>(sql)
+        .bind(digest)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(store)?;
+    Ok(found.is_some())
+}
+
+async fn load_bound_catalogs(
+    pool: &PgPool,
+    release: &WorldRelease,
+) -> Result<WorldReleaseCatalogs, WorldReleaseError> {
+    let ontology = OntologyCatalog::from_bytes(
+        load_catalog_bytes(pool, SELECT_ONTOLOGY, release.content().ontology().as_str()).await?,
+    );
+    let policy = PolicyCatalog::from_bytes(
+        load_catalog_bytes(pool, SELECT_POLICY, release.content().policy().as_str()).await?,
+    );
+    let executors = ExecutorCatalog::from_bytes(
+        load_catalog_bytes(
+            pool,
+            SELECT_EXECUTORS,
+            release.content().executors().as_str(),
+        )
+        .await?,
+    );
+    let components = ComponentCatalog::from_bytes(
+        load_catalog_bytes(
+            pool,
+            SELECT_COMPONENTS,
+            release.content().components().as_str(),
+        )
+        .await?,
+    );
+    if ontology.digest() != release.content().ontology()
+        || policy.digest() != release.content().policy()
+        || executors.digest() != release.content().executors()
+        || components.digest() != release.content().components()
+    {
+        return Err(WorldReleaseError::Conflict(
+            "catalog digest already bound to different bytes".to_owned(),
+        ));
+    }
+    Ok(WorldReleaseCatalogs::new(
+        ontology, policy, executors, components,
+    ))
+}
+
+async fn load_catalog_bytes(
+    pool: &PgPool,
+    select_sql: &'static str,
+    digest: &str,
+) -> Result<Vec<u8>, WorldReleaseError> {
+    sqlx::query_scalar::<_, Vec<u8>>(select_sql)
+        .bind(digest)
+        .fetch_optional(pool)
+        .await
+        .map_err(store)?
+        .ok_or(WorldReleaseError::MissingCatalog)
 }

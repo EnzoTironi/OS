@@ -4,13 +4,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 use zoen_adapters::{PostgresAuthorityStore, PostgresWorldReleaseStore, PublicationPut};
 use zoen_core::{
-    ComponentCatalogDigest, ExecutorCatalogDigest, OntologyCatalogDigest, PolicyCatalogDigest,
-    PolicyDigest, PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId,
-    ReleaseDigest, TimestampMicros, WORLD_RELEASE_SCHEMA, WorldId, WorldRelease,
-    WorldReleaseContent, WorldReleaseError, WorldReleasePublication,
+    ComponentCatalog, ExecutorCatalog, OntologyCatalog, PolicyCatalog, PolicyDigest,
+    PolicyEvidence, PolicyId, PolicyRevision, PolicyRevisionNumber, PrincipalId, ReleaseDigest,
+    TimestampMicros, WORLD_RELEASE_SCHEMA, WorldId, WorldRelease, WorldReleaseCatalogs,
+    WorldReleaseError, WorldReleasePublication, principal_may_activate, principal_may_publish,
 };
 
 use crate::cli::ReleaseCommand;
@@ -49,15 +50,26 @@ pub async fn run(
             )
             .await
         }
-        ReleaseCommand::Activate { world, digest } => activate(&world, &digest).await,
+        ReleaseCommand::Activate {
+            world,
+            digest,
+            principal,
+        } => activate(&world, &digest, &principal).await,
         ReleaseCommand::Get { digest } => get(&digest).await,
         ReleaseCommand::Active { world } => active(&world).await,
+        ReleaseCommand::Catalogs { digest, world } => catalogs(&digest, world.as_deref()).await,
     }
 }
 
 fn construct(value: &Value) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
-    let release = release_from_json(value)?;
-    Ok(ok(release_json(&release, None, None, None)))
+    let parsed = parse_release_document(value)?;
+    Ok(ok(release_json(
+        &parsed.release,
+        None,
+        None,
+        None,
+        parsed.catalogs.as_ref(),
+    )))
 }
 
 async fn publish(
@@ -77,11 +89,18 @@ async fn publish(
     let Some(revision) = PolicyRevisionNumber::new(policy_revision) else {
         return Ok(fail(2, "policy revision must be greater than zero"));
     };
-    let release = release_from_json(value)?;
+    let published_by = PrincipalId::parse(principal)?;
+    if !principal_may_publish(&published_by) {
+        return Ok(fail(1, "principal is not a builder for this World"));
+    }
+    let parsed = parse_release_document(value)?;
+    let Some(catalogs) = parsed.catalogs else {
+        return Ok(fail(2, "world release publish requires catalog bytes"));
+    };
     let publication = WorldReleasePublication::new(
-        release.id().clone(),
+        parsed.release.id().clone(),
         now(),
-        PrincipalId::parse(principal)?,
+        published_by,
         PolicyEvidence {
             determining_policies: determining_policy.to_vec(),
             revision: PolicyRevision {
@@ -92,23 +111,30 @@ async fn publish(
         },
     )?;
     let store = store().await?;
-    store.put_release(&release).await?;
     let PublicationPut {
         publication: stored,
         replay,
-    } = store.put_publication(&publication).await?;
+    } = store
+        .publish_candidate(&catalogs, &parsed.release, &publication)
+        .await?;
     Ok(ok(release_json(
-        &release,
+        &parsed.release,
         Some(&stored),
         None,
         Some(replay),
+        Some(&catalogs),
     )))
 }
 
 async fn activate(
     world: &str,
     digest: &str,
+    principal: &str,
 ) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let actor = PrincipalId::parse(principal)?;
+    if !principal_may_activate(&actor) {
+        return Ok(fail(1, "principal is not the owner of this World"));
+    }
     let world = WorldId::parse(world)?;
     let digest = ReleaseDigest::parse(digest)?;
     let store = store().await?;
@@ -118,12 +144,19 @@ async fn activate(
         .await?
         .ok_or(WorldReleaseError::NotFound)?;
     let publication = store.get_publication(&digest).await?;
+    let catalogs = store.get_catalogs(&digest).await?;
     Ok(ok(json!({
         "activated": true,
         "digest": digest.as_str(),
         "previousDigest": previous.as_ref().map(ReleaseDigest::as_str),
         "world": world.as_str(),
-        "release": release_json(&release, publication.as_ref(), Some(digest.as_str()), None),
+        "release": release_json(
+            &release,
+            publication.as_ref(),
+            Some(digest.as_str()),
+            None,
+            catalogs.as_ref(),
+        ),
     })))
 }
 
@@ -135,11 +168,13 @@ async fn get(digest: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sy
     };
     let publication = store.get_publication(&digest).await?;
     let active = store.get_active(release.content().world()).await?;
+    let catalogs = store.get_catalogs(&digest).await?;
     Ok(ok(release_json(
         &release,
         publication.as_ref(),
         active.as_ref().map(ReleaseDigest::as_str),
         None,
+        catalogs.as_ref(),
     )))
 }
 
@@ -152,7 +187,37 @@ async fn active(world: &str) -> Result<ReleaseCliResult, Box<dyn Error + Send + 
     get(digest.as_str()).await
 }
 
-fn release_from_json(value: &Value) -> Result<WorldRelease, WorldReleaseError> {
+async fn catalogs(
+    digest: &str,
+    world: Option<&str>,
+) -> Result<ReleaseCliResult, Box<dyn Error + Send + Sync>> {
+    let digest = ReleaseDigest::parse(digest)?;
+    let store = store().await?;
+    let Some(release) = store.get(&digest).await? else {
+        return Ok(fail(1, "world release was not found"));
+    };
+    if let Some(world) = world {
+        let world = WorldId::parse(world)?;
+        if release.content().world() != &world {
+            return Err(WorldReleaseError::WorldMismatch.into());
+        }
+    }
+    let Some(catalogs) = store.get_catalogs(&digest).await? else {
+        return Ok(fail(1, "world release was not found"));
+    };
+    Ok(ok(json!({
+        "digest": release.id().as_str(),
+        "world": release.content().world().as_str(),
+        "catalogs": catalogs_json(&catalogs),
+    })))
+}
+
+struct ParsedRelease {
+    release: WorldRelease,
+    catalogs: Option<WorldReleaseCatalogs>,
+}
+
+fn parse_release_document(value: &Value) -> Result<ParsedRelease, WorldReleaseError> {
     let object = value.as_object().ok_or_else(|| {
         WorldReleaseError::Conflict("release content must be a JSON object".to_owned())
     })?;
@@ -174,7 +239,7 @@ fn release_from_json(value: &Value) -> Result<WorldRelease, WorldReleaseError> {
             )));
         }
     }
-    let world = required_str(object, "world")?;
+    let world = WorldId::parse(required_world(object)?)?;
     let parent = match object.get("parent") {
         None | Some(Value::Null) => None,
         Some(Value::String(value)) => Some(ReleaseDigest::parse(value.clone())?),
@@ -184,15 +249,89 @@ fn release_from_json(value: &Value) -> Result<WorldRelease, WorldReleaseError> {
             ));
         }
     };
-    let content = WorldReleaseContent::new(
-        WorldId::parse(world)?,
-        parent,
-        OntologyCatalogDigest::parse(required_str(object, "ontology")?)?,
-        PolicyCatalogDigest::parse(required_str(object, "policy")?)?,
-        ExecutorCatalogDigest::parse(required_str(object, "executors")?)?,
-        ComponentCatalogDigest::parse(required_str(object, "components")?)?,
-    );
-    WorldRelease::from_content(content)
+    let ontology = parse_catalog_field(object, "ontology")?;
+    let policy = parse_catalog_field(object, "policy")?;
+    let executors = parse_catalog_field(object, "executors")?;
+    let components = parse_catalog_field(object, "components")?;
+    match (ontology, policy, executors, components) {
+        (
+            CatalogField::Bytes(ontology),
+            CatalogField::Bytes(policy),
+            CatalogField::Bytes(executors),
+            CatalogField::Bytes(components),
+        ) => {
+            let catalogs = WorldReleaseCatalogs::new(
+                OntologyCatalog::from_bytes(ontology),
+                PolicyCatalog::from_bytes(policy),
+                ExecutorCatalog::from_bytes(executors),
+                ComponentCatalog::from_bytes(components),
+            );
+            let release = WorldRelease::from_content(catalogs.content(world, parent))?;
+            Ok(ParsedRelease {
+                release,
+                catalogs: Some(catalogs),
+            })
+        }
+        (
+            CatalogField::Digest(ontology),
+            CatalogField::Digest(policy),
+            CatalogField::Digest(executors),
+            CatalogField::Digest(components),
+        ) => {
+            let content = zoen_core::WorldReleaseContent::new(
+                world,
+                parent,
+                zoen_core::OntologyCatalogDigest::parse(ontology)?,
+                zoen_core::PolicyCatalogDigest::parse(policy)?,
+                zoen_core::ExecutorCatalogDigest::parse(executors)?,
+                zoen_core::ComponentCatalogDigest::parse(components)?,
+            );
+            Ok(ParsedRelease {
+                release: WorldRelease::from_content(content)?,
+                catalogs: None,
+            })
+        }
+        _ => Err(WorldReleaseError::MixedCatalogs),
+    }
+}
+
+enum CatalogField {
+    Digest(String),
+    Bytes(Vec<u8>),
+}
+
+fn parse_catalog_field(
+    object: &Map<String, Value>,
+    key: &str,
+) -> Result<CatalogField, WorldReleaseError> {
+    match object.get(key) {
+        Some(Value::String(value)) => Ok(CatalogField::Digest(value.clone())),
+        Some(Value::Object(inner)) => {
+            let payload = inner
+                .get("bytes")
+                .and_then(Value::as_str)
+                .ok_or_else(|| WorldReleaseError::Conflict(format!("{key}.bytes is required")))?;
+            let encoding = inner
+                .get("encoding")
+                .and_then(Value::as_str)
+                .unwrap_or("utf8");
+            let bytes = decode_catalog_bytes(payload, encoding)?;
+            Ok(CatalogField::Bytes(bytes))
+        }
+        _ => Err(WorldReleaseError::Conflict(format!("{key} is required"))),
+    }
+}
+
+fn decode_catalog_bytes(payload: &str, encoding: &str) -> Result<Vec<u8>, WorldReleaseError> {
+    match encoding {
+        "utf8" => Ok(payload.as_bytes().to_vec()),
+        "base64" => BASE64.decode(payload.as_bytes()).map_err(|_| {
+            WorldReleaseError::Conflict("catalog bytes must be valid base64".to_owned())
+        }),
+        other => Err(WorldReleaseError::Conflict(format!(
+            "unsupported catalog encoding {other}"
+        ))),
+    }
 }
 
 fn reject_caller_digest(object: &Map<String, Value>) -> Result<(), WorldReleaseError> {
@@ -211,14 +350,11 @@ fn reject_caller_digest(object: &Map<String, Value>) -> Result<(), WorldReleaseE
     Ok(())
 }
 
-fn required_str<'a>(
-    object: &'a Map<String, Value>,
-    key: &str,
-) -> Result<&'a str, WorldReleaseError> {
+fn required_world(object: &Map<String, Value>) -> Result<&str, WorldReleaseError> {
     object
-        .get(key)
+        .get("world")
         .and_then(Value::as_str)
-        .ok_or_else(|| WorldReleaseError::Conflict(format!("{key} is required")))
+        .ok_or_else(|| WorldReleaseError::Conflict("world is required".to_owned()))
 }
 
 fn release_json(
@@ -226,6 +362,7 @@ fn release_json(
     publication: Option<&WorldReleasePublication>,
     active_digest: Option<&str>,
     replay: Option<bool>,
+    catalogs: Option<&WorldReleaseCatalogs>,
 ) -> Value {
     let mut body = json!({
         "canonicalJcs": release.canonical_jcs(),
@@ -238,6 +375,9 @@ fn release_json(
         "schema": WORLD_RELEASE_SCHEMA,
         "world": release.content().world().as_str(),
     });
+    if let Some(catalogs) = catalogs {
+        body["catalogs"] = catalogs_json(catalogs);
+    }
     if let Some(publication) = publication {
         body["publication"] = json!({
             "digest": publication.release().as_str(),
@@ -259,6 +399,30 @@ fn release_json(
         body["replay"] = json!(replay);
     }
     body
+}
+
+fn catalogs_json(catalogs: &WorldReleaseCatalogs) -> Value {
+    json!({
+        "components": catalog_json(catalogs.components().digest().as_str(), catalogs.components().bytes()),
+        "executors": catalog_json(catalogs.executors().digest().as_str(), catalogs.executors().bytes()),
+        "ontology": catalog_json(catalogs.ontology().digest().as_str(), catalogs.ontology().bytes()),
+        "policy": catalog_json(catalogs.policy().digest().as_str(), catalogs.policy().bytes()),
+    })
+}
+
+fn catalog_json(digest: &str, bytes: &[u8]) -> Value {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => json!({
+            "bytes": text,
+            "digest": digest,
+            "encoding": "utf8",
+        }),
+        Err(_) => json!({
+            "bytes": BASE64.encode(bytes),
+            "digest": digest,
+            "encoding": "base64",
+        }),
+    }
 }
 
 async fn store() -> Result<PostgresWorldReleaseStore, Box<dyn Error + Send + Sync>> {
