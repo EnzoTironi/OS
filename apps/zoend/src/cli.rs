@@ -1129,6 +1129,18 @@ struct Introduced {
     query: Option<String>,
 }
 
+/// Output-safe source identity. Authentication material never enters this type.
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourcePublicMetadata {
+    id: String,
+    kind: String,
+    #[serde(default)]
+    oauth_app: Option<String>,
+    #[serde(default)]
+    profile: Option<String>,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SourceInstance {
@@ -2315,9 +2327,15 @@ fn connect_rest(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "rest" })));
     }
-    if let Some(existing) = existing_source(env, id)? {
+    if let Some(existing) = existing_source_public_metadata(env, id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "rest".to_owned(),
+        oauth_app: None,
+        profile: None,
+    };
     let source_auth = if auth == Some("apikey") {
         let value = api_key
             .or_else(|| {
@@ -2351,7 +2369,7 @@ fn connect_rest(
         url: None,
     };
     write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    Ok(ok(&connect_receipt(&receipt)))
 }
 
 async fn connect_oauth2(
@@ -2367,9 +2385,15 @@ async fn connect_oauth2(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "oauth2" })));
     }
-    if let Some(existing) = existing_source(env, &id)? {
+    if let Some(existing) = existing_source_public_metadata(env, &id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
+    let receipt = SourcePublicMetadata {
+        id: id.clone(),
+        kind: "oauth2".to_owned(),
+        oauth_app: None,
+        profile: None,
+    };
     let client_secret = match resolve_source_secret(
         client_secret,
         client_secret_stdin,
@@ -2400,7 +2424,7 @@ async fn connect_oauth2(
         url: None,
     };
     write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    Ok(ok(&connect_receipt(&receipt)))
 }
 
 fn connect_google(
@@ -2430,9 +2454,15 @@ fn connect_google(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "google" })));
     }
-    if let Some(existing) = existing_source(env, id)? {
+    if let Some(existing) = existing_source_public_metadata(env, id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "google".to_owned(),
+        oauth_app: Some("zoen".to_owned()),
+        profile: Some(profile.to_owned()),
+    };
     let auth = match token {
         Some(value) => SourceAuth::ApiKey(SourceAuthApiKey {
             header: "Authorization".to_owned(),
@@ -2452,7 +2482,7 @@ fn connect_google(
         url: None,
     };
     write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    Ok(ok(&connect_receipt(&receipt)))
 }
 
 fn connect_mcp(
@@ -2464,9 +2494,15 @@ fn connect_mcp(
     if dry_run {
         return Ok(ok(&json!({ "dryRun": true, "id": id, "kind": "mcp" })));
     }
-    if let Some(existing) = existing_source(env, id)? {
+    if let Some(existing) = existing_source_public_metadata(env, id)? {
         return Ok(ok(&connect_receipt(&existing)));
     }
+    let receipt = SourcePublicMetadata {
+        id: id.to_owned(),
+        kind: "mcp".to_owned(),
+        oauth_app: None,
+        profile: None,
+    };
     let instance = SourceInstance {
         auth: SourceAuth::None,
         base_url: None,
@@ -2479,7 +2515,7 @@ fn connect_mcp(
         url: Some(url),
     };
     write_source(env, &instance)?;
-    Ok(ok(&connect_receipt(&instance)))
+    Ok(ok(&connect_receipt(&receipt)))
 }
 
 fn introduce_source(
@@ -3337,13 +3373,29 @@ fn existing_source(
     }
 }
 
-fn connect_receipt(instance: &SourceInstance) -> Value {
+fn existing_source_public_metadata(
+    env: &RuntimeEnv,
+    id: &str,
+) -> Result<Option<SourcePublicMetadata>, Box<dyn Error + Send + Sync>> {
+    match fs::read_to_string(source_path(env, id)) {
+        Ok(raw) => {
+            // Preserve full stored-instance validation, then independently decode the
+            // output-safe projection so no credential-bearing value reaches a receipt.
+            let _: SourceInstance = serde_json::from_str(&raw)?;
+            Ok(Some(serde_json::from_str(&raw)?))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn connect_receipt(metadata: &SourcePublicMetadata) -> Value {
     json!({
-        "connected": instance.id,
+        "connected": metadata.id,
         "doorTokenStored": false,
-        "kind": instance.kind,
-        "oauthApp": instance.oauth_app,
-        "profile": instance.profile,
+        "kind": metadata.kind,
+        "oauthApp": metadata.oauth_app,
+        "profile": metadata.profile,
     })
 }
 
