@@ -20,8 +20,15 @@ use zoen_engine::{
 use crate::{
     PostgresIdentityStore, PostgresWorldReleaseStore, clock_micros,
     ontology_catalog::require_loadable_ontology_catalog,
-    release_cedar::require_loadable_policy_catalog,
+    release_cedar::require_loadable_policy_catalog, typed_object_store::PreparedTypeAssignment,
 };
+
+struct PendingKernelReceipt<'a> {
+    proposal: &'a KernelProposal,
+    receipt_id: String,
+    explanation_jcs: String,
+    type_assignment: Option<&'a PreparedTypeAssignment>,
+}
 
 #[derive(Clone)]
 pub struct PostgresWorldKernel {
@@ -254,7 +261,13 @@ impl PostgresWorldKernel {
                 PublicVerb::Commit,
             )
             .await?;
+        let prepared =
+            Self::prepare_type_assignment_from_commit(&proposal.world, &proposal.input_jcs)?;
         let receipt_id = format!("receipt.kernel.{proposal_id}");
+        let type_assignment = prepared
+            .as_ref()
+            .map(|assignment| assignment.explanation_value(&receipt_id))
+            .transpose()?;
         let explanation_jcs = explanation_jcs(
             &proposal,
             &decision,
@@ -262,13 +275,17 @@ impl PostgresWorldKernel {
             &authority.membership,
             &receipt_id,
             &authority.release_digest,
+            type_assignment.as_ref(),
         )?;
         let receipt = persist_receipt(
             &self.pool,
             authority,
-            proposal_id,
-            receipt_id,
-            explanation_jcs,
+            PendingKernelReceipt {
+                proposal: &proposal,
+                receipt_id,
+                explanation_jcs,
+                type_assignment: prepared.as_ref(),
+            },
         )
         .await?;
         Ok((receipt, surface))
@@ -571,7 +588,10 @@ impl PostgresWorldKernel {
             .collect()
     }
 
-    async fn catalog_basis(&self, world: &WorldId) -> Result<GovernedCatalogBasis, KernelError> {
+    pub(crate) async fn catalog_basis(
+        &self,
+        world: &WorldId,
+    ) -> Result<GovernedCatalogBasis, KernelError> {
         let digest = self
             .releases
             .get_active(world)
@@ -876,13 +896,11 @@ async fn persist_decision(
 async fn persist_receipt(
     pool: &PgPool,
     authorization: KernelAuthorization,
-    proposal_id: &str,
-    receipt_id: String,
-    explanation_jcs: String,
+    pending: PendingKernelReceipt<'_>,
 ) -> Result<KernelReceipt, KernelError> {
     let policy_revision = policy_revision_i64(&authorization.policy)?;
     let mut transaction = begin_authorized_write(pool, &authorization).await?;
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO world_kernel_receipts (
             proposal_id, receipt_id, release_digest, principal_id, membership_id,
             actor_id, workload_id, delegation_jcs, action_id, authorized_at_micros,
@@ -894,8 +912,8 @@ async fn persist_receipt(
          )
          ON CONFLICT DO NOTHING",
     )
-    .bind(proposal_id)
-    .bind(&receipt_id)
+    .bind(&pending.proposal.proposal_id)
+    .bind(&pending.receipt_id)
     .bind(authorization.release_digest.as_str())
     .bind(authorization.principal.as_str())
     .bind(authorization.membership.as_str())
@@ -905,7 +923,7 @@ async fn persist_receipt(
     .bind(authorization.action.as_str())
     .bind(authorization.authorized_at.get())
     .bind(authorization.approved)
-    .bind(&explanation_jcs)
+    .bind(&pending.explanation_jcs)
     .bind(authorization.policy.revision.id.as_str())
     .bind(authorization.policy.revision.digest.as_str())
     .bind(policy_revision)
@@ -914,21 +932,39 @@ async fn persist_receipt(
     .execute(&mut *transaction)
     .await
     .map_err(|error| KernelError::Store(error.to_string()))?;
-    let row = receipt_row_tx(&mut transaction, proposal_id)
+    let row = receipt_row_tx(&mut transaction, &pending.proposal.proposal_id)
         .await?
         .ok_or_else(|| {
             KernelError::Conflict("receipt conflict could not be reloaded".to_owned())
         })?;
     let receipt = row_to_receipt(&row)?;
-    if receipt.receipt_id != receipt_id
+    if receipt.receipt_id != pending.receipt_id
         || receipt.release_digest != authorization.release_digest
-        || receipt.explanation_jcs != explanation_jcs
+        || receipt.explanation_jcs != pending.explanation_jcs
     {
         return Err(KernelError::Conflict(
             "commit replay does not match original".to_owned(),
         ));
     }
     require_matching_authorization(&row, &authorization, "committed_at_micros", "commit")?;
+    if let Some(prepared) = pending.type_assignment {
+        if inserted.rows_affected() == 0 {
+            PostgresWorldKernel::validate_type_assignment_replay(
+                &mut transaction,
+                &receipt.receipt_id,
+                prepared,
+            )
+            .await?;
+        } else {
+            let _ = PostgresWorldKernel::materialize_type_assignment_from_commit(
+                &mut transaction,
+                &receipt.receipt_id,
+                &pending.proposal.principal,
+                prepared,
+            )
+            .await?;
+        }
+    }
     transaction
         .commit()
         .await
@@ -1416,6 +1452,7 @@ fn explanation_jcs(
     committed_membership: &MembershipId,
     receipt_id: &str,
     release: &ReleaseDigest,
+    type_assignment: Option<&serde_json::Value>,
 ) -> Result<String, KernelError> {
     serde_jcs::to_string(&serde_json::json!({
         "commit": {
@@ -1435,6 +1472,7 @@ fn explanation_jcs(
         "receiptId": receipt_id,
         "releaseDigest": release.as_str(),
         "schema": "zoen.kernel-explanation.v2",
+        "typeAssignment": type_assignment,
     }))
     .map_err(|error| KernelError::Store(error.to_string()))
 }

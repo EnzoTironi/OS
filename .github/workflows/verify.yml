@@ -140,6 +140,7 @@ jobs:
           - governed-action
           - governed-clinic
           - messaging-boundary
+          - object-key
           - public-surface
           - world-release
           - agent-parity
