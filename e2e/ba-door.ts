@@ -16,6 +16,7 @@ import {
   e2ePort,
   e2eRunnerIsolatedProcessGroup,
 } from "./host-env.js";
+import { processExited, stopChild } from "./child-process.js";
 
 const authDoorPort = e2ePort("ZOEN_E2E_AUTH_PORT", 58_704);
 export const AUTH_DOOR_ORIGIN = e2eHttpUrl(
@@ -688,19 +689,11 @@ async function waitForAuth(
 async function stopAuthChild(
   child: ChildProcessWithoutNullStreams,
 ): Promise<void> {
-  if (processExited(child)) {
-    return;
-  }
-  signalAuthChild(child, "SIGINT");
-  try {
-    await waitForChildExit(child, AUTH_STOP_TIMEOUT_MS);
-  } catch (error) {
-    if (!processExited(child)) {
-      signalAuthChild(child, "SIGKILL");
-    }
-    await waitForChildExit(child, AUTH_KILL_TIMEOUT_MS);
-    throw error;
-  }
+  await stopChild(child, "SIGINT", "auth door", {
+    killTimeoutMs: AUTH_KILL_TIMEOUT_MS,
+    signalChild: (signal) => signalAuthChild(child, signal),
+    stopTimeoutMs: AUTH_STOP_TIMEOUT_MS,
+  });
 }
 
 function signalAuthChild(
@@ -714,47 +707,6 @@ function signalAuthChild(
     } catch {}
   }
   child.kill(signal);
-}
-
-function waitForChildExit(
-  child: ChildProcessWithoutNullStreams,
-  timeoutMs: number,
-): Promise<void> {
-  if (processExited(child)) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      globalThis.clearTimeout(timer);
-      child.off("close", onClose);
-      child.off("error", onError);
-      if (error === undefined) {
-        resolve();
-      } else {
-        reject(error);
-      }
-    };
-    const onClose = () => finish();
-    const onError = () => finish();
-    const timer = globalThis.setTimeout(
-      () => finish(new Error(`auth door did not exit within ${timeoutMs}ms`)),
-      timeoutMs,
-    );
-    child.once("close", onClose);
-    child.once("error", onError);
-    if (processExited(child)) {
-      finish();
-    }
-  });
-}
-
-function processExited(child: ChildProcessWithoutNullStreams): boolean {
-  return child.exitCode !== null || child.signalCode !== null;
 }
 
 function portOpen(port: number): Promise<boolean> {

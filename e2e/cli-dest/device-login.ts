@@ -35,6 +35,10 @@ import {
   type CdpPage,
 } from "../chromium-cdp.js";
 import {
+  processExited,
+  stopChild as stopProcess,
+} from "../child-process.js";
+import {
   e2eHttpUrl,
   e2eIdentityAdminToken,
   e2eListenAddr,
@@ -1267,67 +1271,6 @@ function runPersistedSessionQuery(
     stderr: result.stderr ?? "",
     stdout: result.stdout ?? "",
   };
-}
-
-function processExited(child: ChildProcessWithoutNullStreams): boolean {
-  return child.exitCode !== null || child.signalCode !== null;
-}
-
-async function stopProcess(
-  child: ChildProcessWithoutNullStreams,
-  signal: NodeJS.Signals,
-  name: string,
-): Promise<void> {
-  if (!processExited(child)) {
-    child.kill(signal);
-  }
-  try {
-    await waitForProcessExit(child, 10_000, name);
-  } catch (error) {
-    if (!processExited(child)) {
-      child.kill("SIGKILL");
-    }
-    await waitForProcessExit(child, 3_000, name);
-    throw error;
-  }
-}
-
-function waitForProcessExit(
-  child: ChildProcessWithoutNullStreams,
-  timeoutMs: number,
-  name: string,
-): Promise<void> {
-  if (processExited(child)) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (error?: Error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      globalThis.clearTimeout(timer);
-      child.off("close", onClose);
-      child.off("error", onError);
-      if (error === undefined) {
-        resolve();
-      } else {
-        reject(error);
-      }
-    };
-    const onClose = () => finish();
-    const onError = () => finish();
-    const timer = globalThis.setTimeout(
-      () => finish(new Error(`${name} did not exit within ${timeoutMs}ms`)),
-      timeoutMs,
-    );
-    child.once("close", onClose);
-    child.once("error", onError);
-    if (processExited(child)) {
-      finish();
-    }
-  });
 }
 
 function isolatedCliEnv(
