@@ -103,7 +103,17 @@ pub async fn run(
             object_id,
             fields,
             grants,
-        } => plant_object(&world, &principal, &object_type, &object_id, &fields, &grants).await,
+        } => {
+            plant_object(
+                &world,
+                &principal,
+                &object_type,
+                &object_id,
+                &fields,
+                &grants,
+            )
+            .await
+        }
         KernelCommand::Propose {
             world,
             principal,
@@ -198,9 +208,9 @@ async fn plant_object(
     let principal = PrincipalId::parse(principal)?;
     let mut parsed_grants = Vec::new();
     for grant in grants {
-        let (grant_principal, membership) = grant.split_once(':').ok_or_else(|| {
-            format!("grant {grant} must be principal:membership")
-        })?;
+        let (grant_principal, membership) = grant
+            .split_once(':')
+            .ok_or_else(|| format!("grant {grant} must be principal:membership"))?;
         parsed_grants.push(KernelObjectGrant {
             principal: PrincipalId::parse(grant_principal)?,
             membership: membership.to_owned(),

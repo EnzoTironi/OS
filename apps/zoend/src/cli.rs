@@ -1561,9 +1561,19 @@ fn parse_inputs(values: &[String]) -> Vec<(String, String)> {
 async fn run_kernel_command(
     command: KernelCommand,
 ) -> Result<crate::kernel_cli::KernelCliResult, Box<dyn Error + Send + Sync>> {
+    let (surface, inner) = map_kernel_command(command)?;
+    crate::kernel_cli::run(surface, inner).await
+}
+
+fn map_kernel_command(
+    command: KernelCommand,
+) -> Result<
+    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
+    Box<dyn Error + Send + Sync>,
+> {
     use crate::kernel_cli::KernelCommand as K;
     use zoen_engine::KernelSurface;
-    let (surface, inner) = match command {
+    Ok(match command {
         KernelCommand::Discover {
             world,
             principal,
@@ -1612,6 +1622,19 @@ async fn run_kernel_command(
                 grants,
             },
         ),
+        other => map_kernel_lifecycle_command(other)?,
+    })
+}
+
+fn map_kernel_lifecycle_command(
+    command: KernelCommand,
+) -> Result<
+    (zoen_engine::KernelSurface, crate::kernel_cli::KernelCommand),
+    Box<dyn Error + Send + Sync>,
+> {
+    use crate::kernel_cli::KernelCommand as K;
+    use zoen_engine::KernelSurface;
+    Ok(match command {
         KernelCommand::Propose {
             world,
             principal,
@@ -1673,8 +1696,12 @@ async fn run_kernel_command(
                 principal,
             },
         ),
-    };
-    crate::kernel_cli::run(surface, inner).await
+        KernelCommand::Discover { .. }
+        | KernelCommand::Query { .. }
+        | KernelCommand::PlantObject { .. } => {
+            return Err("internal: read verb reached lifecycle mapper".into());
+        }
+    })
 }
 
 fn map_kernel_result(result: &crate::kernel_cli::KernelCliResult) -> CommandResult {

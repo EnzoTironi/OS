@@ -11,9 +11,9 @@ use zoen_core::{
 use zoen_engine::{
     DEFAULT_QUERY_BUDGET, GovernedCatalogBasis, KernelAuthorizedObject, KernelDecision,
     KernelDecisionOutcome, KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
-    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage,
-    KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest, SealedCursorBasis,
-    bind_sealed_cursor, directory_projection, effective_page_limit, resolve_budget_id, seal_next,
+    KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
+    KernelSurface, PolicyOperation, PolicyRequest, SealedCursorBasis, bind_sealed_cursor,
+    directory_projection, effective_page_limit, resolve_budget_id, seal_next,
 };
 
 use crate::{
@@ -418,7 +418,6 @@ impl PostgresWorldKernel {
         ))
     }
 
-
     /// Plant an immutable governed object and principal/membership grants.
     ///
     /// # Errors
@@ -551,7 +550,10 @@ impl PostgresWorldKernel {
             .load_authorized_objects(world, principal, membership, object_type, after.as_deref())
             .await?;
         let page_end = page_limit as usize;
-        let page: Vec<_> = authorized.into_iter().take(page_end.saturating_add(1)).collect();
+        let page: Vec<_> = authorized
+            .into_iter()
+            .take(page_end.saturating_add(1))
+            .collect();
         let has_more = page.len() > page_end;
         let objects: Vec<KernelAuthorizedObject> = page.into_iter().take(page_end).collect();
         let next_cursor = if has_more {
@@ -999,7 +1001,6 @@ fn json_str(value: &str) -> String {
 fn map_release(error: impl std::fmt::Display) -> KernelError {
     KernelError::Store(error.to_string())
 }
-
 
 fn server_budgeted_compute(objects: &[KernelAuthorizedObject]) -> String {
     let mut hasher = Sha256::new();

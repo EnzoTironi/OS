@@ -3,7 +3,7 @@
 use sha2::{Digest, Sha256};
 use zoen_core::encode_hex;
 
-/// Server-owned default query budget id (W2-07 owns BudgetClass catalogs).
+/// Server-owned default query budget id (W2-07 owns `BudgetClass` catalogs).
 pub const DEFAULT_QUERY_BUDGET: &str = "budget.query.default";
 
 /// Hard ceiling callers cannot raise for sealed clinic/object pages.
@@ -44,6 +44,10 @@ impl std::fmt::Display for SealedCursorError {
 impl std::error::Error for SealedCursorError {}
 
 /// Seal the next-page cursor. Empty when `has_more` is false.
+///
+/// # Errors
+///
+/// Returns [`SealedCursorError::Invalid`] when more pages remain but the position is empty.
 pub fn seal_next(
     basis: &SealedCursorBasis,
     after_object_id: &str,
@@ -65,6 +69,11 @@ pub fn seal_next(
 }
 
 /// Bind an opaque cursor to the caller's current authority/query/release/budget.
+///
+/// # Errors
+///
+/// Returns [`SealedCursorError::Invalid`] for a malformed token and
+/// [`SealedCursorError::Mismatch`] when the MAC does not match the expected basis.
 pub fn bind(token: &str, expected: &SealedCursorBasis) -> Result<SealedCursor, SealedCursorError> {
     if token.is_empty() {
         return Err(SealedCursorError::Invalid(
@@ -82,9 +91,8 @@ pub fn bind(token: &str, expected: &SealedCursorBasis) -> Result<SealedCursor, S
             "sealed cursor is malformed".to_owned(),
         ));
     }
-    let after_object_id = String::from_utf8(hex_decode(after_hex)?).map_err(|_| {
-        SealedCursorError::Invalid("sealed cursor position is invalid".to_owned())
-    })?;
+    let after_object_id = String::from_utf8(hex_decode(after_hex)?)
+        .map_err(|_| SealedCursorError::Invalid("sealed cursor position is invalid".to_owned()))?;
     let expected_mac = mac_for(expected, &after_object_id);
     if *mac != expected_mac {
         return Err(SealedCursorError::Mismatch(
@@ -98,6 +106,10 @@ pub fn bind(token: &str, expected: &SealedCursorBasis) -> Result<SealedCursor, S
 }
 
 /// Effective page limit: caller request clamped to the server budget ceiling.
+///
+/// # Errors
+///
+/// Returns [`SealedCursorError::Invalid`] when the requested limit is zero.
 pub fn effective_page_limit(requested: u32) -> Result<u32, SealedCursorError> {
     if requested == 0 {
         return Err(SealedCursorError::Invalid(
@@ -108,9 +120,13 @@ pub fn effective_page_limit(requested: u32) -> Result<u32, SealedCursorError> {
 }
 
 /// Reject caller attempts to raise the server budget class.
+///
+/// # Errors
+///
+/// Returns [`SealedCursorError::Mismatch`] when the caller names a budget other than the default.
 pub fn resolve_budget_id(requested: Option<&str>) -> Result<&'static str, SealedCursorError> {
     match requested {
-        None | Some("") | Some(DEFAULT_QUERY_BUDGET) => Ok(DEFAULT_QUERY_BUDGET),
+        None | Some("" | DEFAULT_QUERY_BUDGET) => Ok(DEFAULT_QUERY_BUDGET),
         Some(other) => Err(SealedCursorError::Mismatch(format!(
             "caller cannot raise budget above {DEFAULT_QUERY_BUDGET}; got {other}"
         ))),

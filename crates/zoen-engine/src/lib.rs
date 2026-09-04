@@ -22,12 +22,12 @@ mod evolution;
 mod history;
 mod human;
 mod kernel;
-mod sealed_cursor;
 pub mod metrics;
 mod migration;
 mod publication;
 mod read;
 mod scenario;
+mod sealed_cursor;
 
 pub use action::{
     ActionCommitEffect, ActionCommitTransaction, ActionDiscovery, ActionEngine, ActionError,
@@ -75,10 +75,6 @@ pub use kernel::{
     KernelPlantObject, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
     KernelSurface,
 };
-pub use sealed_cursor::{
-    DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis, SealedCursorError,
-    bind as bind_sealed_cursor, effective_page_limit, resolve_budget_id, seal_next,
-};
 pub use migration::{
     AdmittedMigrationBatch, AdmittedMigrationPlan, AdmittedMigrationRecord,
     MigrationBatchPreflight, MigrationError, decode_migration_plan,
@@ -89,6 +85,10 @@ pub use read::{
 };
 pub use scenario::{
     ApplyOutcome, Scenario, ScenarioEngine, ScenarioError, ScenarioProposalPlan, ScenarioStatus,
+};
+pub use sealed_cursor::{
+    DEFAULT_QUERY_BUDGET, SERVER_PAGE_CEILING, SealedCursor, SealedCursorBasis, SealedCursorError,
+    bind as bind_sealed_cursor, effective_page_limit, resolve_budget_id, seal_next,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
