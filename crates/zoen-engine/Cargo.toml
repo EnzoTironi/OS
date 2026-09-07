@@ -12,6 +12,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+hmac = "0.13.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_jcs = "0.2.0"
 serde_json = "1.0.151"

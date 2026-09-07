@@ -6,9 +6,12 @@ use std::{
 };
 
 use zoen_core::{
-    ActorId, ComponentCatalogDigest, ExecutorCatalogDigest, MembershipId, OntologyCatalogDigest,
-    PolicyCatalogDigest, PrincipalId, PublicVerb, ReleaseDigest, WorkloadId, WorldId,
+    ActorId, CommitSequence, ComponentCatalogDigest, ExecutorCatalogDigest, MembershipId,
+    OntologyCatalogDigest, PolicyCatalogDigest, PrincipalId, PublicVerb, ReleaseDigest, WorkloadId,
+    WorldId,
 };
+
+use crate::{AuthorizedObjectSetPlanDigest, TrustedAuthorityDigest};
 
 /// Product surface that invoked the kernel. Semantics stay identical.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -185,9 +188,12 @@ pub struct KernelQueryPage {
     pub object_type: String,
     pub budget_id: String,
     pub page_limit: u32,
+    pub trusted_authority_digest: Option<TrustedAuthorityDigest>,
+    pub authority_cut: Option<CommitSequence>,
+    pub authorized_plan_digest: AuthorizedObjectSetPlanDigest,
     pub authorized_count: u32,
     pub objects: Vec<KernelAuthorizedObject>,
     pub next_cursor: String,
-    pub compute_digest: String,
+    pub page_digest: String,
     pub explanation_jcs: String,
 }
