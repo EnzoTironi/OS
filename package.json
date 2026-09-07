@@ -18,7 +18,7 @@
     "@bufbuild/protoc-gen-es": "2.14.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-node": "2.1.2",
-    "@types/node": "26.2.0",
+    "@types/node": "26.4.1",
     "@types/pg": "8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
