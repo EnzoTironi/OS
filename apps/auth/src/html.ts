@@ -21,7 +21,7 @@ async function signInEmail(event) {
     response = await fetch("/api/auth/sign-in/email", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password, callbackURL: "/onboard/done" }),
+      body: JSON.stringify({ email, password, callbackURL: "/" }),
       credentials: "include",
     });
   } catch {
@@ -36,7 +36,7 @@ async function signInEmail(event) {
     );
     return;
   }
-  location.assign("/onboard/done");
+  location.assign("/");
 }
 function showSignInError(message) {
   const error = document.getElementById("signin-error");
@@ -51,7 +51,7 @@ export function homePage(google: Google): string {
       ? ""
       : '<form method="post" action="/api/auth/sign-in/social">' +
         '<input type="hidden" name="provider" value="google">' +
-        '<input type="hidden" name="callbackURL" value="/onboard/done">' +
+        '<input type="hidden" name="callbackURL" value="/">' +
         '<button type="submit">Continuar com Google</button>' +
         "</form>";
   return page(
@@ -71,26 +71,6 @@ export function homePage(google: Google): string {
 
 export function loginPage(google: Google): string {
   return homePage(google);
-}
-
-export function onboardStart(google: Google): string {
-  if (google.kind === "unset") {
-    return page("<p>Google is not planted.</p>");
-  }
-  return page(
-    "<p>Confirmar sua conta e continuar.</p>" +
-      '<form method="post" action="/api/auth/sign-in/social">' +
-      '<input type="hidden" name="provider" value="google">' +
-      '<input type="hidden" name="callbackURL" value="/onboard/done">' +
-      '<button type="submit">Continuar</button>' +
-      "</form>"
-  );
-}
-
-export function onboardDone(): string {
-  return page(
-    "<p>Pronto. Volta pra conversa — WhatsApp, Telegram, ou o terminal.</p>"
-  );
 }
 
 const deviceScript = `<script>

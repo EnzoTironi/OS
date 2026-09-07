@@ -131,6 +131,19 @@ impl SessionExchange {
         }
     }
 
+    /// Verify a Better Auth cookie token after an HTTP boundary has parsed it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IdentityError::Unauthenticated`] when the opaque session is not
+    /// live at the Better Auth door.
+    pub async fn verify_door_token(
+        &self,
+        token: &OpaqueSessionToken,
+    ) -> Result<VerifiedSessionEvidence, IdentityError> {
+        self.door.verify(token).await
+    }
+
     /// Resolve a trusted execution context from a door, workload, or channel
     /// credential.
     ///

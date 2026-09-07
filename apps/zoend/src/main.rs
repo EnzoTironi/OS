@@ -30,8 +30,8 @@ use zoend::{
 use crate::{
     action_service::ActionServiceImpl, computation_service::ComputationServiceImpl,
     effect_service::EffectServiceImpl, history_service::HistoryServiceImpl,
-    identity_admin::IdentityAdminState, pack_admin::PackAdminState,
-    pack_registry::PackRegistryState, service::DefinitionServiceImpl,
+    identity_admin::IdentityAdminState, identity_link::IdentityLinkState,
+    pack_admin::PackAdminState, pack_registry::PackRegistryState, service::DefinitionServiceImpl,
     workload_ingress_service::WorkloadIngressState, world_service::WorldServiceImpl,
 };
 
@@ -49,7 +49,7 @@ mod eve_proxy;
 mod history_service;
 mod identity_admin;
 mod identity_admin_auth;
-mod onboard;
+mod identity_link;
 mod pack_admin;
 mod pack_registry;
 mod ready;
@@ -249,11 +249,16 @@ fn build_routers(
         sessions: boot.sessions.clone(),
     });
     let identity_routes = identity_admin::router(IdentityAdminState {
-        admin_token: identity_admin_token,
+        admin_token: identity_admin_token.clone(),
         identity: boot.identity.clone(),
         sessions: boot.sessions.clone(),
     });
-    let onboard_routes = onboard::router(boot.identity);
+    let identity_link_routes = identity_link::router(IdentityLinkState {
+        admin_token: identity_admin_token,
+        identity: boot.identity.clone(),
+        public_origin: public_origin()?,
+        sessions: boot.sessions.clone(),
+    });
     let workload_routes = workload_ingress_service::router(WorkloadIngressState {
         credentials: boot.credentials,
         signals: PostgresExternalSignalStore::new(boot.store.pool()),
@@ -281,11 +286,33 @@ fn build_routers(
         .merge(door_proxy::router()?)
         .merge(eve_proxy::router()?)
         .merge(identity_routes)
-        .merge(onboard_routes)
+        .merge(identity_link_routes)
         .merge(workload_routes)
         .merge(pack_routes)
         .merge(pack_registry_routes)
         .merge(rpc))
+}
+
+fn public_origin() -> Result<String, Box<dyn Error + Send + Sync>> {
+    let raw = match env::var("ZOEN_PUBLIC_ORIGIN") {
+        Ok(value) => value,
+        Err(_) => "https://app.zoen.local".to_owned(),
+    };
+    let normalized = raw.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(normalized)?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || parsed.path() != "/"
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "ZOEN_PUBLIC_ORIGIN must be an HTTP(S) origin without a path",
+        )
+        .into());
+    }
+    Ok(normalized.to_owned())
 }
 
 fn required_database_url() -> Result<String, Box<dyn Error + Send + Sync>> {

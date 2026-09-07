@@ -94,7 +94,6 @@ COPY deploy/fly/zoen-ensure-effect-workload-credential /usr/local/bin/zoen-ensur
 COPY deploy/fly/zoen-ensure-personal-lake /usr/local/bin/zoen-ensure-personal-lake
 COPY deploy/fly/zoen-register-effects /usr/local/bin/zoen-register-effects
 COPY deploy/fly/zoen-start-auth /usr/local/bin/zoen-start-auth
-COPY deploy/fly/bind-inbox.sh /usr/local/bin/zoen-bind-inbox
 COPY testdata/lakes/commercial.canonical.json /etc/zoen/commercial.canonical.json
 COPY testdata/lakes/personal.canonical.json /etc/zoen/personal.canonical.json
 COPY deploy/fly/init /docker-entrypoint-initdb.d

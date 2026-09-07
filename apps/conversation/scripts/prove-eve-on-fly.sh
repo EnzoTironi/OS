@@ -145,7 +145,7 @@ record "live POST https://zoen.tironi.xyz/eve/v1/kapso unsigned" "curl -sS -o bo
   printf '%s\n' '- Better Auth `[program:auth]` and remint'
   printf '%s\n' '- Auth Node 22 at `/usr/local/bin/node`'
   printf '%s\n' '- `ZOEN_AUTH_BASE_URL=http://127.0.0.1:58704`'
-  printf '%s\n' '- door_proxy forwards `/api/auth`, `/device`, `/onboard/done`'
+  printf '%s\n' '- door_proxy forwards `/api/auth` and `/device`; zoend owns `/link`'
   printf '\n## Out of this PR\n\n'
   printf '%s\n' '- Live Fly remount. Missing remount is not a fail.'
   printf '%s\n' '- Pointing Kapso webhooks'

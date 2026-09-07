@@ -57,11 +57,11 @@ pub use human::{
     project_human_task_packet_from_contract, validate_human_task_contract,
 };
 pub use identity::{
-    Account, AccountId, AccountMergePlan, AccountStatus, AudienceClass, BindingStatus,
-    ChannelBinding, ChannelBindingId, ChannelProvider, ClassificationToken, Clearance,
-    DelegationTemplateId, DurableEventId, ExternalSignalId, ExternalSubject, IdentityError,
-    IngressAllowance, Invite, InviteId, InviteToken, MachineToken, Membership, MembershipId,
-    MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
+    Account, AccountId, AccountStatus, AudienceClass, BindingStatus, ChannelBinding,
+    ChannelBindingId, ChannelProvider, ClassificationToken, Clearance, DelegationTemplateId,
+    DurableEventId, ExternalSignalId, ExternalSubject, IdentityError, IngressAllowance, Invite,
+    InviteId, InviteToken, LinkIntentId, LinkIntentToken, LinkReceiptId, MachineToken, Membership,
+    MembershipId, MembershipKind, MembershipStatus, OpaqueSessionToken, ProjectedCapabilityKind,
     RateBudgetPolicy, RevocationReason, ServerAllowId, SessionCredential, SessionId, SourceClass,
     UnbindReason, VerifiedSessionEvidence, VerifiedWorkloadEvidence, WORLD_FLOOR, WORLD_TOP,
     WorkloadCredential, WorkloadCredentialId, WorkloadCredentialLookupKey,
