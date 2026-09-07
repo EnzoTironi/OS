@@ -7,30 +7,33 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use zoen_core::{
     ActionId, ActorId, BudgetClassId, CommitSequence, DefinitionDigest, DefinitionId,
-    DefinitionReference, DefinitionRevisionNumber, MembershipId, PolicyEvaluation, PolicyEvidence,
-    PrincipalId, PublicVerb, ReleaseDigest, ResourceId, TimestampMicros, TrustedExecutionContext,
-    WORLD_KERNEL_AUTHORITY_DEFINITION, WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST,
-    WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId, encode_hex,
+    DefinitionReference, DefinitionRevisionNumber, EntityId, IdentifierScheme, MembershipId,
+    PolicyEvaluation, PolicyEvidence, PrincipalId, PublicVerb, ReleaseDigest, ResourceId,
+    TimestampMicros, TrustedExecutionContext, TypeId, WORLD_KERNEL_AUTHORITY_DEFINITION,
+    WORLD_KERNEL_AUTHORITY_DEFINITION_DIGEST, WORLD_KERNEL_AUTHORITY_RESOURCE, WorkloadId, WorldId,
+    encode_hex,
 };
 use zoen_engine::{
     AuthorizedObjectSetPlanDigest, CursorSealer, CursorSortOrder, GovernedCatalogBasis,
-    KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome, KernelDiscoverResult,
-    KernelError, KernelExecution, KernelExplanation, KernelPolicyDecision, KernelProposal,
-    KernelQueryPage, KernelReceipt, KernelSurface, PolicyOperation, PolicyRequest,
-    SealedCursorBasis, TrustedAuthorityDigest, directory_projection, effective_page_limit,
+    KernelAuthorizedLink, KernelAuthorizedObject, KernelDecision, KernelDecisionOutcome,
+    KernelDiscoverResult, KernelError, KernelExecution, KernelExplanation,
+    KernelIdentifierCandidate, KernelIdentifierContext, KernelIdentifierQueryPage,
+    KernelIdentifierSelector, KernelPolicyDecision, KernelProposal, KernelQueryPage, KernelReceipt,
+    KernelSurface, PolicyOperation, PolicyRequest, SealedCursorBasis, TrustedAuthorityDigest,
+    directory_projection, effective_page_limit,
 };
 
 use crate::{
     PostgresIdentityStore, PostgresWorldReleaseStore, cedar::budget_classes_from_policy_catalog,
     clock_micros, ontology_catalog::require_loadable_ontology_catalog,
-    release_cedar::require_loadable_policy_catalog, typed_object_store::PreparedTypeAssignment,
+    release_cedar::require_loadable_policy_catalog, typed_artifact_store::PreparedTypedArtifact,
 };
 
 struct PendingKernelReceipt<'a> {
     proposal: &'a KernelProposal,
     receipt_id: String,
     explanation_jcs: String,
-    type_assignment: Option<&'a PreparedTypeAssignment>,
+    typed_artifact: Option<&'a PreparedTypedArtifact>,
 }
 
 #[derive(Clone)]
@@ -55,6 +58,33 @@ struct KernelAuthorization {
     world: WorldId,
 }
 
+struct IdentifierPageRead<'a> {
+    world: &'a WorldId,
+    principal: &'a PrincipalId,
+    membership: &'a MembershipId,
+    selector: &'a KernelIdentifierSelector,
+    seal_basis: &'a SealedCursorBasis,
+    cursor_sealer: &'a CursorSealer,
+    page_token: &'a str,
+    page_limit: u32,
+}
+
+struct IdentifierSealRequest<'a> {
+    catalog: &'a GovernedCatalogBasis,
+    world: &'a WorldId,
+    principal: &'a PrincipalId,
+    membership: &'a MembershipId,
+    selector: &'a KernelIdentifierSelector,
+    requested_limit: u32,
+    trusted_authority_digest: TrustedAuthorityDigest,
+}
+
+struct LoadedIdentifierPage {
+    authorized_count: u32,
+    candidates: Vec<KernelIdentifierCandidate>,
+    next_cursor: String,
+}
+
 impl KernelAuthorization {
     fn validate_seal(&self) -> Result<(), KernelError> {
         let expected_delegation = delegation_jcs(&self.context)?;
@@ -72,7 +102,7 @@ impl KernelAuthorization {
     }
 
     fn bind_read(
-        self,
+        &self,
         verb: PublicVerb,
         world: &WorldId,
         release_digest: &ReleaseDigest,
@@ -285,12 +315,18 @@ impl PostgresWorldKernel {
                 PublicVerb::Commit,
             )
             .await?;
-        let prepared =
-            Self::prepare_type_assignment_from_commit(&proposal.world, &proposal.input_jcs)?;
+        let link_definitions = self.typed_link_definitions(&basis.release_digest).await?;
+        let prepared = Self::prepare_typed_artifact_from_commit(
+            &self.pool,
+            &proposal.world,
+            &proposal.input_jcs,
+            &link_definitions,
+        )
+        .await?;
         let receipt_id = format!("receipt.kernel.{proposal_id}");
-        let type_assignment = prepared
+        let typed_artifact = prepared
             .as_ref()
-            .map(|assignment| assignment.explanation_value(&receipt_id))
+            .map(|artifact| artifact.explanation_value(&receipt_id))
             .transpose()?;
         let explanation_jcs = explanation_jcs(
             &proposal,
@@ -299,7 +335,7 @@ impl PostgresWorldKernel {
             &authority.membership,
             &receipt_id,
             &authority.release_digest,
-            type_assignment.as_ref(),
+            typed_artifact.as_ref(),
         )?;
         let receipt = persist_receipt(
             &self.pool,
@@ -308,7 +344,7 @@ impl PostgresWorldKernel {
                 proposal: &proposal,
                 receipt_id,
                 explanation_jcs,
-                type_assignment: prepared.as_ref(),
+                typed_artifact: prepared.as_ref(),
             },
         )
         .await?;
@@ -569,6 +605,9 @@ impl PostgresWorldKernel {
             membership: membership.clone(),
             world: world.clone(),
             object_type: object_type.to_owned(),
+            selector_digest: digest_fields("zoen.object-query-selector.v1", &[object_type]),
+            context_digest: digest_fields("zoen.object-query-context.v1", &[]),
+            valid_at_micros: 0,
             release_digest: catalog.release_digest.clone(),
             policy_digest: catalog.policy.clone(),
             budget_id,
@@ -576,6 +615,216 @@ impl PostgresWorldKernel {
             sort_order: CursorSortOrder::ObjectIdAscending,
         })
     }
+
+    async fn sealed_identifier_query_basis(
+        &self,
+        request: IdentifierSealRequest<'_>,
+    ) -> Result<SealedCursorBasis, KernelError> {
+        let budget_id = self.resolve_query_budget(request.catalog).await?;
+        let page_limit = effective_page_limit(request.requested_limit)
+            .map_err(|error| KernelError::Denied(error.to_string()))?;
+        let selector_digest = identifier_selector_digest(request.selector);
+        let context_digest = identifier_context_selector_digest(request.selector);
+        let authority_cut: Option<CommitSequence> = None;
+        let authorized_plan_digest = authorized_plan_digest(&IdentifierAuthorizedPlan {
+            schema: "zoen.authorized-identifier-set-plan.narrow.v1",
+            entitlement_basis: "world+type_assignment+principal+membership grant",
+            trusted_authority_digest: Some(request.trusted_authority_digest.as_str()),
+            authority_cut: authority_cut.map(CommitSequence::get),
+            authority_principal: request.principal.as_str(),
+            membership: request.membership.as_str(),
+            world: request.world.as_str(),
+            object_type: request.selector.object_type.as_deref().unwrap_or(""),
+            selector_digest: &selector_digest,
+            context_digest: &context_digest,
+            valid_at_micros: request.selector.valid_at_micros,
+            release_digest: request.catalog.release_digest.as_str(),
+            policy_digest: request.catalog.policy.as_str(),
+            budget_id: budget_id.as_str(),
+            page_limit,
+            projection: &[
+                "identifier_assignment",
+                "source_type_assignment",
+                "authorized_outgoing_links",
+            ],
+            sort_order: CursorSortOrder::IdentifierAssignmentIdAscending.as_str(),
+        })?;
+        Ok(SealedCursorBasis {
+            trusted_authority_digest: Some(request.trusted_authority_digest),
+            authority_cut,
+            authorized_plan_digest,
+            authority_principal: request.principal.clone(),
+            membership: request.membership.clone(),
+            world: request.world.clone(),
+            object_type: request.selector.object_type.clone().unwrap_or_default(),
+            selector_digest,
+            context_digest,
+            valid_at_micros: request.selector.valid_at_micros,
+            release_digest: request.catalog.release_digest.clone(),
+            policy_digest: request.catalog.policy.clone(),
+            budget_id,
+            page_limit,
+            sort_order: CursorSortOrder::IdentifierAssignmentIdAscending,
+        })
+    }
+
+    /// Resolve all authorized contextual identifier candidates and only links whose targets are
+    /// authorized under the same Membership. Query authorization precedes every semantic scan.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KernelError`] when authority, selector, cursor, budget, or stored state is invalid.
+    pub async fn query_identifier_candidates(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &MembershipId,
+        selector: KernelIdentifierSelector,
+        page_token: &str,
+        requested_limit: u32,
+        surface: KernelSurface,
+    ) -> Result<KernelIdentifierQueryPage, KernelError> {
+        let selector = normalize_identifier_selector(selector)?;
+        let basis = self.catalog_basis(world).await?;
+        let authority = self
+            .authorize_verb(world, principal, membership, &basis, PublicVerb::Query)
+            .await?;
+        let trusted_authority_digest = authority.bind_read(
+            PublicVerb::Query,
+            world,
+            &basis.release_digest,
+            principal,
+            membership,
+        )?;
+        let cursor_sealer = self.cursor_sealer.as_ref().ok_or_else(|| {
+            KernelError::Denied("server cursor keyring is not configured".to_owned())
+        })?;
+        let seal_basis = self
+            .sealed_identifier_query_basis(IdentifierSealRequest {
+                catalog: &basis,
+                world,
+                principal,
+                membership,
+                selector: &selector,
+                requested_limit,
+                trusted_authority_digest,
+            })
+            .await?;
+        let budget_id = seal_basis.budget_id.clone();
+        let page_limit = seal_basis.page_limit;
+        let page = self
+            .load_identifier_page(IdentifierPageRead {
+                world,
+                principal,
+                membership,
+                selector: &selector,
+                seal_basis: &seal_basis,
+                cursor_sealer,
+                page_token,
+                page_limit,
+            })
+            .await?;
+        let compute_digest = server_budgeted_identifier_compute(&budget_id, &page.candidates);
+        let explanation_jcs = serde_jcs::to_string(&serde_json::json!({
+            "authorizedCount": page.authorized_count,
+            "budgetId": budget_id.as_str(),
+            "decision": "permit",
+            "identifier": selector.value,
+            "linksRequireAuthorizedTarget": true,
+            "membership": membership.as_str(),
+            "policyDigest": basis.policy.as_str(),
+            "principal": principal.as_str(),
+            "releaseDigest": basis.release_digest.as_str(),
+            "scannedUnauthorized": false,
+            "selectorDigest": seal_basis.selector_digest,
+            "validAtMicros": selector.valid_at_micros,
+        }))
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        Ok(KernelIdentifierQueryPage {
+            basis,
+            surface,
+            decision: KernelPolicyDecision::Permit,
+            membership: membership.clone(),
+            selector,
+            budget_id: budget_id.as_str().to_owned(),
+            page_limit,
+            authorized_count: page.authorized_count,
+            candidates: page.candidates,
+            next_cursor: page.next_cursor,
+            compute_digest,
+            explanation_jcs,
+        })
+    }
+
+    async fn load_identifier_page(
+        &self,
+        read: IdentifierPageRead<'_>,
+    ) -> Result<LoadedIdentifierPage, KernelError> {
+        let after = if read.page_token.is_empty() {
+            None
+        } else {
+            Some(
+                read.cursor_sealer
+                    .bind(read.page_token, read.seal_basis, unix_seconds()?)
+                    .map_err(|error| KernelError::Denied(error.to_string()))?
+                    .after_object_id,
+            )
+        };
+        let authorized_count = self
+            .count_authorized_identifier_candidates(
+                read.world,
+                read.principal,
+                read.membership,
+                read.selector,
+            )
+            .await?;
+        let mut candidates = self
+            .load_authorized_identifier_candidates(
+                read.world,
+                read.principal,
+                read.membership,
+                read.selector,
+                after.as_deref(),
+                read.page_limit,
+            )
+            .await?;
+        let page_end = read.page_limit as usize;
+        let has_more = candidates.len() > page_end;
+        candidates.truncate(page_end);
+        for candidate in &mut candidates {
+            candidate.links = self
+                .load_authorized_outgoing_links(
+                    read.world,
+                    read.principal,
+                    read.membership,
+                    candidate,
+                    read.selector.valid_at_micros,
+                    read.page_limit,
+                )
+                .await?;
+        }
+        let next_cursor = if has_more {
+            let last = candidates
+                .last()
+                .ok_or_else(|| KernelError::Conflict("identifier page incomplete".to_owned()))?;
+            read.cursor_sealer
+                .seal_next(
+                    read.seal_basis,
+                    &last.identifier_assignment_id,
+                    true,
+                    unix_seconds()?,
+                )
+                .map_err(|error| KernelError::Store(error.to_string()))?
+        } else {
+            String::new()
+        };
+        Ok(LoadedIdentifierPage {
+            authorized_count,
+            candidates,
+            next_cursor,
+        })
+    }
+
     async fn count_authorized_objects(
         &self,
         world: &WorldId,
@@ -699,6 +948,183 @@ impl PostgresWorldKernel {
         Ok(budget.id().clone())
     }
 
+    async fn count_authorized_identifier_candidates(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &MembershipId,
+        selector: &KernelIdentifierSelector,
+    ) -> Result<u32, KernelError> {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::bigint
+             FROM world_identifier_assignments i
+             INNER JOIN world_typed_object_grants g
+               ON g.type_assignment_id = i.type_assignment_id
+              AND g.world_id = i.world_id
+              AND g.entity_id = i.entity_id
+              AND g.object_type = i.object_type
+             WHERE i.world_id = $1
+               AND i.identifier_value = $2
+               AND ($3::TEXT IS NULL OR i.scheme = $3)
+               AND ($4::TEXT IS NULL OR i.object_type = $4)
+               AND ($5::TEXT IS NULL OR i.venue_entity_id = $5)
+               AND ($6::TEXT IS NULL OR i.mic = $6)
+               AND ($7::TEXT IS NULL OR i.currency = $7)
+               AND ($8::TEXT IS NULL OR i.share_class = $8)
+               AND ($9::TEXT IS NULL OR i.provider = $9)
+               AND ($10::TEXT IS NULL OR i.identifier_level = $10)
+               AND i.valid_start_micros <= $11
+               AND (i.valid_end_micros IS NULL OR $11 < i.valid_end_micros)
+               AND g.principal_id = $12
+               AND g.membership_id = $13",
+        )
+        .bind(world.as_str())
+        .bind(&selector.value)
+        .bind(selector.scheme.as_deref())
+        .bind(selector.object_type.as_deref())
+        .bind(selector.venue_entity_id.as_deref())
+        .bind(selector.mic.as_deref())
+        .bind(selector.currency.as_deref())
+        .bind(selector.share_class.as_deref())
+        .bind(selector.provider.as_deref())
+        .bind(selector.identifier_level.as_deref())
+        .bind(selector.valid_at_micros)
+        .bind(principal.as_str())
+        .bind(membership.as_str())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        u32::try_from(count).map_err(|_| {
+            KernelError::Store("authorized identifier candidate count overflow".to_owned())
+        })
+    }
+
+    async fn load_authorized_identifier_candidates(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &MembershipId,
+        selector: &KernelIdentifierSelector,
+        after: Option<&str>,
+        page_limit: u32,
+    ) -> Result<Vec<KernelIdentifierCandidate>, KernelError> {
+        let sql_limit = i64::from(page_limit).saturating_add(1);
+        let rows = sqlx::query(
+            "SELECT i.identifier_assignment_id, i.entity_id, i.object_type,
+                    i.type_assignment_id, i.scheme, i.identifier_value,
+                    i.venue_entity_id, i.mic, i.currency, i.share_class,
+                    i.provider, i.identifier_level, i.valid_start_micros,
+                    i.valid_end_micros, i.evidence_ref
+             FROM world_identifier_assignments i
+             INNER JOIN world_typed_object_grants g
+               ON g.type_assignment_id = i.type_assignment_id
+              AND g.world_id = i.world_id
+              AND g.entity_id = i.entity_id
+              AND g.object_type = i.object_type
+             WHERE i.world_id = $1
+               AND i.identifier_value = $2
+               AND ($3::TEXT IS NULL OR i.scheme = $3)
+               AND ($4::TEXT IS NULL OR i.object_type = $4)
+               AND ($5::TEXT IS NULL OR i.venue_entity_id = $5)
+               AND ($6::TEXT IS NULL OR i.mic = $6)
+               AND ($7::TEXT IS NULL OR i.currency = $7)
+               AND ($8::TEXT IS NULL OR i.share_class = $8)
+               AND ($9::TEXT IS NULL OR i.provider = $9)
+               AND ($10::TEXT IS NULL OR i.identifier_level = $10)
+               AND i.valid_start_micros <= $11
+               AND (i.valid_end_micros IS NULL OR $11 < i.valid_end_micros)
+               AND g.principal_id = $12
+               AND g.membership_id = $13
+               AND ($14::TEXT IS NULL OR i.identifier_assignment_id > $14)
+             ORDER BY i.identifier_assignment_id ASC
+             LIMIT $15",
+        )
+        .bind(world.as_str())
+        .bind(&selector.value)
+        .bind(selector.scheme.as_deref())
+        .bind(selector.object_type.as_deref())
+        .bind(selector.venue_entity_id.as_deref())
+        .bind(selector.mic.as_deref())
+        .bind(selector.currency.as_deref())
+        .bind(selector.share_class.as_deref())
+        .bind(selector.provider.as_deref())
+        .bind(selector.identifier_level.as_deref())
+        .bind(selector.valid_at_micros)
+        .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(after)
+        .bind(sql_limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        rows.iter().map(row_to_identifier_candidate).collect()
+    }
+
+    async fn load_authorized_outgoing_links(
+        &self,
+        world: &WorldId,
+        principal: &PrincipalId,
+        membership: &MembershipId,
+        source: &KernelIdentifierCandidate,
+        valid_at_micros: i64,
+        projection_limit: u32,
+    ) -> Result<Vec<KernelAuthorizedLink>, KernelError> {
+        let sql_limit = i64::from(projection_limit);
+        let rows = sqlx::query(
+            "SELECT l.link_assertion_id, l.link_type, l.target_entity_id,
+                    l.target_type, l.target_assignment_id, l.evidence_ref
+             FROM world_link_assertions l
+             INNER JOIN world_typed_object_grants target_grant
+               ON target_grant.type_assignment_id = l.target_assignment_id
+              AND target_grant.world_id = l.world_id
+              AND target_grant.entity_id = l.target_entity_id
+              AND target_grant.object_type = l.target_type
+             WHERE l.world_id = $1
+               AND l.source_entity_id = $2
+               AND l.source_assignment_id = $3
+               AND l.valid_start_micros <= $4
+               AND (l.valid_end_micros IS NULL OR $4 < l.valid_end_micros)
+               AND target_grant.principal_id = $5
+               AND target_grant.membership_id = $6
+             ORDER BY l.link_type, l.link_assertion_id
+             LIMIT $7",
+        )
+        .bind(world.as_str())
+        .bind(&source.object_id)
+        .bind(&source.type_assignment_id)
+        .bind(valid_at_micros)
+        .bind(principal.as_str())
+        .bind(membership.as_str())
+        .bind(sql_limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+        rows.iter()
+            .map(|row| {
+                Ok(KernelAuthorizedLink {
+                    link_assertion_id: row
+                        .try_get("link_assertion_id")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    link_type: row
+                        .try_get("link_type")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    target_object_id: row
+                        .try_get("target_entity_id")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    target_object_type: row
+                        .try_get("target_type")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    target_type_assignment_id: row
+                        .try_get("target_assignment_id")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                    evidence_ref: row
+                        .try_get("evidence_ref")
+                        .map_err(|error| KernelError::Store(error.to_string()))?,
+                })
+            })
+            .collect()
+    }
+
     pub(crate) async fn catalog_basis(
         &self,
         world: &WorldId,
@@ -730,6 +1156,23 @@ impl PostgresWorldKernel {
             components: catalogs.components().digest().clone(),
             public_verbs: parsed.verbs,
         })
+    }
+
+    async fn typed_link_definitions(
+        &self,
+        release: &ReleaseDigest,
+    ) -> Result<Vec<zoen_core::TypedLinkDefinition>, KernelError> {
+        let catalogs = self
+            .releases
+            .get_catalogs(release)
+            .await
+            .map_err(map_release)?
+            .ok_or_else(|| {
+                KernelError::NotFound("active release catalogs were not found".to_owned())
+            })?;
+        require_loadable_ontology_catalog(catalogs.ontology().bytes())
+            .map(|catalog| catalog.typed_links)
+            .map_err(|error| KernelError::Conflict(error.to_string()))
     }
 
     async fn authorize_verb(
@@ -1056,19 +1499,23 @@ async fn persist_receipt(
         ));
     }
     require_matching_authorization(&row, &authorization, "committed_at_micros", "commit")?;
-    if let Some(prepared) = pending.type_assignment {
+    if let Some(prepared) = pending.typed_artifact {
         if inserted.rows_affected() == 0 {
-            PostgresWorldKernel::validate_type_assignment_replay(
+            PostgresWorldKernel::validate_typed_artifact_replay(
                 &mut transaction,
                 &receipt.receipt_id,
+                &authorization.release_digest,
+                authorization.policy.revision.digest.as_str(),
                 prepared,
             )
             .await?;
         } else {
-            let _ = PostgresWorldKernel::materialize_type_assignment_from_commit(
+            PostgresWorldKernel::materialize_typed_artifact_from_commit(
                 &mut transaction,
                 &receipt.receipt_id,
                 &pending.proposal.principal,
+                &authorization.release_digest,
+                authorization.policy.revision.digest.as_str(),
                 prepared,
             )
             .await?;
@@ -1150,7 +1597,38 @@ async fn begin_authorized_write<'a>(
         .await
         .map_err(|error| KernelError::Store(error.to_string()))?;
     lock_authorized_release(&mut transaction, authorization).await?;
+    lock_authorized_membership(&mut transaction, authorization).await?;
     Ok(transaction)
+}
+
+async fn lock_authorized_membership(
+    transaction: &mut Transaction<'_, Postgres>,
+    authorization: &KernelAuthorization,
+) -> Result<(), KernelError> {
+    let resource = ResourceId::parse(WORLD_KERNEL_AUTHORITY_RESOURCE)
+        .map_err(|error| KernelError::Store(error.to_string()))?;
+    let current = PostgresIdentityStore::lock_membership_authority(
+        transaction,
+        &authorization.membership,
+        &authorization.world,
+        &authorization.principal,
+        &authorization.action,
+        &resource,
+        authorization.authorized_at,
+    )
+    .await
+    .map_err(|_| {
+        KernelError::Denied(
+            "write denied: Membership or delegation changed before persistence".to_owned(),
+        )
+    })?;
+    if current != authorization.context || delegation_jcs(&current)? != authorization.delegation_jcs
+    {
+        return Err(KernelError::Denied(
+            "write denied: Membership authority cut changed before persistence".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 async fn lock_authorized_release(
@@ -1561,7 +2039,7 @@ fn explanation_jcs(
     committed_membership: &MembershipId,
     receipt_id: &str,
     release: &ReleaseDigest,
-    type_assignment: Option<&serde_json::Value>,
+    typed_artifact: Option<&serde_json::Value>,
 ) -> Result<String, KernelError> {
     serde_jcs::to_string(&serde_json::json!({
         "commit": {
@@ -1581,7 +2059,7 @@ fn explanation_jcs(
         "receiptId": receipt_id,
         "releaseDigest": release.as_str(),
         "schema": "zoen.kernel-explanation.v2",
-        "typeAssignment": type_assignment,
+        "typedArtifact": typed_artifact,
     }))
     .map_err(|error| KernelError::Store(error.to_string()))
 }
@@ -1609,8 +2087,30 @@ struct NarrowAuthorizedPlan<'a> {
     sort_order: &'a str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IdentifierAuthorizedPlan<'a> {
+    schema: &'static str,
+    entitlement_basis: &'static str,
+    trusted_authority_digest: Option<&'a str>,
+    authority_cut: Option<u64>,
+    authority_principal: &'a str,
+    membership: &'a str,
+    world: &'a str,
+    object_type: &'a str,
+    selector_digest: &'a str,
+    context_digest: &'a str,
+    valid_at_micros: i64,
+    release_digest: &'a str,
+    policy_digest: &'a str,
+    budget_id: &'a str,
+    page_limit: u32,
+    projection: &'static [&'static str],
+    sort_order: &'a str,
+}
+
 fn authorized_plan_digest(
-    plan: &NarrowAuthorizedPlan<'_>,
+    plan: &impl Serialize,
 ) -> Result<AuthorizedObjectSetPlanDigest, KernelError> {
     let canonical =
         serde_jcs::to_vec(plan).map_err(|error| KernelError::Store(error.to_string()))?;
@@ -1661,6 +2161,181 @@ fn unix_seconds() -> Result<u64, KernelError> {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|error| KernelError::Store(format!("system clock precedes Unix epoch: {error}")))
+}
+
+fn normalize_identifier_selector(
+    mut selector: KernelIdentifierSelector,
+) -> Result<KernelIdentifierSelector, KernelError> {
+    selector.value = selector.value.trim().to_owned();
+    if selector.value.is_empty() {
+        return Err(KernelError::Conflict(
+            "identifier query value must not be empty".to_owned(),
+        ));
+    }
+    selector.scheme = selector
+        .scheme
+        .map(|value| {
+            IdentifierScheme::parse(value.trim().to_owned())
+                .map(|scheme| scheme.as_str().to_owned())
+                .map_err(|error| KernelError::Conflict(error.to_string()))
+        })
+        .transpose()?;
+    selector.object_type = selector
+        .object_type
+        .map(|value| {
+            TypeId::parse(value.trim().to_owned())
+                .map(|object_type| object_type.as_str().to_owned())
+                .map_err(|error| KernelError::Conflict(error.to_string()))
+        })
+        .transpose()?;
+    selector.venue_entity_id = selector
+        .venue_entity_id
+        .map(|value| {
+            EntityId::parse(value.trim().to_owned())
+                .map(|entity| entity.as_str().to_owned())
+                .map_err(|error| KernelError::Conflict(error.to_string()))
+        })
+        .transpose()?;
+    selector.mic = normalize_query_context(selector.mic, true, "MIC")?;
+    selector.currency = normalize_query_context(selector.currency, true, "currency")?;
+    selector.share_class = normalize_query_context(selector.share_class, false, "share class")?;
+    selector.provider =
+        normalize_query_context(selector.provider, false, "provider")?.map(|v| v.to_lowercase());
+    selector.identifier_level =
+        normalize_query_context(selector.identifier_level, false, "identifier level")?
+            .map(|v| v.to_lowercase());
+    Ok(selector)
+}
+
+fn normalize_query_context(
+    value: Option<String>,
+    uppercase: bool,
+    label: &str,
+) -> Result<Option<String>, KernelError> {
+    value
+        .map(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                Err(KernelError::Conflict(format!(
+                    "identifier query {label} must not be empty"
+                )))
+            } else if uppercase {
+                Ok(value.to_uppercase())
+            } else {
+                Ok(value.to_owned())
+            }
+        })
+        .transpose()
+}
+
+fn identifier_selector_digest(selector: &KernelIdentifierSelector) -> String {
+    digest_fields(
+        "zoen.identifier-query-selector.v1",
+        &[
+            &selector.value,
+            selector.scheme.as_deref().unwrap_or(""),
+            selector.object_type.as_deref().unwrap_or(""),
+        ],
+    )
+}
+
+fn identifier_context_selector_digest(selector: &KernelIdentifierSelector) -> String {
+    digest_fields(
+        "zoen.identifier-query-context.v1",
+        &[
+            selector.venue_entity_id.as_deref().unwrap_or(""),
+            selector.mic.as_deref().unwrap_or(""),
+            selector.currency.as_deref().unwrap_or(""),
+            selector.share_class.as_deref().unwrap_or(""),
+            selector.provider.as_deref().unwrap_or(""),
+            selector.identifier_level.as_deref().unwrap_or(""),
+        ],
+    )
+}
+
+fn digest_fields(domain: &str, fields: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    hash_digest_field(&mut hasher, domain);
+    for field in fields {
+        hash_digest_field(&mut hasher, field);
+    }
+    encode_hex(hasher.finalize().as_slice())
+}
+
+fn hash_digest_field(hasher: &mut Sha256, value: &str) {
+    hasher.update(value.len().to_be_bytes());
+    hasher.update(value.as_bytes());
+}
+
+fn row_to_identifier_candidate(row: &PgRow) -> Result<KernelIdentifierCandidate, KernelError> {
+    Ok(KernelIdentifierCandidate {
+        identifier_assignment_id: row
+            .try_get("identifier_assignment_id")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        object_id: row
+            .try_get("entity_id")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        object_type: row
+            .try_get("object_type")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        type_assignment_id: row
+            .try_get("type_assignment_id")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        scheme: row
+            .try_get("scheme")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        value: row
+            .try_get("identifier_value")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        context: KernelIdentifierContext {
+            venue_entity_id: row
+                .try_get("venue_entity_id")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+            mic: row
+                .try_get("mic")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+            currency: row
+                .try_get("currency")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+            share_class: row
+                .try_get("share_class")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+            provider: row
+                .try_get("provider")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+            identifier_level: row
+                .try_get("identifier_level")
+                .map_err(|error| KernelError::Store(error.to_string()))?,
+        },
+        valid_start_micros: row
+            .try_get("valid_start_micros")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        valid_end_micros: row
+            .try_get("valid_end_micros")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        evidence_ref: row
+            .try_get("evidence_ref")
+            .map_err(|error| KernelError::Store(error.to_string()))?,
+        links: Vec::new(),
+    })
+}
+
+fn server_budgeted_identifier_compute(
+    budget_id: &BudgetClassId,
+    candidates: &[KernelIdentifierCandidate],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(budget_id.as_str().as_bytes());
+    for candidate in candidates {
+        hasher.update(candidate.identifier_assignment_id.as_bytes());
+        hasher.update(candidate.object_id.as_bytes());
+        hasher.update(candidate.type_assignment_id.as_bytes());
+        for link in &candidate.links {
+            hasher.update(link.link_assertion_id.as_bytes());
+            hasher.update(link.target_type_assignment_id.as_bytes());
+        }
+    }
+    encode_hex(hasher.finalize().as_slice())
 }
 
 fn kernel_policy_operation(verb: PublicVerb) -> PolicyOperation {

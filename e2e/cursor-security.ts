@@ -305,6 +305,17 @@ function activeSecretHex(config: CursorServerConfig): string {
   return secret;
 }
 
+function digestCursorFields(domain: string, fields: readonly string[]): string {
+  const digest = createHash("sha256");
+  for (const field of [domain, ...fields]) {
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(Buffer.byteLength(field)));
+    digest.update(length);
+    digest.update(field);
+  }
+  return digest.digest("hex");
+}
+
 function forgeWithUnkeyedSha256(
   token: string,
   body: Record<string, unknown>,
@@ -326,6 +337,7 @@ function forgeWithUnkeyedSha256(
     authorityPrincipal: actor.principal,
     authorizedPlanDigest: planDigest,
     budgetId: body.budgetId,
+    contextDigest: digestCursorFields("zoen.object-query-context.v1", []),
     expiresAtUnixSeconds: parsed.expiresAtUnixSeconds,
     keyId: parsed.keyId,
     membership: actor.membership,
@@ -334,8 +346,10 @@ function forgeWithUnkeyedSha256(
     policyDigest,
     releaseDigest: body.releaseDigest,
     schema: "zoen.sealed-cursor.v3",
+    selectorDigest: digestCursorFields("zoen.object-query-selector.v1", [objectType]),
     sortOrder: "object_id.asc",
     trustedAuthorityDigest,
+    validAtMicros: 0,
     world,
   });
   if (payload === undefined) {

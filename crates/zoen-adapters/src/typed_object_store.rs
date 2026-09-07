@@ -49,6 +49,7 @@ impl PreparedTypeAssignment {
         Ok(serde_json::json!({
             "assignmentId": assignment.id.as_str(),
             "evidenceRef": assignment.evidence.as_str(),
+            "kind": "typeAssignment",
             "objectKey": {
                 "entity": assignment.assertion.object.entity.as_str(),
                 "world": assignment.assertion.object.world.as_str(),

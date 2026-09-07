@@ -17,6 +17,7 @@ mod migration;
 mod object_key;
 mod pack;
 mod sha256;
+mod typed_artifact;
 mod world_release;
 
 pub use action_preview::{
@@ -93,6 +94,12 @@ pub use pack::{
     PublicKeyId, PublisherId, PublisherIdentity, PublisherKey, PublisherKeyStatus, ReferralId,
     RequirementId, RequirementImpactLine, Sensitivity, ShareInstallPolicy, ShareRefRecord,
     ShareResolve, ShareToken, SignatureEvidence, required_grants_accepted,
+};
+pub use typed_artifact::{
+    IdentifierAssertion, IdentifierAssignment, IdentifierAssignmentId, IdentifierContext,
+    IdentifierScheme, LinkAssertion, LinkAssertionId, LinkCardinality, LinkTemporalBehavior,
+    LinkTypeId, TypedArtifactError, TypedLink, TypedLinkDefinition, identifier_assertion_digest,
+    link_assertion_digest, typed_link_definition_digest,
 };
 pub use world_release::{
     ComponentCatalog, ComponentCatalogDigest, ExecutorCatalog, ExecutorCatalogDigest,

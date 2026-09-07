@@ -197,3 +197,72 @@ pub struct KernelQueryPage {
     pub page_digest: String,
     pub explanation_jcs: String,
 }
+
+/// Caller selector for a contextual identifier query. Every field is cursor-bound.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentifierSelector {
+    pub value: String,
+    pub scheme: Option<String>,
+    pub object_type: Option<String>,
+    pub venue_entity_id: Option<String>,
+    pub mic: Option<String>,
+    pub currency: Option<String>,
+    pub share_class: Option<String>,
+    pub provider: Option<String>,
+    pub identifier_level: Option<String>,
+    pub valid_at_micros: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentifierContext {
+    pub venue_entity_id: Option<String>,
+    pub mic: Option<String>,
+    pub currency: Option<String>,
+    pub share_class: Option<String>,
+    pub provider: Option<String>,
+    pub identifier_level: Option<String>,
+}
+
+/// One outgoing typed link whose target passed the same authority restriction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelAuthorizedLink {
+    pub link_assertion_id: String,
+    pub link_type: String,
+    pub target_object_id: String,
+    pub target_object_type: String,
+    pub target_type_assignment_id: String,
+    pub evidence_ref: String,
+}
+
+/// One typed candidate that survived identifier filters and source entitlement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentifierCandidate {
+    pub identifier_assignment_id: String,
+    pub object_id: String,
+    pub object_type: String,
+    pub type_assignment_id: String,
+    pub scheme: String,
+    pub value: String,
+    pub context: KernelIdentifierContext,
+    pub valid_start_micros: i64,
+    pub valid_end_micros: Option<i64>,
+    pub evidence_ref: String,
+    pub links: Vec<KernelAuthorizedLink>,
+}
+
+/// Authorized contextual-identifier candidates, paged by a fully bound sealed cursor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KernelIdentifierQueryPage {
+    pub basis: GovernedCatalogBasis,
+    pub surface: KernelSurface,
+    pub decision: KernelPolicyDecision,
+    pub membership: MembershipId,
+    pub selector: KernelIdentifierSelector,
+    pub budget_id: String,
+    pub page_limit: u32,
+    pub authorized_count: u32,
+    pub candidates: Vec<KernelIdentifierCandidate>,
+    pub next_cursor: String,
+    pub compute_digest: String,
+    pub explanation_jcs: String,
+}

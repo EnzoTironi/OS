@@ -25,6 +25,9 @@ const kernelAuthorityDefinitionDigest =
   "3dfddf9c946656d9ce19ccaacecba5db3d284417c1c3f1f9d0ee710163e42dfc";
 const memoryType = "personal.Memory";
 const patientType = "clinic.Patient";
+const listingType = "finance.Listing";
+const venueType = "finance.Venue";
+const tradesOnLink = "finance.tradesOn";
 
 interface Actor {
   principal: string;
@@ -36,6 +39,21 @@ interface ZoenResult {
   stdout: string;
   stderr: string;
   body?: Record<string, unknown>;
+}
+
+interface TypedArtifactFixture {
+  committedIdentifierNyse: ZoenResult;
+  identifierHidden: string;
+  identifierNyse: string;
+  linkNyse: string;
+  listingExpiringType: string;
+  listingHidden: string;
+  listingHiddenType: string;
+  listingNyse: string;
+  listingNyseType: string;
+  venueHidden: string;
+  venueNyse: string;
+  venueNyseType: string;
 }
 
 const owner: Actor = {
@@ -90,6 +108,11 @@ function record(name: string, observed: boolean): void {
   assertions[name] = observed;
 }
 
+function requireString(value: unknown, label: string): string {
+  assert.ok(typeof value === "string", `${label} must be a string`);
+  return value;
+}
+
 function runZoen(args: string[]): ZoenResult {
   const result = runZoenCli(zoenPath, databaseUrl, args);
   if (result.status === 0 && result.stdout.trim() !== "") {
@@ -103,6 +126,18 @@ function ontologyBytes(): string {
     label: "object-key.world",
     publicVerbs: [...sevenVerbs],
     schema: "zoen.ontology-catalog.v1",
+    typedLinks: [
+      {
+        cardinality: "many-to-one",
+        id: tradesOnLink,
+        requiredEvidenceSchema: "zoen.link-assertion-draft.v1",
+        sourceSide: "listing",
+        sourceType: listingType,
+        targetSide: "venue",
+        targetType: venueType,
+        temporalBehavior: "interval",
+      },
+    ],
   })}\n`;
 }
 
@@ -134,6 +169,20 @@ function policyCatalogBytes(): string {
   return `${JSON.stringify({
     schema: "zoen.policy-catalog.v1",
     authorization: { policies },
+    computeBudgets: [
+      {
+        deadlineMillis: 2_000,
+        fuel: 5_000_000,
+        id: "budget.query.default",
+        instances: 4,
+        memories: 2,
+        memoryBytes: 8 * 1024 * 1024,
+        priority: 10,
+        resourceId: "zoen.query.budget.default",
+        tableElements: 1_024,
+        tables: 2,
+      },
+    ],
     membershipDelegation: [],
     sourceAdmission: [],
   })}\n`;
@@ -301,7 +350,7 @@ function activateRelease(digest: string): void {
     owner.membership,
   ]);
   assert.equal(preview.status, 0, preview.stderr);
-  const previewDigest = String(preview.body?.previewDigest);
+  const previewDigest = requireString(preview.body?.previewDigest, "previewDigest");
   const decide = runZoen([
     "world",
     "release",
@@ -375,6 +424,7 @@ function typeAssignmentDraft(input: {
   entity: string;
   objectType: string;
   validEndMicros?: number | null;
+  grants?: Actor[];
 }): Record<string, unknown> {
   return {
     schema: "zoen.type-assignment-draft.v1",
@@ -385,14 +435,77 @@ function typeAssignmentDraft(input: {
       validStartMicros: 0,
       validEndMicros: input.validEndMicros ?? null,
     },
-    grants: [
-      {
-        principalId: human.principal,
-        membershipId: human.membership,
-        objectType: input.objectType,
-      },
-    ],
+    grants: (input.grants ?? [human]).map((actor) => ({
+      principalId: actor.principal,
+      membershipId: actor.membership,
+      objectType: input.objectType,
+    })),
   };
+}
+
+function typedLinkDraft(input: {
+  assertionId: string;
+  sourceEntity: string;
+  sourceAssignment: string;
+  targetEntity: string;
+  targetAssignment: string;
+  validEndMicros?: number | null;
+}): Record<string, unknown> {
+  return {
+    schema: "zoen.link-assertion-draft.v1",
+    linkAssertion: {
+      linkAssertionId: input.assertionId,
+      linkType: tradesOnLink,
+      source: { world, entity: input.sourceEntity },
+      sourceTypeAssignmentId: input.sourceAssignment,
+      target: { world, entity: input.targetEntity },
+      targetTypeAssignmentId: input.targetAssignment,
+      validEndMicros: input.validEndMicros ?? null,
+      validStartMicros: 0,
+    },
+  };
+}
+
+function identifierAssignmentDraft(input: {
+  assignmentId: string;
+  entity: string;
+  typeAssignment: string;
+  scheme?: string;
+  value?: string;
+  venueEntity?: string;
+  mic?: string;
+  currency?: string;
+  identifierLevel?: string;
+  validEndMicros?: number | null;
+}): Record<string, unknown> {
+  return {
+    schema: "zoen.identifier-assignment-draft.v1",
+    identifierAssignment: {
+      context: {
+        currency: input.currency,
+        identifierLevel: input.identifierLevel,
+        mic: input.mic,
+        venue: input.venueEntity ? { world, entity: input.venueEntity } : undefined,
+      },
+      identifierAssignmentId: input.assignmentId,
+      objectKey: { world, entity: input.entity },
+      scheme: input.scheme ?? "ticker",
+      typeAssignmentId: input.typeAssignment,
+      validEndMicros: input.validEndMicros ?? null,
+      validStartMicros: 0,
+      value: input.value ?? "IBM",
+    },
+  };
+}
+
+function commitDraft(proposalId: string, draft: Record<string, unknown>): ZoenResult {
+  const proposed = propose(builder, proposalId, draft);
+  assert.equal(proposed.status, 0, proposed.stderr);
+  const decided = decide(owner, proposalId);
+  assert.equal(decided.status, 0, decided.stderr);
+  const committed = commit(owner, proposalId);
+  assert.equal(committed.status, 0, committed.stderr);
+  return committed;
 }
 
 async function assertNoMaterialization(
@@ -423,6 +536,441 @@ async function assertNoMaterialization(
   );
 }
 
+function admitTypedArtifacts(): TypedArtifactFixture {
+  const venueNyse = "venue.xnys";
+  const venueHidden = "venue.hidden";
+  const listingNyse = "listing.ibm.xnys";
+  const listingHidden = "listing.ibm.hidden";
+  const venueNyseType = "type-assignment.venue.xnys";
+  const venueHiddenType = "type-assignment.venue.hidden";
+  const listingNyseType = "type-assignment.listing.ibm.xnys";
+  const listingHiddenType = "type-assignment.listing.ibm.hidden";
+  const listingExpiringType = "type-assignment.listing.ibm.expiring";
+  commitDraft(
+    "proposal.type.venue.xnys",
+    typeAssignmentDraft({
+      assignmentId: venueNyseType,
+      entity: venueNyse,
+      objectType: venueType,
+    }),
+  );
+  commitDraft(
+    "proposal.type.venue.hidden",
+    typeAssignmentDraft({
+      assignmentId: venueHiddenType,
+      entity: venueHidden,
+      objectType: venueType,
+      grants: [replacementOwner],
+    }),
+  );
+  commitDraft(
+    "proposal.type.listing.ibm.xnys",
+    typeAssignmentDraft({
+      assignmentId: listingNyseType,
+      entity: listingNyse,
+      objectType: listingType,
+    }),
+  );
+  commitDraft(
+    "proposal.type.listing.ibm.hidden",
+    typeAssignmentDraft({
+      assignmentId: listingHiddenType,
+      entity: listingHidden,
+      objectType: listingType,
+    }),
+  );
+  commitDraft(
+    "proposal.type.listing.ibm.expiring",
+    typeAssignmentDraft({
+      assignmentId: listingExpiringType,
+      entity: listingNyse,
+      objectType: listingType,
+      validEndMicros: 200,
+    }),
+  );
+  const identifierNyse = "identifier-assignment.ibm.xnys";
+  const identifierHidden = "identifier-assignment.ibm.hidden";
+  const committedIdentifierNyse = commitDraft(
+    "proposal.identifier.ibm.xnys",
+    identifierAssignmentDraft({
+      assignmentId: identifierNyse,
+      entity: listingNyse,
+      typeAssignment: listingNyseType,
+      venueEntity: venueNyse,
+      mic: "xnys",
+      currency: "usd",
+      identifierLevel: "listing",
+    }),
+  );
+  commitDraft(
+    "proposal.identifier.ibm.hidden",
+    identifierAssignmentDraft({
+      assignmentId: identifierHidden,
+      entity: listingHidden,
+      typeAssignment: listingHiddenType,
+      venueEntity: venueHidden,
+      mic: "xhid",
+      currency: "usd",
+      identifierLevel: "listing",
+      validEndMicros: 200,
+    }),
+  );
+  const linkNyse = "link-assertion.ibm.xnys";
+  commitDraft(
+    "proposal.link.ibm.xnys",
+    typedLinkDraft({
+      assertionId: linkNyse,
+      sourceEntity: listingNyse,
+      sourceAssignment: listingNyseType,
+      targetEntity: venueNyse,
+      targetAssignment: venueNyseType,
+    }),
+  );
+  commitDraft(
+    "proposal.link.ibm.hidden",
+    typedLinkDraft({
+      assertionId: "link-assertion.ibm.hidden",
+      sourceEntity: listingHidden,
+      sourceAssignment: listingHiddenType,
+      targetEntity: venueHidden,
+      targetAssignment: venueHiddenType,
+    }),
+  );
+
+  return {
+    committedIdentifierNyse,
+    identifierHidden,
+    identifierNyse,
+    linkNyse,
+    listingExpiringType,
+    listingHidden,
+    listingHiddenType,
+    listingNyse,
+    listingNyseType,
+    venueHidden,
+    venueNyse,
+    venueNyseType,
+  };
+}
+
+function proveTypedArtifactQueries(fixture: TypedArtifactFixture): void {
+  const ambiguous = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "100",
+    "--limit",
+    "5",
+  ]);
+  assert.equal(ambiguous.status, 0, ambiguous.stderr);
+  const candidates = (ambiguous.body?.candidates ?? []) as Array<{
+    identifierAssignmentId?: string;
+    objectKey?: { entity?: string };
+    objectType?: string;
+    context?: { currency?: string; identifierLevel?: string; mic?: string };
+    links?: Array<{ linkType?: string; targetObject?: string }>;
+  }>;
+  record(
+    "ambiguous_identifier_returns_all_typed_contextual_candidates",
+    ambiguous.body?.authorizedCount === 2 &&
+      candidates.length === 2 &&
+      candidates.every(
+        (candidate) =>
+          candidate.objectType === listingType &&
+          candidate.context?.currency === "USD" &&
+          candidate.context.identifierLevel === "listing",
+      ),
+  );
+  const computeDigest = requireString(ambiguous.body?.computeDigest, "computeDigest");
+  const queryExplanation = requireString(ambiguous.body?.explanationJcs, "explanationJcs");
+  record(
+    "identifier_query_binds_server_budget_compute_and_policy_explanation",
+    ambiguous.body?.budgetId === "budget.query.default" &&
+      /^[0-9a-f]{64}$/.test(computeDigest) &&
+      queryExplanation.includes('"scannedUnauthorized":false'),
+  );
+  const nyseCandidate = candidates.find(
+    (candidate) => candidate.identifierAssignmentId === fixture.identifierNyse,
+  );
+  const hiddenCandidate = candidates.find(
+    (candidate) => candidate.identifierAssignmentId === fixture.identifierHidden,
+  );
+  record(
+    "typed_links_project_only_authorized_targets",
+    nyseCandidate?.links?.length === 1 &&
+      nyseCandidate.links[0]?.linkType === tradesOnLink &&
+      nyseCandidate.links[0]?.targetObject === fixture.venueNyse &&
+      hiddenCandidate?.links?.length === 0,
+  );
+  const identifierReceipt = requireString(
+    fixture.committedIdentifierNyse.body?.receiptId,
+    "receiptId",
+  );
+  const identifierExplanation = kernel("explain", owner, [
+    "--receipt-id",
+    identifierReceipt,
+  ]);
+  assert.equal(identifierExplanation.status, 0, identifierExplanation.stderr);
+  const identifierExplanationBody = JSON.parse(
+    requireString(identifierExplanation.body?.explanationJcs, "explanationJcs"),
+  ) as {
+    typedArtifact?: {
+      evidenceRef?: string;
+      identifierAssignmentId?: string;
+      kind?: string;
+    };
+  };
+  record(
+    "identifier_commit_derives_evidence_release_and_policy_explanation",
+    identifierExplanationBody.typedArtifact?.kind === "identifierAssignment" &&
+      identifierExplanationBody.typedArtifact.identifierAssignmentId === fixture.identifierNyse &&
+      /^evidence\.[0-9a-f]{64}$/.test(
+        identifierExplanationBody.typedArtifact.evidenceRef ?? "",
+      ),
+  );
+  const afterHiddenExpiry = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "250",
+  ]);
+  record(
+    "identifier_query_applies_half_open_valid_intervals",
+    afterHiddenExpiry.status === 0 &&
+      afterHiddenExpiry.body?.authorizedCount === 1 &&
+      ((afterHiddenExpiry.body?.candidates ?? []) as Array<{ identifierAssignmentId?: string }>)[0]
+        ?.identifierAssignmentId === fixture.identifierNyse,
+  );
+  const firstPage = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "100",
+    "--limit",
+    "1",
+  ]);
+  assert.equal(firstPage.status, 0, firstPage.stderr);
+  const cursor = requireString(firstPage.body?.nextCursor, "nextCursor");
+  const secondPage = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "100",
+    "--limit",
+    "1",
+    "--cursor",
+    cursor,
+  ]);
+  record(
+    "identifier_candidates_page_with_a_sealed_cursor",
+    cursor !== "" &&
+      secondPage.status === 0 &&
+      ((secondPage.body?.candidates ?? []) as unknown[]).length === 1,
+  );
+  const mismatchedCursor = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--currency",
+    "EUR",
+    "--valid-at-micros",
+    "100",
+    "--limit",
+    "1",
+    "--cursor",
+    cursor,
+  ]);
+  record(
+    "sealed_cursor_rejects_changed_identifier_context",
+    mismatchedCursor.status !== 0 && mismatchedCursor.stderr.toLowerCase().includes("cursor"),
+  );
+  const unauthorizedQuery = kernel("query", builder, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "100",
+  ]);
+  record(
+    "identifier_query_denies_before_candidate_scan",
+    unauthorizedQuery.status !== 0 &&
+      unauthorizedQuery.stderr.toLowerCase().includes("denied") &&
+      !unauthorizedQuery.stderr.includes("IBM"),
+  );
+}
+
+function proveTypedLinkVisibilityRecovery(fixture: TypedArtifactFixture): void {
+  const venueHiddenRecoveryType = "type-assignment.venue.hidden.recovery";
+  commitDraft(
+    "proposal.type.venue.hidden.recovery",
+    typeAssignmentDraft({
+      assignmentId: venueHiddenRecoveryType,
+      entity: fixture.venueHidden,
+      objectType: venueType,
+    }),
+  );
+  commitDraft(
+    "proposal.link.ibm.hidden.recovery",
+    typedLinkDraft({
+      assertionId: "link-assertion.ibm.hidden.recovery",
+      sourceEntity: fixture.listingHidden,
+      sourceAssignment: fixture.listingHiddenType,
+      targetEntity: fixture.venueHidden,
+      targetAssignment: venueHiddenRecoveryType,
+    }),
+  );
+  const recoveredTarget = kernel("query", human, [
+    "--world",
+    world,
+    "--identifier",
+    "IBM",
+    "--valid-at-micros",
+    "100",
+  ]);
+  const recoveredHidden = (
+    (recoveredTarget.body?.candidates ?? []) as Array<{
+      identifierAssignmentId?: string;
+      links?: Array<{ targetObject?: string }>;
+    }>
+  ).find((candidate) => candidate.identifierAssignmentId === fixture.identifierHidden);
+  record(
+    "new_governed_target_assignment_recovers_link_visibility",
+    recoveredTarget.status === 0 &&
+      recoveredHidden?.links?.length === 1 &&
+      recoveredHidden.links[0]?.targetObject === fixture.venueHidden,
+  );
+}
+
+async function proveTypedArtifactNegativeCases(fixture: TypedArtifactFixture): Promise<void> {
+  const crossWorldLinkProposal = "proposal.link.invalid.world";
+  const crossWorldLinkDraft = typedLinkDraft({
+    assertionId: "link-assertion.invalid.world",
+    sourceEntity: fixture.listingNyse,
+    sourceAssignment: fixture.listingNyseType,
+    targetEntity: fixture.venueNyse,
+    targetAssignment: fixture.venueNyseType,
+  });
+  const crossWorldLinkAssertion = crossWorldLinkDraft.linkAssertion as Record<string, unknown>;
+  crossWorldLinkAssertion.target = { world: "world.other", entity: fixture.venueNyse };
+  assert.equal(propose(builder, crossWorldLinkProposal, crossWorldLinkDraft).status, 0);
+  assert.equal(decide(owner, crossWorldLinkProposal).status, 0);
+  record(
+    "typed_link_rejects_cross_world_endpoints",
+    commit(owner, crossWorldLinkProposal).status !== 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_kernel_receipts WHERE proposal_id = $1",
+        [crossWorldLinkProposal],
+      )) === 0,
+  );
+
+  const crossWorldIdentifierProposal = "proposal.identifier.invalid.world";
+  const crossWorldIdentifierDraft = identifierAssignmentDraft({
+    assignmentId: "identifier-assignment.invalid.world",
+    entity: fixture.listingNyse,
+    typeAssignment: fixture.listingNyseType,
+    venueEntity: fixture.venueNyse,
+  });
+  const crossWorldIdentifier = crossWorldIdentifierDraft.identifierAssignment as Record<
+    string,
+    unknown
+  >;
+  (crossWorldIdentifier.context as Record<string, unknown>).venue = {
+    world: "world.other",
+    entity: fixture.venueNyse,
+  };
+  assert.equal(
+    propose(builder, crossWorldIdentifierProposal, crossWorldIdentifierDraft).status,
+    0,
+  );
+  assert.equal(decide(owner, crossWorldIdentifierProposal).status, 0);
+  record(
+    "identifier_context_rejects_cross_world_venue",
+    commit(owner, crossWorldIdentifierProposal).status !== 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_kernel_receipts WHERE proposal_id = $1",
+        [crossWorldIdentifierProposal],
+      )) === 0,
+  );
+
+  const invalidLinkProposal = "proposal.link.invalid.interval";
+  assert.equal(
+    propose(
+      builder,
+      invalidLinkProposal,
+      typedLinkDraft({
+        assertionId: "link-assertion.invalid.interval",
+        sourceEntity: fixture.listingNyse,
+        sourceAssignment: fixture.listingExpiringType,
+        targetEntity: fixture.venueNyse,
+        targetAssignment: fixture.venueNyseType,
+        validEndMicros: 300,
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(decide(owner, invalidLinkProposal).status, 0);
+  const invalidLink = commit(owner, invalidLinkProposal);
+  record(
+    "typed_link_requires_endpoint_assignments_covering_complete_interval",
+    invalidLink.status !== 0 && invalidLink.stderr.toLowerCase().includes("interval"),
+  );
+  record(
+    "rejected_typed_link_leaves_no_receipt_or_link",
+    (await scalarCount(
+      "SELECT COUNT(*)::text AS count FROM world_kernel_receipts WHERE proposal_id = $1",
+      [invalidLinkProposal],
+    )) === 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_link_assertions WHERE link_assertion_id = $1",
+        ["link-assertion.invalid.interval"],
+      )) === 0,
+  );
+  const emptyContextProposal = "proposal.identifier.invalid.context";
+  assert.equal(
+    propose(
+      builder,
+      emptyContextProposal,
+      identifierAssignmentDraft({
+        assignmentId: "identifier-assignment.invalid.context",
+        entity: fixture.listingNyse,
+        typeAssignment: fixture.listingNyseType,
+      }),
+    ).status,
+    0,
+  );
+  assert.equal(decide(owner, emptyContextProposal).status, 0);
+  record(
+    "identifier_assignment_requires_explicit_context",
+    commit(owner, emptyContextProposal).status !== 0,
+  );
+
+  const identifierReplay = commit(owner, "proposal.identifier.ibm.xnys");
+  const linkReplay = commit(owner, "proposal.link.ibm.xnys");
+  record(
+    "identifier_and_link_commit_replay_remains_exactly_once",
+    identifierReplay.status === 0 &&
+      linkReplay.status === 0 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_identifier_assignments WHERE identifier_assignment_id = $1",
+        [fixture.identifierNyse],
+      )) === 1 &&
+      (await scalarCount(
+        "SELECT COUNT(*)::text AS count FROM world_link_assertions WHERE link_assertion_id = $1",
+        [fixture.linkNyse],
+      )) === 1,
+  );
+}
+
 async function main(): Promise<void> {
   const startedAt = new Date().toISOString();
   const sourceCommit = gitHead(repositoryRoot);
@@ -441,7 +989,7 @@ async function main(): Promise<void> {
   await seedMemberships();
   const published = publish(contentPath);
   assert.equal(published.status, 0, published.stderr);
-  activateRelease(String(release.digest));
+  activateRelease(requireString(release.digest, "release digest"));
 
   const discovered = kernel("discover", builder, ["--world", world]);
   assert.equal(discovered.status, 0, discovered.stderr);
@@ -475,7 +1023,7 @@ async function main(): Promise<void> {
 
   const committed = commit(owner, proposalId);
   assert.equal(committed.status, 0, committed.stderr);
-  const receiptId = String(committed.body?.receiptId ?? "");
+  const receiptId = requireString(committed.body?.receiptId, "receiptId");
   record("commit_returns_receipt", receiptId === `receipt.kernel.${proposalId}`);
   record(
     "receipt_object_assignment_and_grant_materialize_together",
@@ -501,8 +1049,10 @@ async function main(): Promise<void> {
 
   const explained = kernel("explain", owner, ["--receipt-id", receiptId]);
   assert.equal(explained.status, 0, explained.stderr);
-  const explanation = JSON.parse(String(explained.body?.explanationJcs)) as {
-    typeAssignment?: {
+  const explanation = JSON.parse(
+    requireString(explained.body?.explanationJcs, "explanationJcs"),
+  ) as {
+    typedArtifact?: {
       assignmentId?: string;
       evidenceRef?: string;
       objectKey?: { world?: string; entity?: string };
@@ -510,10 +1060,10 @@ async function main(): Promise<void> {
   };
   record(
     "commit_derives_attributed_evidence_reference",
-    explanation.typeAssignment?.assignmentId === assignmentId &&
-      /^evidence\.[0-9a-f]{64}$/.test(explanation.typeAssignment.evidenceRef ?? "") &&
-      explanation.typeAssignment.objectKey?.world === world &&
-      explanation.typeAssignment.objectKey.entity === entity,
+    explanation.typedArtifact?.assignmentId === assignmentId &&
+      /^evidence\.[0-9a-f]{64}$/.test(explanation.typedArtifact.evidenceRef ?? "") &&
+      explanation.typedArtifact.objectKey?.world === world &&
+      explanation.typedArtifact.objectKey.entity === entity,
   );
 
   const replay = commit(owner, proposalId);
@@ -530,6 +1080,14 @@ async function main(): Promise<void> {
         [assignmentId],
       )) === 1,
   );
+
+  const typedArtifacts = admitTypedArtifacts();
+
+  proveTypedArtifactQueries(typedArtifacts);
+
+  proveTypedLinkVisibilityRecovery(typedArtifacts);
+
+  await proveTypedArtifactNegativeCases(typedArtifacts);
 
   const recoveryProposal = "proposal.membership.recovery";
   const recoveryEntity = "memory.recovery";
@@ -734,33 +1292,38 @@ async function main(): Promise<void> {
     assertions,
     dimensions: {
       actors:
-        "builder proposes a TypeAssignment draft; owner decides and commits through durable Membership/Cedar authority; human Membership is referenced by the committed grant",
-      path: "published seven-verb CLI Propose → Decide → Commit → Explain; Commit atomically materializes ObjectKey, TypeAssignment, receipt linkage, and exact grants",
+        "builder proposes typed drafts; owner decides and commits through durable Membership/Cedar authority; clinic human queries only objects and link targets granted to its exact Membership",
+      path: "published seven-verb CLI Propose → Decide → Commit admits ObjectKey, TypeAssignment, typed Link, and contextual IdentifierAssignment; Query resolves all permitted candidates with sealed cursor and server budget",
       negative:
-        "principal/Membership mismatch, revoked Commit Membership, cross-World ObjectKey, mismatched grant type, mapper-minted evidence, Membership terminology, malformed JSON field types, and immutable assignment collision fail closed",
+        "principal/Membership mismatch, revoked Commit Membership, unauthorized query, hidden link target, changed cursor context, cross-World ObjectKey, insufficient endpoint interval, empty identifier context, mapper-minted evidence, malformed fields, and immutable collisions fail closed",
       replay:
-        "Commit replay returns the same receipt and verifies one exact immutable TypeAssignment/grant materialization",
+        "Commit replay returns the same receipt and verifies exact immutable TypeAssignment, IdentifierAssignment, Link, and grant materialization",
       isolation:
-        "World is part of every ObjectKey and composite TypeAssignment/grant foreign key; a cross-World draft creates no receipt or object state",
+        "World is part of every ObjectKey and composite TypeAssignment, Link, IdentifierAssignment, venue, and grant foreign key; invalid drafts create no receipt or semantic state",
       recovery:
         "a Commit denied while the owner Membership is revoked leaves no materialization; an authorized replacement Membership commits that same proposal exactly once",
     },
     finishedAt: new Date().toISOString(),
     interfacesProven: ["cli"],
-    journeySlices: ["ObjectKey/TypeAssignment governed Commit persistence"],
+    journeySlices: [
+      "ObjectKey/TypeAssignment governed Commit persistence",
+      "typed Link and contextual IdentifierAssignment governed Commit persistence",
+      "authorize-before-scan identifier candidates with sealed cursor and target-authorized links",
+    ],
     journeys: [],
     remainingJourneyProof: [
       "J2:Eve memory path",
       "J4:published Query with sealed cursor, budget, compute, and explain",
       "Connect transport",
       "MCP transport",
-      "FIN-01:W2-09 IdentifierAssignment plus W8-04 production-shaped proof",
+      "FIN-01:production-shaped IBM pack and W8-04 positive/denial/recovery gate",
+      "FIN-04:KnowledgeBasis/ObjectView and two SEC knowledge cuts",
     ],
     scope:
-      "W2-08 Postgres and CLI Commit slice only; no surface label, identifier resolver, or parallel typed verb is treated as journey proof",
+      "W2-08 plus W2-09 CLI/Postgres substrate: governed Commit admits typed links and contextual identifiers; Query returns authorized typed candidates and target-authorized links. Full J4, FIN-01, and FIN-04 remain NOT_EVALUATED pending ObjectView, KnowledgeBasis, surface parity, and production-shaped IBM/SEC artifacts.",
     sourceCommit,
     startedAt,
-    unit: "W2-08",
+    unit: "W2-08/W2-09-substrate",
   });
   const passed = Object.values(assertions).filter(Boolean).length;
   const total = Object.keys(assertions).length;
