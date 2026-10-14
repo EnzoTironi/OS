@@ -25,14 +25,14 @@ RUN cargo build --locked --release --package zoend \
       target/release/zoen-http-connector \
       target/release/zoen-projection
 
-FROM node:22.18.0-bookworm-slim AS auth
+FROM node:26.11.1-bookworm-slim AS auth
 WORKDIR /auth
 COPY apps/auth/package.json apps/auth/package-lock.json ./
 RUN npm ci
 COPY apps/auth/src ./src
 COPY apps/auth/tsconfig.json ./
 
-FROM node:22.18.0-bookworm-slim AS personal-lake
+FROM node:26.11.1-bookworm-slim AS personal-lake
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 COPY gen/connect gen/connect
@@ -42,7 +42,7 @@ COPY deploy/fly/ensure-personal-lake.ts deploy/fly/ensure-personal-lake.ts
 RUN npm ci --ignore-scripts \
     && node /app/node_modules/typescript/bin/tsc -p deploy/fly/tsconfig.personal-lake.json --pretty false
 
-FROM node:24.20.0-bookworm-slim AS conversation
+FROM node:26.11.1-bookworm-slim AS conversation
 WORKDIR /conversation
 COPY apps/conversation/package.json apps/conversation/package-lock.json ./
 RUN npm ci
